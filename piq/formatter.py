@@ -8,6 +8,7 @@ from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from html import escape
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -21,6 +22,7 @@ from piq.config import (
     PALETTE,
     TIMEZONE,
     TOPIC_PALETTE,
+    VOICE_RUBRIC_MAX,
     WEAK_THRESHOLD,
 )
 from piq.schemas import (
@@ -54,6 +56,22 @@ STATUS = {
     "error": ("error", "red"),
     "info": ("info", "blue"),
 }
+
+
+# An organization's readiness tiers (piq/org_insights.py) as status badges: state and words.
+TIER_BADGE = {
+    "Ready": ("done", "Ready"),
+    "In Progress": ("info", "In progress"),
+    "At Risk": ("warning", "At risk"),
+}
+
+
+def org_badge_md(org_name: str, main_domain: str | None, subdomain: str | None) -> str:
+    """Which organization a student belongs to and where it placed them, for the sidebar and
+    the progress card: 'Org name', then 'Commerce / Taxation & Audit'. Escaped."""
+    where = " / ".join(x for x in (main_domain, subdomain) if x)
+    place = f"  \n:gray[{md_escape(where)}]" if where else ""
+    return f":material/apartment: **{md_escape(org_name)}**{place}"
 
 
 def status_md(state: str, text: str) -> str:
@@ -101,19 +119,30 @@ def _bullets(items: Iterable[str], empty: str = "_none_") -> str:
 # --- profile (Onboard) ----------------------------------------------------------------
 
 
-def usn_taken_md(usn: str, name: str, role: str) -> str:
-    """Why onboarding stops for a confirmation: the USN is someone else's."""
-    return (
-        f"{md_escape(usn)} already belongs to {md_escape(name)} ({md_escape(role)}). "
-        "Analysing this resume replaces their profile, and their name, with this one."
-    )
+def welcome_back_md(snap: Any) -> str:
+    """Where a returning student left off (a journey.Snapshot), in one line."""
+    parts = []
+    if snap.scan:
+        parts.append(f"last resume scan {snap.scan.match_percentage:.0f}% match")
+    if snap.roadmap_week:
+        parts.append(
+            f"week {snap.roadmap_week} roadmap, {snap.tasks_done} of {snap.tasks_total} tasks done"
+        )
+    if snap.last_quiz:
+        score, total = snap.last_quiz
+        parts.append(f"{snap.quizzes} critic quiz(zes), last {score}/{total}")
+    if snap.last_voice is not None:
+        parts.append(
+            f"{snap.voice_sessions} voice session(s), last {snap.last_voice}/{VOICE_RUBRIC_MAX}"
+        )
+    return "Welcome back. Where you left off: " + "; ".join(parts) + "."
 
 
-def delete_warning_md(usn: str, name: str) -> str:
-    """What deleting a student costs, in plain words, before it happens."""
+def delete_warning_md(username: str, name: str) -> str:
+    """What deleting an account costs, in plain words, before it happens."""
     return (
-        f"This deletes **{md_escape(name)}** ({md_escape(usn)}) with every profile, plan, quiz "
-        "and interview. It cannot be undone."
+        f"This deletes the account **{md_escape(name)}** (@{md_escape(username)}) with every "
+        "profile, plan, quiz and interview. It cannot be undone."
     )
 
 
@@ -1042,8 +1071,13 @@ def syllabus_line(domain_name: str, role: str) -> str:
     return f":gray[:material/school: {md_escape(domain_name)} · {md_escape(role)}]"
 
 
-def locked_md(domain_name: str, since: str) -> str:
-    """Why the domain cannot change, and since when."""
+def locked_md(domain_name: str, since: str, by: str | None = None) -> str:
+    """Why the domain cannot change, and since when (`by`: the organization that set it)."""
+    if by:
+        return (
+            f":material/lock: Your domain is **{md_escape(domain_name)}**, set by "
+            f"{md_escape(by)}. You can still change role within it."
+        )
     return (
         f":material/lock: Your domain is locked to **{md_escape(domain_name)}** since your "
         f"first saved resume ({local_day(since)}): your plans, quizzes and progress are built on "

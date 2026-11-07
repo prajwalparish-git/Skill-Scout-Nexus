@@ -13,7 +13,6 @@ CLAUDE.md
 .gemini/
 .claude/
 deploy/
-bootstrap.py
 # made by bootstrap.py on each machine
 /run.sh
 /run.ps1
@@ -36,6 +35,7 @@ htmlcov/
 data/.ai_cache.json
 data/.audio_cache/
 data/.preload_cache/
+data/.mail_outbox.log
 data/*.db
 
 # --- Evaluation output (regenerate with: python -m evaluation.run_eval) ---------------------------

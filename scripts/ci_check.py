@@ -82,13 +82,13 @@ def pages() -> None:
     print("Pages (headless, mock mode)")
     from streamlit.testing.v1 import AppTest
 
-    from piq import db, services
+    from piq import db, orgs, services
     from scripts import seed
     from scripts.screenshots import PAGES, STUDENT_ONLY
 
     db.init_db()
     seed.main()
-    demo = next(s["id"] for s in services.list_students() if s["usn"] == seed.USN)
+    demo = next(s["id"] for s in services.list_students() if s["username"] == seed.USERNAME)
     for student in (None, demo):
         for page in PAGES:
             if student is None and page.slug in STUDENT_ONLY:
@@ -101,6 +101,17 @@ def pages() -> None:
             errors = [str(e.value)[:200] for e in at.exception]
             label = f"{page.title} ({'demo student' if student else 'no student'})"
             check(not errors, label + (f": {errors[0]}" if errors else ""))
+
+    # The organization admin portal, signed in to the fictional demo organization.
+    org_id = orgs.demo_admin()
+    for path in ("views/org_admin.py", "views/faculty.py"):  # the old address redirects
+        at = AppTest.from_file(str(ROOT / "app.py"), default_timeout=90)
+        at.session_state["admin_org_id"] = org_id
+        at.switch_page(path)
+        at.run()
+        errors = [str(e.value)[:200] for e in at.exception]
+        ok = not errors and any("Overview" in t.label for t in at.tabs)
+        check(ok, f"{path} (demo organization admin)" + (f": {errors[0]}" if errors else ""))
 
 
 def main() -> int:

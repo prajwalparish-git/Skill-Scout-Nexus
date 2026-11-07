@@ -1,18 +1,19 @@
-"""Seed a demo student with 4 weeks of history so adaptive re-planning can be shown instantly.
+"""Seed the demo account with 4 weeks of history so adaptive re-planning can be shown instantly.
 
     python -m scripts.seed
 
-Idempotent: deletes and recreates the demo student. Makes no LLM calls.
-All data is fictional.
+Idempotent: deletes and recreates the demo account (username DEMO_USERNAME, no password: it is
+entered only with "Continue with demo account"). Makes no LLM calls. All data is fictional.
 """
 
 from datetime import UTC, datetime, timedelta
 
 from piq import agents, checks, db, mock
-from piq.config import TOPICS
+from piq.config import DEMO_USERNAME, TOPICS
 from piq.schemas import AnswerEvaluation, Question, QuizSet, StudentProfile, WeeklyPlan
 
-USN = "DEMO0001"
+USERNAME = DEMO_USERNAME
+NAME = "Demo Student"
 ROLE = "Java Backend Developer"
 # Quiz score per topic in weeks 1..4: OS and DBMS start weak and improve.
 TRAJECTORY = {
@@ -76,11 +77,12 @@ def _quiz(topic: str, week: int) -> QuizSet:
 
 def main() -> None:
     db.init_db()
-    db.delete_student(USN)
+    if old := db.student_by_username(USERNAME):
+        db.delete_student(old["id"])
     required = list(agents.roles()[ROLE])
     matched = ["Java", "Object-Oriented Programming", "SQL", "Git", "Spring Boot"]
     profile = StudentProfile(
-        name="Demo Student",
+        name=NAME,
         education="B.E. (fictional demo record)",
         skills=[*matched, "HTML"],
         projects=["Library Management System — Spring Boot REST API with MySQL"],
@@ -92,7 +94,8 @@ def main() -> None:
         readiness_score=checks.readiness_score(agents.roles()[ROLE], matched),
     )
     start = datetime.now(UTC) - timedelta(days=28)  # UTC, like SQLite CURRENT_TIMESTAMP
-    sid = db.save_profile(USN, profile, at=_ts(start))
+    sid = db.create_student(NAME, USERNAME, ROLE, at=_ts(start))
+    db.save_profile(sid, profile, at=_ts(start))
 
     for week in range(1, 5):
         week_start = start + timedelta(days=7 * (week - 1))
@@ -127,7 +130,7 @@ def main() -> None:
             db.save_turn(sid, session, kind, q, a, ev, at=_ts(at + timedelta(minutes=5 * i)))
 
     print(
-        f"Seeded {USN} ({ROLE}) with 4 weeks of plans, 24 quizzes, "
+        f"Seeded @{USERNAME} ({ROLE}) with 4 weeks of plans, 24 quizzes, "
         f"{sum(len(t) for *_, t in INTERVIEWS)} interview turns. Next plan = week 5."
     )
 

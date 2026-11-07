@@ -13,6 +13,7 @@ from sqlalchemy import (
     JSON,
     CheckConstraint,
     DateTime,
+    Engine,
     Float,
     ForeignKey,
     Index,
@@ -22,6 +23,9 @@ from sqlalchemy import (
     Text,
     TypeDecorator,
     UniqueConstraint,
+    func,
+    inspect,
+    text,
 )
 from sqlalchemy.engine import Dialect
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -60,17 +64,48 @@ def _student_fk() -> Mapped[int]:
     return mapped_column(Integer, ForeignKey("student_profiles.id", ondelete="CASCADE"), index=True)
 
 
+class Organization(Base):
+    """An organization's public profile (a university, a college, a corporate L&D team). The
+    admin's password hash, verification state and lockout counters are sign-in state: they stay
+    in piq's own file and never reach this table or the cloud copy. Matched across machines by
+    `org_code`."""
+
+    __tablename__ = "organizations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    org_code: Mapped[str] = mapped_column(String(30), unique=True)  # DBIT-BLR-2027
+    name: Mapped[str] = mapped_column(String(200))
+    org_type: Mapped[str] = mapped_column(String(40))
+    official_domain: Mapped[str | None] = mapped_column(String(120))
+    admin_name: Mapped[str] = mapped_column(String(120))
+    admin_email: Mapped[str] = mapped_column(String(254))
+    contact_phone: Mapped[str | None] = mapped_column(String(30))
+    location: Mapped[str | None] = mapped_column(String(120))
+    academic_batch: Mapped[str | None] = mapped_column(String(20))
+    quiz_cutoff_pct: Mapped[int] = mapped_column(Integer, default=70)
+    voice_cutoff_score: Mapped[int] = mapped_column(Integer, default=10)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
+
+
 class StudentProfile(Base):
     __tablename__ = "student_profiles"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    usn: Mapped[str] = mapped_column(String(20), unique=True)  # upper-cased, as piq stores it
+    username: Mapped[str] = mapped_column(String(20), unique=True)  # lower-cased, as piq keeps it
     name: Mapped[str] = mapped_column(String(120))
     email: Mapped[str | None] = mapped_column(String(254))
     stream: Mapped[str] = mapped_column(String(40), index=True)  # Engineering, Commerce, ...
     department: Mapped[str | None] = mapped_column(String(120))
     target_role: Mapped[str] = mapped_column(String(160))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
+    # Organization columns (added later: ADDED_COLUMNS migrates an older database in place).
+    # org_id is NULL for an individual learner.
+    org_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("organizations.id", ondelete="SET NULL"), index=True
+    )
+    main_domain: Mapped[str | None] = mapped_column(String(40))  # Engineering, Commerce, ...
+    subdomain: Mapped[str | None] = mapped_column(String(120))  # Computer Science, ...
+    account_status: Mapped[str] = mapped_column(String(12), default="active")
 
 
 class ResumeAnalysis(Base):
@@ -186,6 +221,7 @@ class SyncReceipt(Base):
 
 # Which model each outbox entity names, and which tables each side holds.
 ENTITIES: dict[str, type[Base]] = {
+    "organization": Organization,  # first: a student's organization arrives before the student
     "student": StudentProfile,
     "resume": ResumeAnalysis,
     "plan": StudyPlan,
@@ -195,3 +231,53 @@ ENTITIES: dict[str, type[Base]] = {
 DATA_TABLES: list[Table] = [m.__table__ for m in ENTITIES.values()]  # type: ignore[misc]
 LOCAL_TABLES: list[Table] = [*DATA_TABLES, SyncOutbox.__table__, SyncMeta.__table__]  # type: ignore[list-item]
 CLOUD_TABLES: list[Table] = [*DATA_TABLES, SyncReceipt.__table__]  # type: ignore[list-item]
+
+
+def migrate_identity(engine: Engine) -> bool:
+    """A telemetry database from before accounts (SQLite or PostgreSQL): its student_profiles.usn
+    becomes the lower-cased username, in place, keeping its unique constraint and every row.
+    True when it migrated; a no-op on an up-to-date or empty database. Runs before create_all,
+    which never alters an existing table. The DDL names fixed identifiers only."""
+    inspector = inspect(engine)
+    if "student_profiles" not in inspector.get_table_names():
+        return False
+    cols = {c["name"] for c in inspector.get_columns("student_profiles")}
+    if "usn" not in cols or "username" in cols:
+        return False
+    table = StudentProfile.__table__
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE student_profiles RENAME COLUMN usn TO username"))
+        conn.execute(table.update().values(username=func.lower(table.c.username)))
+    return True
+
+
+# Columns added to a table that may already exist. create_all never alters a table, so
+# migrate_columns adds each missing one (nullable or defaulted: every row is kept).
+ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("student_profiles", "org_id", "INTEGER REFERENCES organizations (id) ON DELETE SET NULL"),
+    ("student_profiles", "main_domain", "VARCHAR(40)"),
+    ("student_profiles", "subdomain", "VARCHAR(120)"),
+    ("student_profiles", "account_status", "VARCHAR(12) NOT NULL DEFAULT 'active'"),
+)
+ADDED_INDEXES = (("ix_student_profiles_org_id", "student_profiles", "org_id"),)
+
+
+def migrate_columns(engine: Engine) -> list[str]:
+    """Add the columns an older database lacks (ADDED_COLUMNS) and their indexes, in place, on
+    SQLite or PostgreSQL. Returns "table.column" for each one added; a no-op when up to date.
+    Runs after create_all (the organizations table must exist for the foreign key). The DDL
+    names fixed identifiers only."""
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    added: list[str] = []
+    with engine.begin() as conn:
+        for table, column, ddl in ADDED_COLUMNS:
+            if table not in tables:
+                continue
+            if column not in {c["name"] for c in inspector.get_columns(table)}:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
+                added.append(f"{table}.{column}")
+        for name, table, column in ADDED_INDEXES:
+            if table in tables:
+                conn.execute(text(f"CREATE INDEX IF NOT EXISTS {name} ON {table} ({column})"))
+    return added

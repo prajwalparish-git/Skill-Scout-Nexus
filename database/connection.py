@@ -14,7 +14,7 @@ transaction pooler cannot keep.
 
 Write-through. Each write also adds a row to the local sync outbox in the same transaction,
 then wakes the background worker (a ThreadPoolExecutor with SYNC_WORKERS threads), which
-pushes pending records to the cloud oldest first. Students are matched by USN, plans by
+pushes pending records to the cloud oldest first. Students are matched by username, plans by
 (student, week), and each attempt, analysis and session carries a receipt
 "<device>:<entity>:<local id>" in the cloud, so records from many machines never collide and a
 retry never duplicates. While the cloud is unreachable, records simply wait: the worker backs
@@ -47,11 +47,14 @@ from database.models import (
     ENTITIES,
     LOCAL_TABLES,
     Base,
+    Organization,
     StudentProfile,
     StudyPlan,
     SyncMeta,
     SyncOutbox,
     SyncReceipt,
+    migrate_columns,
+    migrate_identity,
     utc_now,
 )
 from piq.config import (
@@ -59,7 +62,8 @@ from piq.config import (
     CLOUD_POOL_SIZE,
     CLOUD_POOL_TIMEOUT_S,
     DB_CONNECT_TIMEOUT,
-    DEMO_USN_PREFIX,
+    DEMO_COHORT_PREFIX,
+    DEMO_ORG_PREFIX,
     SQLITE_BUSY_TIMEOUT_MS,
     SYNC_BATCH,
     SYNC_KEEP_DAYS,
@@ -73,7 +77,9 @@ from piq.config import (
 log = logging.getLogger("database")
 POSTGRES, SQLITE = "postgresql", "sqlite"
 LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
-MUTABLE = frozenset({"student", "plan"})  # updated in place: one pending outbox row is enough
+MUTABLE = frozenset(
+    {"organization", "student", "plan"}
+)  # updated in place: one pending outbox row is enough
 
 _local_only: contextvars.ContextVar[bool] = contextvars.ContextVar("local_only", default=False)
 
@@ -197,7 +203,9 @@ class DatabaseManager:
         with self._lock:
             if self._local is None:
                 engine = create_local_engine(self.sqlite_path)
+                migrate_identity(engine)  # a file from before accounts: usn -> username
                 Base.metadata.create_all(engine, tables=LOCAL_TABLES)
+                migrate_columns(engine)  # a file from before organizations: new columns in place
                 self._local = engine
                 self._queue_existing()
             return self._local
@@ -221,7 +229,9 @@ class DatabaseManager:
                     raise CloudUnavailable(str(e)) from e
             engine = self._cloud
         if not self._cloud_ready:
+            migrate_identity(engine)  # the first machine with accounts migrates the cloud copy
             Base.metadata.create_all(engine, tables=CLOUD_TABLES)
+            migrate_columns(engine)  # ...and the first with organizations adds their columns
             self._cloud_ready = True
         return engine
 
@@ -277,11 +287,21 @@ class DatabaseManager:
         with Session(self._local, expire_on_commit=False) as s, s.begin():  # type: ignore[arg-type]
             if s.get(SyncMeta, "queued_existing"):
                 return
-            demo = select(StudentProfile.id).where(StudentProfile.usn.like(f"{DEMO_USN_PREFIX}%"))
+            demo = select(StudentProfile.id).where(
+                StudentProfile.username.like(f"{DEMO_COHORT_PREFIX}%")
+            )
+            demo_orgs = select(Organization.id).where(
+                Organization.org_code.like(f"{DEMO_ORG_PREFIX}%")
+            )
             already = {(o.entity, o.local_id) for o in s.scalars(select(SyncOutbox))}
             for entity, model in ENTITIES.items():
-                column = model.id if entity == "student" else model.student_id  # type: ignore[attr-defined]
-                for rid in s.scalars(select(model.id).where(column.not_in(demo))):  # type: ignore[attr-defined]
+                if entity == "organization":
+                    column, skip = model.id, demo_orgs  # type: ignore[attr-defined]
+                elif entity == "student":
+                    column, skip = model.id, demo  # type: ignore[attr-defined]
+                else:
+                    column, skip = model.student_id, demo  # type: ignore[attr-defined]
+                for rid in s.scalars(select(model.id).where(column.not_in(skip))):  # type: ignore[attr-defined]
                     if (entity, rid) not in already:
                         s.add(SyncOutbox(entity=entity, local_id=rid))
             s.add(SyncMeta(key="queued_existing", value=utc_now().isoformat()))
@@ -524,15 +544,34 @@ def _columns(model: type, skip: tuple[str, ...] = ("id",)) -> list[str]:
     return [c.key for c in model.__table__.columns if c.key not in skip]  # type: ignore[attr-defined]
 
 
-def _cloud_student(cs: Session, student: StudentProfile) -> StudentProfile:
-    """The cloud row for this USN, created or brought up to date (its id there is its own)."""
-    row = cs.scalar(select(StudentProfile).where(StudentProfile.usn == student.usn))
+def _cloud_org(cs: Session, org: Organization) -> Organization:
+    """The cloud row for this organization code, created or brought up to date (its id there
+    is its own)."""
+    row = cs.scalar(select(Organization).where(Organization.org_code == org.org_code))
     if row is None:
-        row = StudentProfile(**{c: getattr(student, c) for c in _columns(StudentProfile)})
+        row = Organization(**{c: getattr(org, c) for c in _columns(Organization)})
         cs.add(row)
     else:
-        for c in _columns(StudentProfile, ("id", "created_at")):
-            setattr(row, c, getattr(student, c))
+        for c in _columns(Organization, ("id", "created_at")):
+            setattr(row, c, getattr(org, c))
+    cs.flush()
+    return row
+
+
+def _cloud_student(cs: Session, student: StudentProfile, ls: Session) -> StudentProfile:
+    """The cloud row for this username, created or brought up to date (its id there is its
+    own, and so is its organization's: `ls` is the local session that knows the local one)."""
+    values = {c: getattr(student, c) for c in _columns(StudentProfile)}
+    org = ls.get(Organization, student.org_id) if student.org_id is not None else None
+    values["org_id"] = _cloud_org(cs, org).id if org is not None else None
+    row = cs.scalar(select(StudentProfile).where(StudentProfile.username == student.username))
+    if row is None:
+        row = StudentProfile(**values)
+        cs.add(row)
+    else:
+        for c, v in values.items():
+            if c != "created_at":
+                setattr(row, c, v)
     cs.flush()
     return row
 
@@ -542,13 +581,16 @@ def _push(ls: Session, cs: Session, item: SyncOutbox, device: str) -> None:
     row = ls.get(model, item.local_id)
     if row is None:
         return  # deleted locally since (a student removed): nothing left to send
+    if item.entity == "organization":
+        _cloud_org(cs, row)  # type: ignore[arg-type]
+        return
     if item.entity == "student":
-        _cloud_student(cs, row)  # type: ignore[arg-type]
+        _cloud_student(cs, row, ls)  # type: ignore[arg-type]
         return
     student = ls.get(StudentProfile, row.student_id)  # type: ignore[attr-defined]
     if student is None:
         return
-    cloud_sid = _cloud_student(cs, student).id
+    cloud_sid = _cloud_student(cs, student, ls).id
     if item.entity == "plan":
         plan = cs.scalar(
             select(StudyPlan).where(

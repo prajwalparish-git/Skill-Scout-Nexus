@@ -64,7 +64,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
               <option value="">Guest (nothing saved)</option>
               {students.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.usn} · {s.name}
+                  @{s.username} · {s.name}
                 </option>
               ))}
             </select>

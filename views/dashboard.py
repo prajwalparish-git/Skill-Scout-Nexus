@@ -3,7 +3,7 @@ interview scores), then how the agents and the critic behave, kept apart."""
 
 import streamlit as st
 
-from piq import charts, formatter, services
+from piq import charts, formatter, services, ui
 from piq.ui import Stat, empty_state, page_header, require_profile, stat_row
 
 
@@ -215,6 +215,7 @@ except services.ServiceError as e:
     st.stop()
 
 streak = d.streak
+ui.org_progress_card(sid)  # an organization's student: their stage against its pass marks
 _kpis(d, streak)
 _syllabus(d)
 _topic_mastery(d)

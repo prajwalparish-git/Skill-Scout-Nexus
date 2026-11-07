@@ -20,13 +20,21 @@ from sqlalchemy.orm import Session
 
 from database.connection import DatabaseManager, SyncStatus, get_manager
 from database.models import (
+    Organization,
     QuizAttempt,
     ResumeAnalysis,
     StudentProfile,
     StudyPlan,
     VoiceInterviewSession,
 )
-from piq.config import EMAIL_RE, USN_RE, VOICE_CRITERION_MAX, VOICE_RUBRIC_MAX
+from piq.config import (
+    ACCOUNT_STATUSES,
+    EMAIL_RE,
+    ORG_CODE_RE,
+    USERNAME_RE,
+    VOICE_CRITERION_MAX,
+    VOICE_RUBRIC_MAX,
+)
 
 
 @dataclass(frozen=True)
@@ -93,11 +101,11 @@ def _in_range(value: float, low: float, high: float, what: str) -> float:
     return value
 
 
-def normalise_usn(usn: str | None) -> str:
-    usn = (usn or "").strip().upper()
-    if not USN_RE.match(usn):
-        raise ValueError("USN is required: 4-20 letters/digits, no spaces.")
-    return usn
+def normalise_username(username: str | None) -> str:
+    username = (username or "").strip().lower()
+    if not USERNAME_RE.match(username):
+        raise ValueError("A username is 3-20 lower-case letters, digits, dots, - or _.")
+    return username
 
 
 def _student(session: Session, student_id: int) -> StudentProfile:
@@ -117,20 +125,85 @@ def _insert[M](session: Session, model: type[M], values: Mapping[str, Any]) -> M
     return row
 
 
+# --- organizations --------------------------------------------------------------------------
+def save_organization(
+    org_code: str,
+    name: str,
+    org_type: str,
+    admin_name: str,
+    admin_email: str,
+    *,
+    official_domain: str | None = None,
+    contact_phone: str | None = None,
+    location: str | None = None,
+    academic_batch: str | None = None,
+    quiz_cutoff_pct: int = 70,
+    voice_cutoff_score: int = 10,
+    db: DatabaseManager | None = None,
+) -> Organization:
+    """Create the organization, or update the one with this code (id and created_at stay).
+    Its admin's password is not telemetry and is never passed here."""
+    code = (org_code or "").strip().upper()
+    if not ORG_CODE_RE.match(code):
+        raise ValueError("An organization code is 3-30 capital letters, digits or hyphens.")
+    values = {
+        "org_code": code,
+        "name": _text(name, "Organization name", 200),
+        "org_type": _text(org_type, "Organization type", 40),
+        "admin_name": _text(admin_name, "Admin name", 120),
+        "admin_email": _text(admin_email, "Admin email", 254).lower(),
+        "official_domain": _optional(official_domain, "Official domain", 120),
+        "contact_phone": _optional(contact_phone, "Contact phone", 30),
+        "location": _optional(location, "Location", 120),
+        "academic_batch": _optional(academic_batch, "Academic batch", 20),
+        "quiz_cutoff_pct": int(_in_range(int(quiz_cutoff_pct), 0, 100, "Quiz cutoff")),
+        "voice_cutoff_score": int(
+            _in_range(int(voice_cutoff_score), 0, VOICE_RUBRIC_MAX, "Voice cutoff")
+        ),
+    }
+    if not EMAIL_RE.match(values["admin_email"]):
+        raise ValueError("Admin email does not look like an address.")
+
+    def work(s: Session) -> Organization:
+        org = s.scalar(select(Organization).where(Organization.org_code == code))
+        if org is None:
+            org = Organization(**values)
+            s.add(org)
+        else:
+            for k, v in values.items():
+                setattr(org, k, v)
+        s.flush()
+        return org
+
+    return _db(db).write(work, "organization")
+
+
+def get_organization(org_code: str, db: DatabaseManager | None = None) -> Organization | None:
+    key = (org_code or "").strip().upper()
+    return _db(db).run(lambda s: s.scalar(select(Organization).where(Organization.org_code == key)))
+
+
 # --- students -------------------------------------------------------------------------------
 def save_student(
-    usn: str,
+    username: str,
     name: str,
     stream: str,
     target_role: str,
     *,
     email: str | None = None,
     department: str | None = None,
+    org_code: str | None = None,
+    main_domain: str | None = None,
+    subdomain: str | None = None,
+    account_status: str | None = None,
     db: DatabaseManager | None = None,
 ) -> StudentProfile:
-    """Create the student, or update the one with this USN (its id and created_at stay)."""
+    """Create the student, or update the one with this username (id and created_at stay).
+    The organization fields are set only when given: leaving them out never moves a student
+    out of their organization. An unknown `org_code` is an error (save the organization
+    first)."""
     values = {
-        "usn": normalise_usn(usn),
+        "username": normalise_username(username),
         "name": _text(name, "Name", 120),
         "stream": _text(stream, "Stream", 40),
         "target_role": _text(target_role, "Target role", 160),
@@ -139,14 +212,33 @@ def save_student(
     }
     if values["email"] and not EMAIL_RE.match(values["email"]):
         raise ValueError("Email does not look like an address.")
+    extra: dict[str, Any] = {}
+    if main_domain is not None:
+        extra["main_domain"] = _optional(main_domain, "Main domain", 40)
+    if subdomain is not None:
+        extra["subdomain"] = _optional(subdomain, "Subdomain", 120)
+    if account_status is not None:
+        if account_status not in ACCOUNT_STATUSES:
+            raise ValueError(f"Account status must be one of {', '.join(ACCOUNT_STATUSES)}.")
+        extra["account_status"] = account_status
 
     def work(s: Session) -> StudentProfile:
-        student = s.scalar(select(StudentProfile).where(StudentProfile.usn == values["usn"]))
+        changes = dict(extra)
+        if org_code is not None:
+            org = s.scalar(
+                select(Organization).where(Organization.org_code == org_code.strip().upper())
+            )
+            if org is None:
+                raise ValueError(f"No telemetry organization with code {org_code!r}.")
+            changes["org_id"] = org.id
+        student = s.scalar(
+            select(StudentProfile).where(StudentProfile.username == values["username"])
+        )
         if student is None:
-            student = StudentProfile(**values)
+            student = StudentProfile(**values, **changes)
             s.add(student)
         else:
-            for k, v in values.items():
+            for k, v in (values | changes).items():
                 setattr(student, k, v)
         s.flush()
         return student
@@ -154,9 +246,11 @@ def save_student(
     return _db(db).write(work, "student")
 
 
-def get_student(usn: str, db: DatabaseManager | None = None) -> StudentProfile | None:
-    key = normalise_usn(usn)
-    return _db(db).run(lambda s: s.scalar(select(StudentProfile).where(StudentProfile.usn == key)))
+def get_student(username: str, db: DatabaseManager | None = None) -> StudentProfile | None:
+    key = normalise_username(username)
+    return _db(db).run(
+        lambda s: s.scalar(select(StudentProfile).where(StudentProfile.username == key))
+    )
 
 
 # --- resume analyses ------------------------------------------------------------------------
@@ -335,13 +429,13 @@ def voice_sessions(
 
 
 # --- a student's history, and analytics -----------------------------------------------------
-def student_session(usn: str, db: DatabaseManager | None = None) -> StudentSession | None:
+def student_session(username: str, db: DatabaseManager | None = None) -> StudentSession | None:
     """The student's profile, latest resume analysis, plans, quiz attempts and interviews, read
-    in one transaction (so from one backend), or None for an unknown USN."""
-    key = normalise_usn(usn)
+    in one transaction (so from one backend), or None for an unknown username."""
+    key = normalise_username(username)
 
     def work(s: Session) -> StudentSession | None:
-        profile = s.scalar(select(StudentProfile).where(StudentProfile.usn == key))
+        profile = s.scalar(select(StudentProfile).where(StudentProfile.username == key))
         if profile is None:
             return None
         sid = profile.id
@@ -391,35 +485,65 @@ class Cohort:
 
 
 def cohort(
-    db: DatabaseManager | None = None, source: Literal["local", "cloud"] = "local"
+    db: DatabaseManager | None = None,
+    source: Literal["local", "cloud"] = "local",
+    org_code: str | None = None,
 ) -> Cohort:
-    """All students and their records, read in one transaction. Students by USN; attempts and
+    """All students and their records, read in one transaction. Students by username; attempts and
     sessions oldest first. `source="cloud"`: from the cloud copy, so every machine's records
-    (raises CloudUnavailable or a SQLAlchemy error when it cannot be read)."""
+    (raises CloudUnavailable or a SQLAlchemy error when it cannot be read).
+
+    `org_code`: only that organization's students and their records (an unknown code gives an
+    empty cohort). This is the one place an organization's data is cut out of everyone else's:
+    every table is filtered by the organization's student ids, in SQL."""
+    key = org_code.strip().upper() if org_code is not None else None
 
     def work(s: Session) -> Cohort:
-        latest = (
-            select(func.max(ResumeAnalysis.id))
-            .group_by(ResumeAnalysis.student_id)
-            .scalar_subquery()
-        )
+        ids = None
+        if key is not None:
+            org = s.scalar(select(Organization).where(Organization.org_code == key))
+            if org is None:
+                return Cohort([], {}, [], [], [])
+            ids = select(StudentProfile.id).where(StudentProfile.org_id == org.id)
+
+        def scoped(stmt, column):  # type: ignore[no-untyped-def]
+            return stmt if ids is None else stmt.where(column.in_(ids))
+
+        latest = scoped(
+            select(func.max(ResumeAnalysis.id)).group_by(ResumeAnalysis.student_id),
+            ResumeAnalysis.student_id,
+        ).scalar_subquery()
         return Cohort(
-            students=list(s.scalars(select(StudentProfile).order_by(StudentProfile.usn))),
+            students=list(
+                s.scalars(
+                    scoped(select(StudentProfile), StudentProfile.id).order_by(
+                        StudentProfile.username
+                    )
+                )
+            ),
             latest_resumes={
                 r.student_id: r
                 for r in s.scalars(select(ResumeAnalysis).where(ResumeAnalysis.id.in_(latest)))
             },
             plans=list(
-                s.scalars(select(StudyPlan).order_by(StudyPlan.student_id, StudyPlan.week_number))
+                s.scalars(
+                    scoped(select(StudyPlan), StudyPlan.student_id).order_by(
+                        StudyPlan.student_id, StudyPlan.week_number
+                    )
+                )
             ),
             quiz_attempts=list(
-                s.scalars(select(QuizAttempt).order_by(QuizAttempt.timestamp, QuizAttempt.id))
+                s.scalars(
+                    scoped(select(QuizAttempt), QuizAttempt.student_id).order_by(
+                        QuizAttempt.timestamp, QuizAttempt.id
+                    )
+                )
             ),
             interviews=list(
                 s.scalars(
-                    select(VoiceInterviewSession).order_by(
-                        VoiceInterviewSession.timestamp, VoiceInterviewSession.id
-                    )
+                    scoped(
+                        select(VoiceInterviewSession), VoiceInterviewSession.student_id
+                    ).order_by(VoiceInterviewSession.timestamp, VoiceInterviewSession.id)
                 )
             ),
         )

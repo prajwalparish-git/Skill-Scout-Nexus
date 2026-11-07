@@ -56,8 +56,28 @@ with st.container(border=True):
             st.error(formatter.md_escape(str(e)), icon=":material/error:")
 
 scan: journey.Scan | None = st.session_state.get(SCAN)
-if scan is None:
-    st.caption("No scan yet. Pick the role, add a resume and press Scan resume.")
+if scan is None:  # a new session (reload, or back after signing out): the last saved scan
+    saved = journey.saved_scan(sid)
+    if saved is None:
+        st.caption("No scan yet. Pick the role, add a resume and press Scan resume.")
+        st.stop()
+    st.subheader(f"Your last saved scan: {saved.match_percentage:.0f}% match", anchor=False)
+    found, missing = st.columns(2, gap="medium")
+    with found, st.container(border=True, height="stretch"):
+        st.markdown("**:material/check_circle: Found in the resume**")
+        st.markdown(
+            "\n".join(f"- {formatter.md_escape(s)}" for s in saved.matched) or ":gray[None.]"
+        )
+    with missing, st.container(border=True, height="stretch"):
+        st.markdown("**:material/cancel: Missing: your skill gaps**")
+        st.markdown(
+            "\n".join(f"- {formatter.md_escape(s)}" for s in saved.missing) or ":gray[None.]"
+        )
+    if saved.missing and st.button(
+        "Build a 7-day roadmap for these gaps", icon=":material/route:", key="saved_roadmap"
+    ):
+        st.session_state["roadmap_gaps"] = list(saved.missing)
+        st.switch_page("views/roadmap.py")
     st.stop()
 
 a = scan.analysis

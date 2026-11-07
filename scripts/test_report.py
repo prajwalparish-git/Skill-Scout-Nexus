@@ -32,6 +32,10 @@ LAYERS = {
     "test_load_balancer": ("Unit", "Layer 3 speed: key pool round robin, 429 failover, cache"),
     "test_offline": ("Unit", "Layer 3 offline tier: answers from data/"),
     "test_preloader": ("Integration", "Layer 3 preloading: concurrent tasks, served once, on disk"),
+    "test_auth_and_continuity": (
+        "Integration",
+        "Accounts: PBKDF2, 9-digit codes, lockout, mail, sessions, continuity, uploads",
+    ),
     "test_graph": ("Unit", "LangGraph critic loop"),
     "test_resume": ("Unit", "Resume parsing"),
     "test_formatter": ("Unit", "Output layer"),

@@ -58,6 +58,12 @@ weeks = [p.week for p in plans]
 week = st.segmented_control("Week", weeks, default=weeks[-1], format_func=lambda w: f"Week {w}")
 current = next(p for p in plans if p.week == (week or weeks[-1]))
 plan = current.plan
+if plan.is_provisional:
+    st.info(
+        "A starter plan while your personalised one is written. It is swapped in on your next "
+        "visit, as long as no task is ticked yet.",
+        icon=":material/hourglass_top:",
+    )
 if current is unsaved:
     st.warning(
         "This roadmap could not be saved, so ticked tasks are not kept. It is still yours to use.",

@@ -31,7 +31,7 @@ ALL = "All streams"
 # plain objects. This module never imports SQLAlchemy.
 class _Student(Protocol):
     id: int
-    usn: str
+    username: str
     name: str
     stream: str
     department: str | None
@@ -84,7 +84,7 @@ class Snapshot(Protocol):
 class StudentRow:
     """One line of the placement readiness report."""
 
-    usn: str
+    username: str
     name: str
     stream: str
     department: str
@@ -102,6 +102,11 @@ class StudentRow:
     last_active: datetime | None
     readiness: float | None
     band: str
+    # An organization's student: where the admin placed them (blank for an individual learner).
+    email: str = ""
+    main_domain: str = ""
+    subdomain: str = ""
+    account_status: str = "active"
 
 
 @dataclass(frozen=True)
@@ -175,7 +180,7 @@ def student_rows(c: Snapshot) -> list[StudentRow]:
         stamps = [q.timestamp for q in qs] + [v.timestamp for v in vs]
         rows.append(
             StudentRow(
-                usn=s.usn,
+                username=s.username,
                 name=s.name,
                 stream=s.stream,
                 department=s.department or "",
@@ -193,6 +198,10 @@ def student_rows(c: Snapshot) -> list[StudentRow]:
                 last_active=max(stamps, default=None),
                 readiness=score,
                 band=band(score),
+                email=getattr(s, "email", None) or "",
+                main_domain=getattr(s, "main_domain", None) or "",
+                subdomain=getattr(s, "subdomain", None) or "",
+                account_status=getattr(s, "account_status", None) or "active",
             )
         )
     return rows
@@ -276,7 +285,7 @@ def weekly_quiz_trend(c: Snapshot, stream: str = ALL) -> list[tuple[date, float,
 
 
 REPORT_COLUMNS = (
-    ("USN", lambda r: r.usn),
+    ("Username", lambda r: r.username),
     ("Name", lambda r: r.name),
     ("Stream", lambda r: r.stream),
     ("Department", lambda r: r.department),

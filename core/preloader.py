@@ -276,6 +276,22 @@ class BackgroundPreloader:
         self._count("hits" if finished else "waits")
         return cast(T, task.future.result())
 
+    def take_ready(self, task_key: str) -> object | None:
+        """A finished result, used up by this call; None while it is still running, failed, or
+        when there is none. Never waits (the provisional-roadmap upgrade polls with it)."""
+        with self._lock:
+            task = self._tasks.get(task_key)
+            if task is None:
+                stored = self._read_disk(task_key)
+                if stored is not None:
+                    self._unlink(task_key)
+                return stored
+            if not task.future.done():
+                return None
+            del self._tasks[task_key]
+            self._unlink(task_key)
+        return None if _failed(task.future) else task.future.result()
+
     def peek(self, task_key: str) -> object | None:
         """A finished result without using it up (None: missing, running or failed)."""
         with self._lock:

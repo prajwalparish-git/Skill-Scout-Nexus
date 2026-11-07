@@ -1,13 +1,104 @@
 -- Rule: agent outputs that are always read whole are stored as JSON;
 -- anything filtered, aggregated or charted gets its own column.
 
+-- An organization (a university, college or corporate L&D team): its main admin signs in with
+-- admin_email and admin_password_hash (core/auth.py), then manages the students it provisions.
+-- Sign-in state (the hash, the verified flag, the lockout counters) stays in this local file
+-- only: the telemetry copy of an organization (database/models.py) never carries it.
+CREATE TABLE IF NOT EXISTS organizations (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    org_code            TEXT NOT NULL UNIQUE,
+    name                TEXT NOT NULL,
+    org_type            TEXT NOT NULL,
+    official_domain     TEXT NOT NULL DEFAULT '',
+    admin_name          TEXT NOT NULL,
+    admin_email         TEXT NOT NULL UNIQUE,
+    admin_password_hash TEXT NOT NULL,
+    contact_phone       TEXT NOT NULL DEFAULT '',
+    location            TEXT NOT NULL DEFAULT '',
+    academic_batch      TEXT NOT NULL DEFAULT '',
+    quiz_cutoff_pct     INTEGER NOT NULL DEFAULT 70,
+    voice_cutoff_score  INTEGER NOT NULL DEFAULT 10,
+    admin_verified      INTEGER NOT NULL DEFAULT 0,
+    admin_failures      INTEGER NOT NULL DEFAULT 0,
+    admin_locked_until  REAL NOT NULL DEFAULT 0,
+    created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- A student is an account: a unique lower-case username (also the key telemetry syncs by) and
+-- a unique email (NULL only for the demo account and accounts made before sign-up existed).
+-- org_id is NULL for an individual learner and the organization's id for a student it manages;
+-- then main_domain / subdomain (Engineering / Computer Science) are what its admin assigned.
+-- piq/db.py migrates a database from before accounts or organizations in place on start.
 CREATE TABLE IF NOT EXISTS students (
-    id              TEXT PRIMARY KEY,
-    name            TEXT NOT NULL,
-    usn             TEXT NOT NULL UNIQUE,
-    target_role     TEXT NOT NULL,
-    readiness_score INTEGER,
-    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    id                   TEXT PRIMARY KEY,
+    name                 TEXT NOT NULL,
+    username             TEXT NOT NULL UNIQUE,
+    email                TEXT,
+    target_role          TEXT NOT NULL,
+    readiness_score      INTEGER,
+    created_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    org_id               INTEGER REFERENCES organizations(id),
+    main_domain          TEXT,
+    subdomain            TEXT,
+    account_status       TEXT NOT NULL DEFAULT 'active'
+                         CHECK (account_status IN ('active', 'invited', 'suspended')),
+    must_change_password INTEGER NOT NULL DEFAULT 0,
+    phone                TEXT,
+    batch_year           TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_students_email ON students (email);
+CREATE INDEX IF NOT EXISTS idx_students_org ON students (org_id);
+
+-- Sign-in state stays in this local file only: it is never synced to the cloud copy.
+-- A password as core/auth.py stores it, and the lockout counter (core/auth.Lockout).
+CREATE TABLE IF NOT EXISTS credentials (
+    student_id    TEXT PRIMARY KEY REFERENCES students(id) ON DELETE CASCADE,
+    password_hash TEXT NOT NULL,
+    failures      INTEGER NOT NULL DEFAULT 0,
+    locked_until  REAL NOT NULL DEFAULT 0,
+    updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- The 9-digit email code waiting to be typed, one per purpose: only its salted hash.
+CREATE TABLE IF NOT EXISTS auth_codes (
+    student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    purpose    TEXT NOT NULL CHECK (purpose IN ('login', 'recover')),
+    code_hash  TEXT NOT NULL,
+    salt       TEXT NOT NULL,
+    expires_at REAL NOT NULL,
+    attempts   INTEGER NOT NULL DEFAULT 0,
+    sent_at    REAL NOT NULL,
+    PRIMARY KEY (student_id, purpose)
+);
+
+-- "Stay signed in": the SHA-256 of the browser cookie's token, never the token itself.
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash TEXT PRIMARY KEY,
+    student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    expires_at REAL NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_student ON sessions (student_id);
+
+-- The same two for an organization's admin: the code that proves the admin's email when the
+-- organization is created, and "stay signed in" (hashes only, as above).
+CREATE TABLE IF NOT EXISTS admin_codes (
+    org_id     INTEGER PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
+    code_hash  TEXT NOT NULL,
+    salt       TEXT NOT NULL,
+    expires_at REAL NOT NULL,
+    attempts   INTEGER NOT NULL DEFAULT 0,
+    sent_at    REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS admin_sessions (
+    token_hash TEXT PRIMARY KEY,
+    org_id     INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    expires_at REAL NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS profiles (

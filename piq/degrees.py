@@ -62,6 +62,12 @@ def levels() -> tuple[str, ...]:
     return tuple(_data()["levels"])
 
 
+def stream_degrees(stream: str) -> tuple[str, ...]:
+    """The degree codes a stream's students typically study for ("Commerce": B.Com, M.Com); empty
+    for a stream data/degrees.json does not list."""
+    return tuple(_data().get("streams", {}).get(stream, {}).get("degrees", ()))
+
+
 def degree(code: str) -> Degree | None:
     return next((d for d in degrees() if d.code == code), None)
 

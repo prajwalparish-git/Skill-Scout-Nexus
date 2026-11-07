@@ -743,3 +743,149 @@ def cohort_trend_spec(weeks: Sequence[tuple[str, float, int]]) -> dict:
 @lru_cache(maxsize=64)
 def _cohort_trend_json(weeks: tuple[tuple[str, float, int], ...]) -> str:
     return json.dumps(to_spec(cohort_trend(weeks)))
+
+
+# --- organization portal: funnel, tiers, topics and the skill-gap heatmap ------------------------
+# Same rules as the cohort charts above: brand teal marks (a stage, a tier or a skill is not a
+# topic), values in the labels, a tooltip on every mark, hover dims the rest.
+
+
+def funnel_bars(stages: Sequence[tuple[str, int, float, float]]) -> alt.Chart:
+    """The readiness funnel, widest first. `stages`: (label, students, share of enrolled, share
+    of the stage before), in journey order."""
+    df = pd.DataFrame(stages, columns=["stage", "students", "of_enrolled", "of_previous"])
+    df["label"] = [f"{s}  {n}" for s, n in zip(df["stage"], df["students"], strict=True)]
+    return _label_bars(
+        df,
+        value="students",
+        top=max(1, int(df["students"].max()) if len(df) else 1),
+        fmt="d",
+        tooltip=[
+            alt.Tooltip("stage:N", title="Stage"),
+            alt.Tooltip("students:Q", title="Students"),
+            alt.Tooltip("of_enrolled:Q", title="Of all enrolled", format=".0%"),
+            alt.Tooltip("of_previous:Q", title="Of the stage before", format=".0%"),
+        ],
+    )
+
+
+def tier_bars(tiers: Sequence[tuple[str, int]]) -> alt.Chart:
+    """How many students are in each readiness tier (Ready, In Progress, At Risk)."""
+    df = pd.DataFrame(tiers, columns=["tier", "students"])
+    total = max(1, int(df["students"].sum()) if len(df) else 1)
+    df["label"] = [f"{t}  {n}" for t, n in zip(df["tier"], df["students"], strict=True)]
+    df["share"] = df["students"] / total
+    return _label_bars(
+        df,
+        value="students",
+        top=total,
+        fmt="d",
+        tooltip=[
+            alt.Tooltip("tier:N", title="Tier"),
+            alt.Tooltip("students:Q", title="Students"),
+            alt.Tooltip("share:Q", title="Share of the batch", format=".0%"),
+        ],
+    )
+
+
+def percent_bars(items: Sequence[tuple[str, float]], noun: str = "Score") -> alt.Chart:
+    """Scores out of 100 per name (one student's average per topic), lowest first so the
+    weakest topic leads."""
+    df = pd.DataFrame(items, columns=["name", "percent"])
+    df["label"] = [f"{n}  {p:.0f}%" for n, p in zip(df["name"], df["percent"], strict=True)]
+    return _label_bars(
+        df,
+        value="percent",
+        top=100,
+        fmt="d",
+        tooltip=[
+            alt.Tooltip("name:N", title="Topic"),
+            alt.Tooltip("percent:Q", title=f"{noun} (%)", format=".1f"),
+        ],
+    )
+
+
+HEAT_LOW = "#DCE9E9"  # the faint end of the heatmap ramp; dark text reads on it in either scheme
+
+
+def gap_heatmap(cells: Sequence[tuple[str, str, int, int]]) -> alt.LayerChart:
+    """Skills (rows, most missing first) by group (columns): each cell's tint is the share of the
+    group's scanned students missing the skill, and its number is how many. `cells`: (skill,
+    group, students missing, students scanned in the group)."""
+    df = pd.DataFrame(cells, columns=["skill", "group", "missing", "scanned"])
+    df["share"] = df["missing"] / df["scanned"].clip(lower=1)
+    skills = list(dict.fromkeys(df["skill"]))
+    groups = sorted(set(df["group"]))
+    base = alt.Chart(df).encode(
+        x=alt.X("group:N", sort=groups, title=None, axis=alt.Axis(labelAngle=0, labelLimit=140)),
+        y=alt.Y("skill:N", sort=skills, title=None, axis=alt.Axis(labelLimit=0, labelPadding=8)),
+    )
+    rect = base.mark_rect(cornerRadius=3, stroke=None).encode(
+        color=alt.Color(
+            "share:Q",
+            scale=alt.Scale(domain=[0, 1], range=[HEAT_LOW, BRAND_COLOR], clamp=True),
+            legend=alt.Legend(title="Share missing", format=".0%", orient="bottom"),
+        ),
+        tooltip=[
+            alt.Tooltip("skill:N", title="Skill"),
+            alt.Tooltip("group:N", title="Group"),
+            alt.Tooltip("missing:Q", title="Students missing it"),
+            alt.Tooltip("scanned:Q", title="Students scanned"),
+            alt.Tooltip("share:Q", title="Share missing", format=".0%"),
+        ],
+    )
+    text = base.mark_text(fontSize=12, fontWeight="bold").encode(
+        text=alt.Text("missing:Q", format="d"),
+        color=alt.condition(alt.datum.share > 0.55, alt.value("#FFFFFF"), alt.value("#1A2326")),
+    )
+    return themed(alt.layer(rect, text).properties(height=ROW_PX * max(1, len(skills)) + 70))
+
+
+def funnel_spec(stages: Sequence[tuple[str, int, float, float]]) -> dict:
+    return json.loads(_funnel_json(tuple(stages)))
+
+
+@lru_cache(maxsize=64)
+def _funnel_json(stages: tuple[tuple[str, int, float, float], ...]) -> str:
+    return json.dumps(to_spec(funnel_bars(stages)))
+
+
+def tier_spec(tiers: Sequence[tuple[str, int]]) -> dict:
+    return json.loads(_tier_json(tuple(tiers)))
+
+
+@lru_cache(maxsize=64)
+def _tier_json(tiers: tuple[tuple[str, int], ...]) -> str:
+    return json.dumps(to_spec(tier_bars(tiers)))
+
+
+def percent_bars_spec(items: Sequence[tuple[str, float]], noun: str = "Score") -> dict:
+    return json.loads(_percent_bars_json(tuple(items), noun))
+
+
+@lru_cache(maxsize=64)
+def _percent_bars_json(items: tuple[tuple[str, float], ...], noun: str) -> str:
+    return json.dumps(to_spec(percent_bars(items, noun)))
+
+
+def gap_heatmap_spec(cells: Sequence[tuple[str, str, int, int]]) -> dict:
+    return json.loads(_gap_heatmap_json(tuple(cells)))
+
+
+@lru_cache(maxsize=64)
+def _gap_heatmap_json(cells: tuple[tuple[str, str, int, int], ...]) -> str:
+    return json.dumps(to_spec(gap_heatmap(cells)))
+
+
+def quiz_trend(percents: Sequence[float], labels: Sequence[str]) -> alt.LayerChart:
+    """One student's quiz scores (%) in order, one point per attempt."""
+    return _trend(percents, labels, top=100, noun="Attempt", title="Quiz score (%)", fmt="d")
+
+
+def quiz_trend_spec(percents: Sequence[float], labels: Sequence[str]) -> dict:
+    return json.loads(_quiz_trend_json(tuple(percents), tuple(labels)))
+
+
+@lru_cache(maxsize=64)
+def _quiz_trend_json(percents: tuple[float, ...], labels: tuple[str, ...]) -> str:
+    return json.dumps(to_spec(quiz_trend(percents, labels)))

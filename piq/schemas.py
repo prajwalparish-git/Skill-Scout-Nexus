@@ -9,6 +9,17 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from piq.config import (
+    BATCH_RE,
+    DOMAIN_RE,
+    EMAIL_RE,
+    ORG_CODE_RE,
+    ORG_QUIZ_CUTOFF_DEFAULT,
+    ORG_VOICE_CUTOFF_DEFAULT,
+    PHONE_RE,
+    VOICE_RUBRIC_MAX,
+)
+
 # A syllabus topic of the student's domain (piq/syllabus.py). Which names are allowed depends
 # on the student, so checks.check_plan and checks.check_quiz enforce it, not the schema.
 Topic = Annotated[str, Field(min_length=1, max_length=60)]
@@ -131,3 +142,107 @@ class BaselineOutput(BaseModel):
 
     plan: WeeklyPlan
     quiz: QuizSet
+
+
+# --- organizations ----------------------------------------------------------------------------
+
+OrgType = Literal["University", "Autonomous Institute", "Law/Commerce College", "Corporate L&D"]
+
+
+class OrganizationForm(BaseModel):
+    """What an organization's admin types when creating or editing the organization. Every
+    check has a message safe to show; orgs.py turns the first one into a ServiceError."""
+
+    org_code: str
+    name: str = Field(max_length=200)
+    org_type: OrgType
+    official_domain: str = ""
+    admin_name: str = Field(max_length=120)
+    admin_email: str = Field(max_length=254)
+    contact_phone: str = ""
+    location: str = Field(default="", max_length=120)
+    academic_batch: str = ""
+    quiz_cutoff_pct: int = Field(default=ORG_QUIZ_CUTOFF_DEFAULT, ge=0, le=100)
+    voice_cutoff_score: int = Field(default=ORG_VOICE_CUTOFF_DEFAULT, ge=0, le=VOICE_RUBRIC_MAX)
+
+    @field_validator("org_code", mode="before")
+    @classmethod
+    def _code(cls, v: str) -> str:
+        code = str(v or "").strip().upper()
+        if not ORG_CODE_RE.match(code):
+            raise ValueError(
+                "Organization code: 3-30 capital letters, digits or hyphens, such as DBIT-BLR-2027."
+            )
+        return code
+
+    @field_validator("name", "admin_name", mode="before")
+    @classmethod
+    def _required(cls, v: str) -> str:
+        text = " ".join(str(v or "").split())
+        if not text:
+            raise ValueError("Organization name and admin name are required.")
+        return text
+
+    @field_validator("official_domain", mode="before")
+    @classmethod
+    def _domain(cls, v: str) -> str:
+        domain = str(v or "").strip().lower().removeprefix("www.")
+        if domain and not DOMAIN_RE.match(domain):
+            raise ValueError("Official domain looks like dbit.co.in (no http:// and no path).")
+        return domain
+
+    @field_validator("admin_email", mode="before")
+    @classmethod
+    def _email(cls, v: str) -> str:
+        email = str(v or "").strip().lower()
+        if not EMAIL_RE.match(email):
+            raise ValueError("Enter a valid admin email address.")
+        return email
+
+    @field_validator("contact_phone", mode="before")
+    @classmethod
+    def _phone(cls, v: str) -> str:
+        phone = " ".join(str(v or "").split())
+        if phone and not PHONE_RE.match(phone):
+            raise ValueError(
+                "Contact phone: digits, spaces, - and ( ), with an optional leading +."
+            )
+        return phone
+
+    @field_validator("academic_batch", mode="before")
+    @classmethod
+    def _batch(cls, v: str) -> str:
+        batch = str(v or "").strip()
+        if batch and not BATCH_RE.match(batch):
+            raise ValueError("Academic batch looks like 2027 or 2026-2027.")
+        return batch
+
+    @field_validator("location", mode="before")
+    @classmethod
+    def _location(cls, v: str) -> str:
+        return " ".join(str(v or "").split())
+
+
+class Organization(BaseModel):
+    """An organization as the portal shows it (never carries the admin's password hash)."""
+
+    model_config = {"frozen": True}
+
+    id: int
+    org_code: str
+    name: str
+    org_type: str
+    official_domain: str
+    admin_name: str
+    admin_email: str
+    contact_phone: str
+    location: str
+    academic_batch: str
+    quiz_cutoff_pct: int
+    voice_cutoff_score: int
+    created_at: str
+
+    @property
+    def short_name(self) -> str:
+        """The name before a ' - ' or ',' (long names read badly in a sidebar)."""
+        return self.name.split(" - ")[0].split(",")[0].strip() or self.name

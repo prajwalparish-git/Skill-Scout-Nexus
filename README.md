@@ -38,15 +38,16 @@ Skill Scout Nexus is a placement-readiness coach for students across Engineering
 Law, Management, Healthcare and Government roles. A team of AI agents reads a student's
 resume against the role they want, plans what to study, sets quizzes and runs spoken mock
 interviews. A critic agent checks every generated question and plan before the student sees
-it, and quiz results shape the next week's plan. Faculty get a cohort dashboard and a
-placement-readiness report they can export.
+it, and quiz results shape the next week's plan. A university, college or corporate L&D team
+gets an organization admin portal: bulk-create its students from a CSV, follow their progress
+and export placement shortlists.
 
 It runs on a laptop with nothing but Python. With no API keys at all it works in mock mode,
 so every page can be tried offline; add a free Groq or Gemini key for live AI.
 
 ## Features
 
-**The six-step placement journey**
+**The five-step placement journey**
 
 | Step | What the student gets |
 |:---:|---|
@@ -55,7 +56,25 @@ so every page can be tried offline; add a free Groq or Gemini key for live AI.
 | **3. 7-day study roadmap** | A day-by-day plan for the gaps with objectives, free resources and micro-tasks to tick off, saved week by week. |
 | **4. Critic-checked quiz** | Questions on one skill, each checked for sound facts, a single right answer and fair options; a verified question bank fills any gap. |
 | **5. Proctored voice assessment** | A spoken scenario question, a spoken or typed answer, a 0-15 rubric score, and flags for terse, off-topic or buzzword answers. |
-| **6. Faculty dashboard** | Readiness by stream, score distributions, rubric criteria, the most common skill gaps, the weekly trend, and **Export placement readiness report** (CSV). |
+
+**Organizations**
+
+A university, an autonomous institute, a law or commerce college or a corporate L&D team creates
+an organization (the admin confirms their email with a 9-digit code) and opens the **admin
+portal**:
+
+| Tab | What the admin gets |
+|---|---|
+| **Overview** | Enrolled, active, ready and average-score cards; a readiness funnel; students by tier; performance by main domain or subdomain; a skill-gap heatmap; score spreads and the weekly trend; top performers and who needs attention. |
+| **Provisioning** | A CSV template, an upload preview (Ready, Duplicate, Invalid Email ...) with each student's role mapped from their domain, then **Provision accounts and send welcome emails** in one transaction. Every student gets a readable temporary password and a 9-digit code by email; the admin can also download the credentials once. Quick add for a single student. |
+| **Students** | A searchable directory (domain, subdomain, account status, readiness tier) and a 360 profile per student: progress against the pass marks, skills and plan progress, every quiz with its topics, every voice session with its rubric and flags, a PDF progress report, and the actions: resend credentials, change domain or role, suspend or reactivate. |
+| **Settings and drives** | The organization's profile and pass marks (quiz %, voice score); a placement drive shortlist (CSV) and an executive summary (PDF) for recruiters. |
+
+Students of an organization sign in with the email and password they were sent, see their
+organization and assigned domain in the sidebar, start on a profile already built from their
+role's benchmark skills, and are offered a password of their own. An admin only ever sees their
+own organization's students. **Try demo organization admin** on the sign-in page opens a fictional
+organization with two dozen students across the four streams.
 
 **More tools:** an adaptive weekly plan that follows quiz scores, a full quiz with its
 step-by-step critic trail, a chat mock interview, an ATS resume builder with PDF export, a
@@ -72,21 +91,43 @@ project space for computing roles, and a personal dashboard.
 - **Never blocks on the network.** Records are saved to a local SQLite database at once and
   copied to a cloud PostgreSQL (such as Supabase) in the background, catching up after an
   outage.
-- **No key prompts, ever.** Keys are read from `.env`; anything missing is skipped quietly.
+- **Your own account.** Sign in with a username or email, a password (PBKDF2-SHA256, 600,000
+  rounds, salted) and a 9-digit code emailed to you; five wrong tries lock the account for 15
+  minutes. You stay signed in across a browser refresh, and your scan, roadmap, quizzes and
+  voice scores are where you left them.
+- **No key prompts, ever.** Keys are read from `.env`; anything missing is skipped quietly
+  (without email settings, codes go to a local outbox file for testing).
 - **Accessible design.** Light and dark themes, readable on a phone and on a projector,
   self-hosted fonts so it works without internet.
 
 ## Quick start
 
-You need **Python 3.13** and **Git**.
+You need **Git** and any **Python 3.8 or newer** (the setup fetches Python 3.13 if you lack it).
 
 ```bash
 git clone https://github.com/prajwalparish-git/Skill-Scout-Nexus.git
 cd Skill-Scout-Nexus
-python -m venv .venv
+python bootstrap.py
 ```
 
-Activate the environment and install the dependencies:
+`bootstrap.py` creates `.venv`, installs every dependency, makes `.env` from the template and
+writes a launcher (`run.ps1` on Windows, `run.sh` on macOS and Linux). Then start the app:
+
+| Windows (PowerShell) | macOS / Linux |
+|---|---|
+| `.\run.ps1` | `./run.sh` |
+
+Open http://localhost:8501, sign up (or press **Continue with demo account**) and follow the
+journey. With no keys it runs in mock mode, so every page can be tried offline.
+
+<details>
+<summary>Manual setup instead</summary>
+
+You need **Python 3.13**.
+
+```bash
+python -m venv .venv
+```
 
 | Windows (PowerShell) | macOS / Linux |
 |---|---|
@@ -96,13 +137,15 @@ Activate the environment and install the dependencies:
 pip install -r requirements.txt
 ```
 
-Create your settings file from the template:
-
 | Windows | macOS / Linux |
 |---|---|
 | `copy .env.example .env` | `cp .env.example .env` |
 
-That is enough to run the app in mock mode. For live AI, fill in `.env` as below.
+```bash
+streamlit run app.py
+```
+
+</details>
 
 ## Configure .env
 
@@ -124,7 +167,8 @@ GEMINI_API_KEYS=AIza_your_key         # optional second provider, also comma-sep
 | `GEMINI_API_KEYS` | A second cloud AI | Skipped |
 | `OLLAMA_BASE_URL`, `OLLAMA_MODEL` | A local model that works without internet ([ollama.com](https://ollama.com), then `ollama pull llama3.2:3b`) | Skipped |
 | `ELEVENLABS_API_KEY` | A natural voice for interview questions | The browser reads them aloud |
-| `SUPABASE_DB_URL` | A cloud copy of all records, for faculty across several machines | Records stay on this machine |
+| `SUPABASE_DB_URL` | A cloud copy of all records (organizations, students and their results), kept in step in the background | Records stay on this machine |
+| `SMTP_EMAIL`, `SMTP_APP_PASSWORD` | Emails the 9-digit codes and an organization's welcome emails (Gmail with an App Password) | Codes and credentials go to `data/.mail_outbox.log` on this machine |
 
 The model names in `.env.example` are current; every option is explained in that file. Never
 commit `.env`.
@@ -137,14 +181,14 @@ streamlit run app.py
 
 Then open **http://localhost:8501**.
 
-To explore with sample data first:
+Create an account (a 9-digit code confirms your email), or press **Continue with demo account**
+to see a returning student with four weeks of fictional history; it is set up on first use. For
+organizations, press **Try demo organization admin** (also set up on first use), or create your
+own under **Organization admin access**. To rebuild the demo organization:
 
 ```bash
-python -m scripts.seed           # a demo student with four weeks of history
-python -m scripts.seed_cohort    # a fictional cohort for the faculty dashboard
+python -m scripts.seed_cohort --replace    # the fictional demo organization and its students
 ```
-
-Choose **DEMO0001** under **Student** in the sidebar to see a returning student.
 
 <details>
 <summary><b>Optional: the Next.js front end</b></summary>

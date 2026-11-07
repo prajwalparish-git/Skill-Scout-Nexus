@@ -2,7 +2,7 @@
 
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import time
 from functools import lru_cache
 from pathlib import Path
@@ -21,8 +21,27 @@ BRAND_DIR = STATIC_DIR / "brand"  # mark.svg (icon) and wordmark.svg
 TOPICS = ("Aptitude", "DBMS", "OS", "CN", "DSA", "OOP")
 DEFAULT_DOMAIN = "cs"  # the domain of a role the catalog does not list (the original CS roles)
 DEFAULT_SAMPLE = "data_analyst.txt"  # the sample Home's "Try it with a sample resume" opens
-USN_RE = re.compile(r"^[A-Z0-9]{4,20}$")  # a student's USN, upper-cased: 4-20 letters/digits
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+# --- accounts (piq/accounts.py, core/auth.py, core/mailer.py) --------------------------------
+# A username is the student's identity everywhere, cloud sync included: lower-case, 3-20
+# characters, starting with a letter or digit (20 keeps the telemetry column's width).
+USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{2,19}$")
+EMAIL_MAX = 254
+PASSWORD_MIN, PASSWORD_MAX = 8, 128
+AUTH_PBKDF2_ITERATIONS = 600_000  # PBKDF2-HMAC-SHA256, OWASP's 2023 figure
+AUTH_SALT_BYTES = 16
+AUTH_MAX_FAILURES = 5  # wrong passwords or codes in a row before the account locks
+AUTH_LOCK_S = 15 * 60
+AUTH_CODE_TTL_S = 10 * 60  # a 9-digit email code expires after this
+AUTH_CODE_MAX_ATTEMPTS = 5  # wrong tries before a code is void
+AUTH_CODE_RESEND_S = 30  # a new code is sent at most this often
+SESSION_TTL_S = 7 * 24 * 3600  # how long "stay signed in" lasts (the browser cookie too)
+SESSION_COOKIE = "piq_session"
+DEMO_USERNAME = "demo"  # the 1-click demo account (scripts/seed.py); it has no password
+SMTP_HOST, SMTP_PORT = "smtp.gmail.com", 587  # 465 also works (implicit TLS)
+SMTP_TIMEOUT_S = 15
+MAIL_WORKERS = 2
+MAIL_BATCH = 50  # messages sent over one SMTP connection (core/mailer.py send_many)
 # --- telemetry storage (database/): local SQLite always, a cloud PostgreSQL copy in background --
 DB_CONNECT_TIMEOUT = 3  # seconds to wait for the cloud database (Supabase) to connect
 CLOUD_POOL_SIZE = 5  # Supabase transaction pooler (port 6543) or session pooler (5432)
@@ -35,7 +54,24 @@ SYNC_RETRY_S = 15  # first retry after the cloud is unreachable; doubles up to S
 SYNC_RETRY_MAX_S = 300
 SYNC_MAX_ATTEMPTS = 3  # a record the cloud rejects this many times is set aside and reported
 SYNC_KEEP_DAYS = 30  # synced outbox rows are pruned after this many days
-DEMO_USN_PREFIX = "COHORT"  # the demo cohort (scripts/seed_cohort.py) never goes to the cloud
+DEMO_COHORT_PREFIX = "cohort"  # demo cohort usernames (scripts/seed_cohort.py): never synced
+# --- organizations: the admin portal and bulk provisioning (piq/orgs.py, core/org_provisioning.py)
+ORG_TYPES = ("University", "Autonomous Institute", "Law/Commerce College", "Corporate L&D")
+ORG_CODE_RE = re.compile(r"^[A-Z0-9][A-Z0-9-]{2,29}$")  # DBIT-BLR-2027: upper-case, 3-30 characters
+DOMAIN_RE = re.compile(r"^(?=.{4,120}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$")
+BATCH_RE = re.compile(r"^\d{4}(-\d{4})?$")  # 2027 or 2026-2027
+PHONE_RE = re.compile(r"^\+?\d[\d ()-]{6,18}$")
+ORG_QUIZ_CUTOFF_DEFAULT = 70  # percent: an organization's quiz pass mark until its admin sets one
+ORG_VOICE_CUTOFF_DEFAULT = 10  # out of VOICE_RUBRIC_MAX
+ACCOUNT_STATUSES = ("active", "invited", "suspended")
+ORG_WELCOME_CODE_TTL_S = 7 * 24 * 3600  # the 9-digit code in a welcome email works this long
+TEMP_PASSWORD_LEN = 12  # generated passwords (core/org_provisioning.py)
+CSV_MAX_BYTES = 1_000_000  # a student CSV above this is refused
+CSV_MAX_ROWS = 1000
+ACTIVE_WITHIN_DAYS = 14  # a learner with a quiz or voice session this recent counts as active
+DEMO_ORG_CODE = "DEMO-DBIT-2027"  # the 1-click demo organization (scripts/seed_cohort.py)
+DEMO_ORG_NAME = "Don Bosco Institute of Technology - Multi-Stream Placement Cell"
+DEMO_ORG_PREFIX = "DEMO-"  # demo organizations are never synced to the cloud copy
 # --- Layer 3: the AI and speech routers (core/) --------------------------------------
 # Speed first: Groq (fastest cloud), Gemini, a local Ollama; then the offline tier.
 AI_PROVIDER_NAMES = ("groq", "gemini", "ollama")  # every provider core/ai_router.py knows
@@ -136,6 +172,8 @@ DIFFICULTY_DOWN_BELOW = 50  # a score below this suggests the next difficulty do
 TREND_STEP = 10  # points the latest quiz must beat (or miss) the ones before by to count as a trend
 RESUME_MAX_PDF_PAGES = 30  # pages read from a PDF resume; the rest is ignored
 RESUME_MAX_DOCX_UNZIPPED = 25 * 1024 * 1024  # bytes a DOCX may unpack to (zip-bomb guard)
+RESUME_MAX_TEXT_CHARS = 200_000  # text kept from one file: a decompression bomb stops here
+RESUME_MAX_BYTES = 5 * 1024 * 1024  # an upload above this is refused (.streamlit/config.toml too)
 TIMEZONE = "Asia/Kolkata"  # students' local time, for dates shown in the app
 STUDY_TIME = time(19, 0)  # default daily start of an exported plan's calendar events
 RECENT_DAYS = 7  # a topic quizzed within this many days counts as practised; a plan
@@ -222,7 +260,7 @@ class ConfigError(RuntimeError):
 
 @dataclass(frozen=True)
 class Settings:
-    groq_api_key: str  # the first key of the pool (scripts/check_models.py checks it)
+    groq_api_key: str = field(repr=False)  # the pool's first key (scripts/check_models.py)
     model_large: str
     model_small: str
     db_path: Path
@@ -231,14 +269,14 @@ class Settings:
     seed_demo: bool = False  # recreate the demo student on start when the DB is empty
     # GROQ_API_KEYS (comma-separated) plus GROQ_API_KEY and the older GROQ_API_KEY_1/_2: one
     # round-robin pool (core/key_pool.py).
-    groq_api_keys: tuple[str, ...] = ()
+    groq_api_keys: tuple[str, ...] = field(default=(), repr=False)
     # Telemetry layer (database/): PostgreSQL when DATABASE_URL answers, else this SQLite file.
-    database_url: str = ""
+    database_url: str = field(default="", repr=False)
     telemetry_db_path: Path = DATA_DIR / "placement_nexus.db"
     # Layer 3 (core/ai_router.py): providers tried in this order; empty key or URL = skipped.
     ai_providers: tuple[str, ...] = AI_PROVIDER_NAMES
-    gemini_api_key: str = ""  # the first key of the Gemini pool
-    gemini_api_keys: tuple[str, ...] = ()
+    gemini_api_key: str = field(default="", repr=False)  # the first key of the Gemini pool
+    gemini_api_keys: tuple[str, ...] = field(default=(), repr=False)
     gemini_model: str = ""
     ollama_base_url: str = ""
     ollama_model: str = ""
@@ -253,12 +291,20 @@ class Settings:
     # of an error. evaluation/run_eval.py turns it off: offline answers would void its results.
     offline_fallback: bool = True
     # core/speech_router.py: empty key = the browser's own voice (Web Speech API).
-    elevenlabs_api_key: str = ""
+    elevenlabs_api_key: str = field(default="", repr=False)
     elevenlabs_voice_id: str = ""
     elevenlabs_model: str = ""
     # core/preloader.py: false stops speculative generation (saves quota; pages work as before).
     preload: bool = True
     preload_cache_dir: Path = DATA_DIR / ".preload_cache"
+    # core/mailer.py: Gmail SMTP with an App Password; blank = codes go to mail_outbox_path.
+    smtp_email: str = ""
+    smtp_app_password: str = field(default="", repr=False)
+    smtp_host: str = SMTP_HOST
+    smtp_port: int = SMTP_PORT
+    mail_outbox_path: Path = DATA_DIR / ".mail_outbox.log"
+    # core/auth.py: an optional secret mixed into every password hash (never stored in the DB).
+    auth_pepper: str = field(default="", repr=False)
     # app.py shows a friendly message for a crashed page; tests set PIQ_RAISE_ERRORS=1 so
     # AppTest sees the exception instead.
     raise_page_errors: bool = False
@@ -336,6 +382,13 @@ def settings() -> Settings:
         elevenlabs_model=os.getenv("ELEVENLABS_MODEL", "").strip(),
         preload=_flag("PRELOAD", "true"),
         preload_cache_dir=Path(os.getenv("PRELOAD_CACHE_DIR", str(DATA_DIR / ".preload_cache"))),
+        smtp_email=os.getenv("SMTP_EMAIL", "").strip(),
+        # Google shows App Passwords in groups of four ("abcd efgh ijkl mnop"): spaces dropped.
+        smtp_app_password="".join(os.getenv("SMTP_APP_PASSWORD", "").split()),
+        smtp_host=os.getenv("SMTP_HOST", "").strip() or SMTP_HOST,
+        smtp_port=_number("SMTP_PORT", SMTP_PORT),
+        mail_outbox_path=Path(os.getenv("MAIL_OUTBOX_PATH", str(DATA_DIR / ".mail_outbox.log"))),
+        auth_pepper=os.getenv("AUTH_PEPPER", ""),
         raise_page_errors=_flag("PIQ_RAISE_ERRORS", "false"),
     )
     if not s.mock_mode:

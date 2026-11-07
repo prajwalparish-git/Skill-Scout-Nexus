@@ -38,7 +38,6 @@ VIEWPORTS = {1440: 900, 1366: 768, 390: 844}  # width -> height
 SCHEMES = ("light", "dark")
 MAX_BYTES = 250_000
 MAX_SHOT_HEIGHT = 9000  # px; longer pages are cut here
-DEMO_OPTION = "DEMO0001 — Demo Student"  # sidebar option text, see piq.ui.student_selector
 
 
 @dataclass(frozen=True)
@@ -55,7 +54,6 @@ PAGES = (
     AppPage("roadmap", "3. 7-day study roadmap", "views/roadmap.py"),
     AppPage("critic_quiz", "4. Critic-checked quiz", "views/critic_quiz.py"),
     AppPage("voice_interview", "5. Proctored voice assessment", "views/voice_interview.py"),
-    AppPage("faculty", "6. Faculty dashboard", "views/faculty.py"),
     # more tools
     AppPage("home", "Home", "views/home.py"),
     AppPage("resume_builder", "Resume builder", "views/resume_builder.py"),
@@ -66,9 +64,10 @@ PAGES = (
     AppPage("dashboard", "Dashboard", "views/dashboard.py"),
     AppPage("results", "Results", "views/results.py"),
 )
-STATES = ("nostudent", "demo")
+STATES = ("demo",)  # signed in with "Continue with demo account"
 STUDENT_ONLY = {"projects"}  # in the navigation only once a (computing) student is chosen
 FLOWS = (
+    ("onboard", "signedout"),  # the sign-in page
     ("onboard", "error"),
     ("plan", "newweek"),
     ("quiz", "critic"),
@@ -76,33 +75,24 @@ FLOWS = (
     ("quiz", "review"),
     ("interview", "mid"),
     ("interview", "complete"),
+    # the organization admin portal (the demo organization), after signing the student out
+    ("org_admin", "overview"),
+    ("org_admin", "provisioning"),
+    ("org_admin", "students"),
+    ("org_admin", "profile"),
+    ("org_admin", "settings"),
 )
+ADMIN = "org_admin"  # a flow's page slug that is not a student page
 # Text that must be on screen before a state is captured, so a wrong state fails the run
 # instead of being saved. Mostly strings the UI tests also rely on (stable by contract).
 MARKERS = {
-    ("home", "nostudent"): "Start with your resume",
+    ("onboard", "signedout"): "Continue with demo account",
     ("home", "demo"): "Today's focus",
-    ("resume_builder", "nostudent"): "Resume builder",
     ("resume_builder", "demo"): "What to add next",
-    # Without a student the page is not in the navigation, so its URL lands on Home.
-    ("projects", "nostudent"): "Start with your resume",
     ("projects", "demo"): "Project space",
-    ("onboard", "nostudent"): "Analyse resume",
-    ("plan", "nostudent"): "No student selected",
-    ("quiz", "nostudent"): "No student selected",
-    ("interview", "nostudent"): "No student selected",
-    ("voice_interview", "nostudent"): "No student selected",
-    ("scanner", "nostudent"): "No student selected",
-    ("roadmap", "nostudent"): "No student selected",
-    ("critic_quiz", "nostudent"): "No student selected",
-    # The faculty page needs no student; SEED_DEMO gives it the demo cohort.
-    ("faculty", "nostudent"): "Export placement readiness report",
-    ("faculty", "demo"): "Export placement readiness report",
     ("scanner", "demo"): "Scan resume",
     ("roadmap", "demo"): "Skills to cover",
     ("critic_quiz", "demo"): "Generate quiz",
-    ("dashboard", "nostudent"): "No student selected",
-    ("results", "nostudent"): "Baseline",
     ("onboard", "demo"): "Missing for this role",
     ("plan", "demo"): "Generate week 5 plan",
     ("quiz", "demo"): "Generate quiz",
@@ -117,6 +107,11 @@ MARKERS = {
     ("quiz", "review"): "Where the marks went",
     ("interview", "mid"): "You said 'I like coding",
     ("interview", "complete"): "Session complete",
+    ("org_admin", "overview"): "Enrolled students",
+    ("org_admin", "provisioning"): "Download the CSV template",
+    ("org_admin", "students"): "Or find a student by name",
+    ("org_admin", "profile"): "Quiz pass mark",
+    ("org_admin", "settings"): "Placement drive shortlist",
 }
 # Detailed (>= 25 words) and distinct, so the mock moves on instead of probing them.
 INTERVIEW_ANSWERS = (
@@ -156,7 +151,7 @@ def parse_schemes(raw: str) -> list[str]:
 def parse_pages(raw: str) -> set[str]:
     """Page slugs to capture ("" = all); flows follow their page."""
     slugs = {s.strip() for s in raw.split(",") if s.strip()}
-    known = {p.slug for p in PAGES}
+    known = {p.slug for p in PAGES} | {ADMIN}
     if slugs - known:
         raise ValueError(f"pages must be from {sorted(known)}, got {raw!r}")
     return slugs or known
@@ -301,13 +296,6 @@ def _open_sidebar(page: "Page") -> None:
         page.wait_for_timeout(400)
 
 
-def _select_student(page: "Page", option: str) -> None:
-    _open_sidebar(page)
-    page.get_by_test_id("stSidebar").get_by_role("combobox", name="Student").click()
-    page.get_by_role("option", name=option).click()
-    _wait_idle(page)
-
-
 def _goto(page: "Page", title: str) -> None:
     _open_sidebar(page)
     page.get_by_test_id("stSidebarNavLink").filter(has_text=title).first.click()
@@ -365,7 +353,7 @@ def capture_scheme(
     errors: list[str],
     only: set[str] | None = None,
 ) -> list[Path]:
-    only = only or {p.slug for p in PAGES}
+    only = only or {p.slug for p in PAGES} | {ADMIN}
     from playwright.sync_api import sync_playwright
 
     written: list[Path] = []
@@ -388,15 +376,15 @@ def capture_scheme(
         page.goto(url)
         _wait_idle(page, expect_run=False)
 
+        if "onboard" in only:  # signed out, every page is the sign-in page
+            where["step"] = "sign-in page"
+            _capture_widths(page, out, "onboard", "signedout", widths, scheme, written)
+        where["step"] = "continue with the demo account"
+        _click(page, "Continue with demo account")
         for state in STATES:
-            if state == "demo":
-                where["step"] = "select demo student"
-                _select_student(page, DEMO_OPTION)
             for p in (p for p in PAGES if p.slug in only):
                 where["step"] = f"{p.slug} ({state})"
-                # A page only some students get has no link before one is chosen: what a
-                # visitor sees then is Home.
-                _goto(page, "Home" if state == "nostudent" and p.slug in STUDENT_ONLY else p.title)
+                _goto(page, p.title)
                 _capture_widths(page, out, p.slug, state, widths, scheme, written)
 
         if "onboard" in only:
@@ -415,8 +403,34 @@ def capture_scheme(
             _quiz_flow(page, out, widths, scheme, written, where)
         if "interview" in only:
             _interview_flow(page, out, widths, scheme, written, where)
+        if ADMIN in only:
+            _admin_flow(page, out, widths, scheme, written, where)
         browser.close()
     return written
+
+
+def _admin_flow(
+    page: "Page", out: Path, widths: list[int], scheme: str, written: list[Path], where: dict
+) -> None:
+    where["step"] = "org admin: sign out, open the demo organization"
+    _open_sidebar(page)
+    _click(page, "Sign out")
+    _click(page, "Try demo organization admin")
+    _capture_widths(page, out, ADMIN, "overview", widths, scheme, written)
+    for tab, state in (("Provisioning", "provisioning"), ("Students", "students")):
+        where["step"] = f"org admin: {state}"
+        page.get_by_role("tab", name=tab).click()
+        _wait_idle(page)
+        _capture_widths(page, out, ADMIN, state, widths, scheme, written)
+    where["step"] = "org admin: a student's 360 profile"
+    page.get_by_label("Or find a student by name").click()
+    page.get_by_role("option").first.click()
+    _wait_idle(page)
+    _capture_widths(page, out, ADMIN, "profile", widths, scheme, written)
+    where["step"] = "org admin: settings and drives"
+    page.get_by_role("tab", name="Settings and drives").click()
+    _wait_idle(page)
+    _capture_widths(page, out, ADMIN, "settings", widths, scheme, written)
 
 
 def _quiz_flow(

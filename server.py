@@ -110,9 +110,13 @@ def catalog() -> dict:
     }
 
 
+PUBLIC_STUDENT = ("id", "name", "username", "target_role", "readiness_score")
+
+
 @app.get("/api/students")
 def students() -> list[dict]:
-    return _rows(services.list_students())
+    """The picker's list: public fields only (an email never leaves the server)."""
+    return [{k: r[k] for k in PUBLIC_STUDENT} for r in services.list_students()]
 
 
 @app.get("/api/roles-for-degree")

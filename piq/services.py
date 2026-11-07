@@ -42,7 +42,7 @@ from piq.config import (
     RESUME_REVIEW_DAYS,
     TIMEZONE,
     TREND_STEP,
-    USN_RE,
+    USERNAME_RE,
     WEAK_THRESHOLD,
 )
 from piq.graph import OnEvent
@@ -80,7 +80,8 @@ def _require_profile(student_id: str | None) -> StudentProfile:
 @dataclass(frozen=True)
 class LockedDomain:
     domain: Domain
-    since: str  # UTC timestamp of the first saved resume
+    since: str  # UTC timestamp of the first saved resume (an organization's student: of joining)
+    by: str | None = None  # the organization that placed the student in this domain, if any
 
 
 @dataclass(frozen=True)
@@ -125,6 +126,10 @@ def locked_domain(student_id: str | None) -> LockedDomain | None:
     row = db.first_resume_domain(student_id) if student_id else None
     if row is None:
         return None
+    if row["org_name"]:  # an organization's student: the domain it assigned, until it moves them
+        return LockedDomain(
+            syllabus.domain_of_role(row["target_role"]), row["created_at"], by=row["org_name"]
+        )
     try:
         return LockedDomain(syllabus.domain(row["domain_id"]), row["created_at"])
     except KeyError:  # a domain since removed from the catalog no longer locks anything
@@ -158,27 +163,20 @@ def weakness_for(profile: StudentProfile, scores: Mapping[str, float]) -> dict[s
 # --- students & onboarding -----------------------------------------------------
 
 
-def normalise_usn(usn: str | None) -> str:
-    usn = (usn or "").strip().upper()
-    if not USN_RE.match(usn):
-        raise ServiceError("USN is required: 4-20 letters/digits, no spaces.")
-    return usn
+def student_row(student_id: str | None) -> sqlite3.Row | None:
+    """The account (id, name, username, email, target_role, readiness_score), or None."""
+    return db.student(student_id) if student_id else None
 
 
-def usn_owner(usn: str) -> sqlite3.Row | None:
-    """The student who already has this USN (id, name, target_role), or None."""
-    return db.student_by_usn(normalise_usn(usn))
-
-
-def delete_student(student_id: str | None, confirm_usn: str | None) -> None:
-    """Delete a student and (by cascade) all of their history, only when `confirm_usn` is
-    their USN: a slip of the finger must not cost a semester of data."""
-    student = next((s for s in db.list_students() if s["id"] == student_id), None)
+def delete_student(student_id: str | None, confirm_username: str | None) -> None:
+    """Delete an account and (by cascade) all of its history, only when `confirm_username` is
+    its username: a slip of the finger must not cost a semester of data."""
+    student = student_row(student_id)
     if student is None:
-        raise ServiceError("This student no longer exists.")
-    if (confirm_usn or "").strip().upper() != student["usn"]:
-        raise ServiceError(f"That is not {student['usn']}; nothing was deleted.")
-    db.delete_student(student["usn"])
+        raise ServiceError("This account no longer exists.")
+    if (confirm_username or "").strip().lower() != student["username"]:
+        raise ServiceError("That is not this account's username; nothing was deleted.")
+    db.delete_student(student["id"])
 
 
 def list_students() -> list[sqlite3.Row]:
@@ -218,27 +216,59 @@ def read_resume(filename: str, data: bytes) -> str:
 
 
 def generate_candidate_id(name: str = "") -> str:
-    """Generate an open, unique candidate identifier when a user doesn't have a USN."""
-    slug = re.sub(r"[^A-Z0-9]", "", (name or "").upper())[:4] or "CAND"
-    return f"{slug}{uuid.uuid4().hex[:6].upper()}"
+    """A unique username for a candidate who has no account (the API's resume builder)."""
+    slug = re.sub(r"[^a-z0-9]", "", (name or "").lower())[:4] or "cand"
+    return f"{slug}{uuid.uuid4().hex[:6]}"
 
 
 def onboard(
-    usn: str, target_role: str, resume_text: str, on_event: OnEvent | None = None
+    student_id: str, target_role: str, resume_text: str, on_event: OnEvent | None = None
 ) -> tuple[str, StudentProfile]:
-    usn = normalise_usn(usn)
+    """Profile a signed-in student's resume against a role (it becomes their target role)."""
+    if student_row(student_id) is None:
+        raise ServiceError("Sign in first.")
     if target_role not in agents.roles():
         raise ServiceError(f"Unknown target role {target_role!r}.")
     if not resume_text.strip():
         raise ServiceError("The resume is empty.")
-    owner = db.student_by_usn(usn)
-    lock = locked_domain(owner["id"]) if owner else None
+    lock = locked_domain(student_id)
     if lock and syllabus.domain_of_role(target_role).id != lock.domain.id:
         raise ServiceError(
             f"This student's domain is locked to {lock.domain.name}: choose one of its roles."
         )
     profile = agents.create_profile(resume_text, target_role, on_event)
-    return db.save_profile(usn, profile), profile
+    return db.save_profile(student_id, profile), profile
+
+
+def benchmark_profile(student_id: str) -> StudentProfile:
+    """Start without a resume: the target role's whole skill list becomes the gaps, so the
+    roadmap, quizzes and interviews can begin at once; a resume scan later replaces it."""
+    student = student_row(student_id)
+    if student is None:
+        raise ServiceError("Sign in first.")
+    profile = starting_profile(student["name"], student["target_role"])
+    db.save_profile(student_id, profile)
+    return profile
+
+
+def starting_profile(name: str, role: str, education: str = "") -> StudentProfile:
+    """The profile of someone who has not scanned a resume: every skill the role asks for is a
+    gap. Pure: the benchmark start, and what an organization's students are created with."""
+    skill_topics = agents.roles().get(role)
+    if skill_topics is None:
+        raise ServiceError(f"Unknown target role {role!r}.")
+    return StudentProfile(
+        name=name,
+        education=education,
+        skills=[],
+        projects=[],
+        internships=[],
+        matched_skills=[],
+        resume_feedback=["Upload your resume to measure the skills you already have."],
+        target_role=role,
+        missing_skills=list(skill_topics),
+        readiness_score=checks.readiness_score(skill_topics, []),
+    )
 
 
 def onboard_candidate(
@@ -248,13 +278,18 @@ def onboard_candidate(
     candidate_id: str | None = None,
     on_event: OnEvent | None = None,
 ) -> tuple[str, StudentProfile]:
-    """Onboard any individual without requiring a university USN."""
-    cid = (
-        candidate_id.strip()
-        if candidate_id and candidate_id.strip()
-        else generate_candidate_id(name)
+    """Onboard someone without an account (the API's resume builder): `candidate_id` is a
+    username, made up from the name when absent."""
+    username = (candidate_id or "").strip().lower() or generate_candidate_id(name)
+    if not USERNAME_RE.match(username):
+        raise ServiceError("A candidate id is 3-20 lower-case letters, digits, dots, - or _.")
+    if target_role not in agents.roles():
+        raise ServiceError(f"Unknown target role {target_role!r}.")
+    row = db.student_by_username(username)
+    sid = (
+        row["id"] if row else db.create_student(name.strip() or "Candidate", username, target_role)
     )
-    return onboard(cid, target_role, resume_text, on_event)
+    return onboard(sid, target_role, resume_text, on_event)
 
 
 # --- weekly plan ---------------------------------------------------------------
@@ -1333,10 +1368,9 @@ def save_resume(
         lock = locked_domain(student_id)
         if lock and lock.domain.id != domain_id:
             raise ServiceError(f"Your domain is locked to {lock.domain.name}; choose a role in it.")
-        student = next((s for s in db.list_students() if s["id"] == student_id), None)
-        if student is None:
+        if student_row(student_id) is None:
             raise ServiceError("This student no longer exists.")
-        sid, _ = onboard(student["usn"], role, text, on_event)
+        sid, _ = onboard(student_id, role, text, on_event)
     else:
         sid, _ = onboard_candidate(resume["full_name"], role, text, on_event=on_event)
     ats = resume_builder.evaluate_ats_compatibility(resume, role)

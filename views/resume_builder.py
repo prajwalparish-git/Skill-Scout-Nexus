@@ -136,7 +136,7 @@ with col_role:
         key=f"rb_role_{key}_{domain.id}",
     )
 if lock:
-    st.markdown(formatter.locked_md(domain.name, lock.since))
+    st.markdown(formatter.locked_md(domain.name, lock.since, lock.by))
 elif sid:
     st.caption(
         ":material/lock_open: Saving your first version locks your domain, so your plans and "

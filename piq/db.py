@@ -6,8 +6,9 @@ One short-lived connection per call keeps this safe under Streamlit's threads.
 import json
 import sqlite3
 import uuid
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 
 from piq.checks import text_hash
@@ -25,6 +26,7 @@ def tx() -> Iterator[sqlite3.Connection]:
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA synchronous = NORMAL")  # with WAL: safe and fast
     try:
         with conn:  # commits on success, rolls back on exception
             yield conn
@@ -32,63 +34,593 @@ def tx() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+# Columns students gained with organizations; an older file gets them by ALTER TABLE (nullable or
+# defaulted, so every row is kept). A new file already has them from schema.sql.
+STUDENT_ADDED = (
+    ("org_id", "INTEGER REFERENCES organizations(id)"),
+    ("main_domain", "TEXT"),
+    ("subdomain", "TEXT"),
+    (
+        "account_status",
+        "TEXT NOT NULL DEFAULT 'active' "
+        "CHECK (account_status IN ('active', 'invited', 'suspended'))",
+    ),
+    ("must_change_password", "INTEGER NOT NULL DEFAULT 0"),
+    ("phone", "TEXT"),
+    ("batch_year", "TEXT"),
+)
+
+
+def _migrate(c: sqlite3.Connection) -> None:
+    """Bring a database from before accounts or organizations up to date, in place (data kept):
+    the USN column becomes the lower-cased username, an email column is added, and so are the
+    organization columns (STUDENT_ADDED). A no-op afterwards."""
+    cols = {r["name"] for r in c.execute("PRAGMA table_info(students)")}
+    if "usn" in cols and "username" not in cols:  # SQLite 3.25+: keeps NOT NULL UNIQUE
+        c.execute("ALTER TABLE students RENAME COLUMN usn TO username")
+        c.execute("UPDATE students SET username = lower(username)")
+        cols = (cols - {"usn"}) | {"username"}
+    if cols and "email" not in cols:
+        c.execute("ALTER TABLE students ADD COLUMN email TEXT")
+        cols.add("email")
+    if cols:
+        for name, ddl in STUDENT_ADDED:
+            if name not in cols:
+                c.execute(f"ALTER TABLE students ADD COLUMN {name} {ddl}")  # fixed identifiers
+
+
 def init_db() -> None:
     with tx() as c:
+        c.execute("PRAGMA journal_mode = WAL")  # persistent: readers never block the writer
+        _migrate(c)
         c.executescript(SCHEMA.read_text(encoding="utf-8"))
 
 
 # --- students & profiles -------------------------------------------------------
 
 
-def save_profile(usn: str, profile: StudentProfile, at: str | None = None) -> str:
-    """Create or update the student identified by USN, append a profile row, return student id."""
-    usn = usn.strip().upper()
+def create_student(
+    name: str,
+    username: str,
+    target_role: str,
+    email: str | None = None,
+    password_hash: str | None = None,
+    at: str | None = None,
+) -> str:
+    """A new account (and its password, when it has one); returns its id. The caller has
+    validated and lower-cased username and email; a duplicate raises sqlite3.IntegrityError."""
+    sid = uuid.uuid4().hex
     with tx() as c:
-        row = c.execute("SELECT id FROM students WHERE usn = ?", (usn,)).fetchone()
-        sid = row["id"] if row else uuid.uuid4().hex
         c.execute(
-            """INSERT INTO students (id, name, usn, target_role, readiness_score, created_at)
-               VALUES (?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
-               ON CONFLICT(id) DO UPDATE SET name = excluded.name,
-                 target_role = excluded.target_role, readiness_score = excluded.readiness_score""",
-            (sid, profile.name, usn, profile.target_role, profile.readiness_score, at),
+            """INSERT INTO students (id, name, username, email, target_role, created_at)
+               VALUES (?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))""",
+            (sid, name, username, email, target_role, at),
+        )
+        if password_hash:
+            c.execute(
+                "INSERT INTO credentials (student_id, password_hash) VALUES (?, ?)",
+                (sid, password_hash),
+            )
+    return sid
+
+
+def save_profile(student_id: str, profile: StudentProfile, at: str | None = None) -> str:
+    """Append a profile row for the student; their role and readiness follow it (their account
+    name stays theirs). Returns the student id."""
+    with tx() as c:
+        c.execute(
+            "UPDATE students SET target_role = ?, readiness_score = ? WHERE id = ?",
+            (profile.target_role, profile.readiness_score, student_id),
         )
         c.execute(
             """INSERT INTO profiles (student_id, profile_json, readiness_score, created_at)
                VALUES (?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))""",
-            (sid, profile.model_dump_json(), profile.readiness_score, at),
+            (student_id, profile.model_dump_json(), profile.readiness_score, at),
         )
-    return sid
+    return student_id
 
 
-def student_by_usn(usn: str) -> sqlite3.Row | None:
-    """The student who owns `usn` (id, name, target_role), or None."""
+# One student with the organization it belongs to (NULL org_* for an individual learner).
+_STUDENT = (
+    "SELECT s.id, s.name, s.username, s.email, s.target_role, s.readiness_score, s.org_id, "
+    "s.main_domain, s.subdomain, s.account_status, s.must_change_password, s.phone, "
+    "s.batch_year, s.created_at, o.org_code, o.name AS org_name "
+    "FROM students s LEFT JOIN organizations o ON o.id = s.org_id "
+)
+
+
+def student_by_username(username: str) -> sqlite3.Row | None:
+    with tx() as c:
+        return c.execute(_STUDENT + "WHERE s.username = ?", (username.lower(),)).fetchone()
+
+
+def student_by_login(identifier: str) -> sqlite3.Row | None:
+    """The account whose username or email is `identifier` (any case), or None."""
+    key = identifier.strip().lower()
     with tx() as c:
         return c.execute(
-            "SELECT id, name, target_role FROM students WHERE usn = ?", (usn.strip().upper(),)
+            _STUDENT + "WHERE s.username = ? OR lower(s.email) = ?", (key, key)
         ).fetchone()
 
 
-def delete_student(usn: str) -> None:
-    """Remove a student and (via ON DELETE CASCADE) all of their history."""
+def email_taken(email: str) -> bool:
     with tx() as c:
-        c.execute("DELETE FROM students WHERE usn = ?", (usn.strip().upper(),))
+        row = c.execute("SELECT 1 FROM students WHERE lower(email) = ?", (email.lower(),))
+        return row.fetchone() is not None
+
+
+def delete_student(student_id: str) -> None:
+    """Remove a student and (via ON DELETE CASCADE) all of their history and sign-in state."""
+    with tx() as c:
+        c.execute("DELETE FROM students WHERE id = ?", (student_id,))
 
 
 def student(student_id: str) -> sqlite3.Row | None:
-    """One student's id, name, usn, target_role and readiness_score."""
+    """One student: id, name, username, email, target_role, readiness_score, and the
+    organization columns (org_id, org_code, org_name, main_domain, subdomain, account_status,
+    must_change_password, phone, batch_year, created_at)."""
     with tx() as c:
-        return c.execute(
-            "SELECT id, name, usn, target_role, readiness_score FROM students WHERE id = ?",
-            (student_id,),
-        ).fetchone()
+        return c.execute(_STUDENT + "WHERE s.id = ?", (student_id,)).fetchone()
 
 
 def list_students() -> list[sqlite3.Row]:
     with tx() as c:
+        return c.execute(_STUDENT + "ORDER BY s.username").fetchall()
+
+
+# --- sign-in state (piq/accounts.py; never synced) -------------------------------
+
+
+def credentials(student_id: str) -> sqlite3.Row | None:
+    """password_hash, failures and locked_until, or None for an account without a password."""
+    with tx() as c:
         return c.execute(
-            "SELECT id, name, usn, target_role, readiness_score FROM students ORDER BY usn"
+            "SELECT password_hash, failures, locked_until FROM credentials WHERE student_id = ?",
+            (student_id,),
+        ).fetchone()
+
+
+def set_password(student_id: str, password_hash: str) -> None:
+    """Store a new password and clear any lockout."""
+    with tx() as c:
+        c.execute(
+            """INSERT INTO credentials (student_id, password_hash) VALUES (?, ?)
+               ON CONFLICT(student_id) DO UPDATE SET password_hash = excluded.password_hash,
+                 failures = 0, locked_until = 0, updated_at = CURRENT_TIMESTAMP""",
+            (student_id, password_hash),
+        )
+
+
+def set_lockout(student_id: str, failures: int, locked_until: float) -> None:
+    with tx() as c:
+        c.execute(
+            "UPDATE credentials SET failures = ?, locked_until = ? WHERE student_id = ?",
+            (failures, locked_until, student_id),
+        )
+
+
+def save_code(
+    student_id: str, purpose: str, code_hash: str, salt: str, expires_at: float, sent_at: float
+) -> None:
+    """The account's one live code for `purpose`, replacing an earlier one (attempts reset)."""
+    with tx() as c:
+        c.execute(
+            """INSERT INTO auth_codes (student_id, purpose, code_hash, salt, expires_at, sent_at)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(student_id, purpose) DO UPDATE SET code_hash = excluded.code_hash,
+                 salt = excluded.salt, expires_at = excluded.expires_at, attempts = 0,
+                 sent_at = excluded.sent_at""",
+            (student_id, purpose, code_hash, salt, expires_at, sent_at),
+        )
+
+
+def auth_code(student_id: str, purpose: str) -> sqlite3.Row | None:
+    with tx() as c:
+        return c.execute(
+            """SELECT code_hash, salt, expires_at, attempts, sent_at FROM auth_codes
+               WHERE student_id = ? AND purpose = ?""",
+            (student_id, purpose),
+        ).fetchone()
+
+
+def count_code_attempt(student_id: str, purpose: str) -> None:
+    with tx() as c:
+        c.execute(
+            "UPDATE auth_codes SET attempts = attempts + 1 WHERE student_id = ? AND purpose = ?",
+            (student_id, purpose),
+        )
+
+
+def delete_code(student_id: str, purpose: str) -> None:
+    with tx() as c:
+        c.execute(
+            "DELETE FROM auth_codes WHERE student_id = ? AND purpose = ?", (student_id, purpose)
+        )
+
+
+def create_session(token_hash: str, student_id: str, expires_at: float) -> None:
+    with tx() as c:
+        c.execute(
+            "INSERT INTO sessions (token_hash, student_id, expires_at) VALUES (?, ?, ?)",
+            (token_hash, student_id, expires_at),
+        )
+
+
+def session_student(token_hash: str, now: float) -> str | None:
+    """The student a live session belongs to; expired sessions are removed on the way."""
+    with tx() as c:
+        c.execute("DELETE FROM sessions WHERE expires_at <= ?", (now,))
+        row = c.execute(
+            "SELECT student_id FROM sessions WHERE token_hash = ?", (token_hash,)
+        ).fetchone()
+    return row["student_id"] if row else None
+
+
+def delete_session(token_hash: str) -> None:
+    with tx() as c:
+        c.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))
+
+
+def delete_sessions(student_id: str) -> None:
+    """Sign the student out everywhere (after a password reset)."""
+    with tx() as c:
+        c.execute("DELETE FROM sessions WHERE student_id = ?", (student_id,))
+
+
+# --- organizations (piq/orgs.py): the roster, and the admin's own sign-in state ----------
+
+ORG_FIELDS = (
+    "org_code",
+    "name",
+    "org_type",
+    "official_domain",
+    "admin_name",
+    "admin_email",
+    "contact_phone",
+    "location",
+    "academic_batch",
+    "quiz_cutoff_pct",
+    "voice_cutoff_score",
+)
+ORG_EDITABLE = (  # what an admin may change later: not the code, and not the login email
+    "name",
+    "org_type",
+    "official_domain",
+    "admin_name",
+    "contact_phone",
+    "location",
+    "academic_batch",
+    "quiz_cutoff_pct",
+    "voice_cutoff_score",
+)
+_ORG = "SELECT id, " + ", ".join(ORG_FIELDS) + ", created_at FROM organizations "  # no hash
+
+
+def create_organization(
+    fields: Mapping[str, object], password_hash: str, *, verified: bool = False
+) -> int:
+    """A new organization (its admin's password already hashed); returns its id. A taken code
+    or admin email raises sqlite3.IntegrityError."""
+    with tx() as c:
+        cur = c.execute(
+            f"INSERT INTO organizations ({', '.join(ORG_FIELDS)}, admin_password_hash, "
+            f"admin_verified) VALUES ({', '.join('?' * len(ORG_FIELDS))}, ?, ?)",
+            (*(fields[k] for k in ORG_FIELDS), password_hash, int(verified)),
+        )
+        return int(cur.lastrowid or 0)
+
+
+def organization(org_id: int | None) -> sqlite3.Row | None:
+    """The organization without any sign-in state, or None."""
+    if org_id is None:
+        return None
+    with tx() as c:
+        return c.execute(_ORG + "WHERE id = ?", (org_id,)).fetchone()
+
+
+def organization_by_code(org_code: str) -> sqlite3.Row | None:
+    with tx() as c:
+        return c.execute(_ORG + "WHERE org_code = ?", (org_code.strip().upper(),)).fetchone()
+
+
+def organization_login(admin_email: str) -> sqlite3.Row | None:
+    """The admin's sign-in state for this email: id, admin_password_hash, admin_verified,
+    admin_failures, admin_locked_until, admin_name, admin_email; or None."""
+    with tx() as c:
+        return c.execute(
+            "SELECT id, admin_name, admin_email, admin_password_hash, admin_verified, "
+            "admin_failures, admin_locked_until FROM organizations WHERE admin_email = ?",
+            (admin_email.strip().lower(),),
+        ).fetchone()
+
+
+def organization_state(org_id: int) -> sqlite3.Row | None:
+    """organization_login's columns, looked up by id."""
+    with tx() as c:
+        return c.execute(
+            "SELECT id, admin_name, admin_email, admin_password_hash, admin_verified, "
+            "admin_failures, admin_locked_until FROM organizations WHERE id = ?",
+            (org_id,),
+        ).fetchone()
+
+
+def update_organization(org_id: int, fields: Mapping[str, object]) -> None:
+    """Change the editable profile fields (anything else in `fields` is ignored)."""
+    keys = [k for k in ORG_EDITABLE if k in fields]
+    if not keys:
+        return
+    with tx() as c:
+        c.execute(
+            f"UPDATE organizations SET {', '.join(f'{k} = ?' for k in keys)} WHERE id = ?",
+            (*(fields[k] for k in keys), org_id),
+        )
+
+
+def set_admin_lockout(org_id: int, failures: int, locked_until: float) -> None:
+    with tx() as c:
+        c.execute(
+            "UPDATE organizations SET admin_failures = ?, admin_locked_until = ? WHERE id = ?",
+            (failures, locked_until, org_id),
+        )
+
+
+def mark_admin_verified(org_id: int) -> None:
+    with tx() as c:
+        c.execute(
+            "UPDATE organizations SET admin_verified = 1, admin_failures = 0, "
+            "admin_locked_until = 0 WHERE id = ?",
+            (org_id,),
+        )
+
+
+def save_admin_code(
+    org_id: int, code_hash: str, salt: str, expires_at: float, sent_at: float
+) -> None:
+    with tx() as c:
+        c.execute(
+            """INSERT INTO admin_codes (org_id, code_hash, salt, expires_at, sent_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(org_id) DO UPDATE SET code_hash = excluded.code_hash,
+                 salt = excluded.salt, expires_at = excluded.expires_at, attempts = 0,
+                 sent_at = excluded.sent_at""",
+            (org_id, code_hash, salt, expires_at, sent_at),
+        )
+
+
+def admin_code(org_id: int) -> sqlite3.Row | None:
+    with tx() as c:
+        return c.execute(
+            "SELECT code_hash, salt, expires_at, attempts, sent_at FROM admin_codes "
+            "WHERE org_id = ?",
+            (org_id,),
+        ).fetchone()
+
+
+def count_admin_code_attempt(org_id: int) -> None:
+    with tx() as c:
+        c.execute("UPDATE admin_codes SET attempts = attempts + 1 WHERE org_id = ?", (org_id,))
+
+
+def delete_admin_code(org_id: int) -> None:
+    with tx() as c:
+        c.execute("DELETE FROM admin_codes WHERE org_id = ?", (org_id,))
+
+
+def create_admin_session(token_hash: str, org_id: int, expires_at: float) -> None:
+    with tx() as c:
+        c.execute(
+            "INSERT INTO admin_sessions (token_hash, org_id, expires_at) VALUES (?, ?, ?)",
+            (token_hash, org_id, expires_at),
+        )
+
+
+def admin_session_org(token_hash: str, now: float) -> int | None:
+    """The organization a live admin session belongs to; expired ones are removed on the way."""
+    with tx() as c:
+        c.execute("DELETE FROM admin_sessions WHERE expires_at <= ?", (now,))
+        row = c.execute(
+            "SELECT org_id FROM admin_sessions WHERE token_hash = ?", (token_hash,)
+        ).fetchone()
+    return row["org_id"] if row else None
+
+
+def delete_admin_session(token_hash: str) -> None:
+    with tx() as c:
+        c.execute("DELETE FROM admin_sessions WHERE token_hash = ?", (token_hash,))
+
+
+@dataclass(frozen=True)
+class NewStudent:
+    """One account provisioned for an organization, ready to store: the password and welcome
+    code are already hashed, and the starting profile holds the role's benchmark skills."""
+
+    id: str
+    name: str
+    username: str
+    email: str
+    target_role: str
+    main_domain: str
+    subdomain: str
+    phone: str | None
+    batch_year: str | None
+    password_hash: str
+    code_hash: str
+    code_salt: str
+    code_expires_at: float
+    sent_at: float
+    profile: StudentProfile
+
+
+def usernames_in_use() -> set[str]:
+    with tx() as c:
+        return {r["username"] for r in c.execute("SELECT username FROM students")}
+
+
+def emails_in_use(emails: Iterable[str]) -> set[str]:
+    """Which of these (lower-case) emails already belong to an account, in any organization."""
+    wanted = list(dict.fromkeys(emails))
+    found: set[str] = set()
+    with tx() as c:
+        for i in range(0, len(wanted), 500):  # SQLite caps the parameters of one statement
+            chunk = wanted[i : i + 500]
+            rows = c.execute(
+                "SELECT lower(email) AS email FROM students "
+                f"WHERE lower(email) IN ({', '.join('?' * len(chunk))})",
+                chunk,
+            )
+            found.update(r["email"] for r in rows)
+    return found
+
+
+def create_org_students(org_id: int, students: Sequence[NewStudent]) -> None:
+    """Store every student, with its credentials, welcome code and starting profile, in ONE
+    transaction: all of them or none. A taken username or email raises sqlite3.IntegrityError
+    and nothing is kept."""
+    with tx() as c:
+        c.executemany(
+            """INSERT INTO students (id, name, username, email, target_role, readiness_score,
+                 org_id, main_domain, subdomain, account_status, must_change_password, phone,
+                 batch_year)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'invited', 1, ?, ?)""",
+            [
+                (
+                    s.id,
+                    s.name,
+                    s.username,
+                    s.email,
+                    s.target_role,
+                    s.profile.readiness_score,
+                    org_id,
+                    s.main_domain,
+                    s.subdomain,
+                    s.phone,
+                    s.batch_year,
+                )
+                for s in students
+            ],
+        )
+        c.executemany(
+            "INSERT INTO credentials (student_id, password_hash) VALUES (?, ?)",
+            [(s.id, s.password_hash) for s in students],
+        )
+        c.executemany(
+            """INSERT INTO auth_codes (student_id, purpose, code_hash, salt, expires_at, sent_at)
+               VALUES (?, 'login', ?, ?, ?, ?)""",
+            [(s.id, s.code_hash, s.code_salt, s.code_expires_at, s.sent_at) for s in students],
+        )
+        c.executemany(
+            "INSERT INTO profiles (student_id, profile_json, readiness_score) VALUES (?, ?, ?)",
+            [(s.id, s.profile.model_dump_json(), s.profile.readiness_score) for s in students],
+        )
+
+
+# Every query below carries `org_id`: an organization's admin can read and change its own
+# students and nobody else's, however the id reached us (a stale form, a tampered request).
+
+
+def org_students(org_id: int) -> list[sqlite3.Row]:
+    with tx() as c:
+        return c.execute(
+            _STUDENT + "WHERE s.org_id = ? ORDER BY s.name, s.username", (org_id,)
         ).fetchall()
+
+
+def org_student(org_id: int, student_id: str) -> sqlite3.Row | None:
+    """The student only when they belong to this organization."""
+    with tx() as c:
+        return c.execute(
+            _STUDENT + "WHERE s.id = ? AND s.org_id = ?", (student_id, org_id)
+        ).fetchone()
+
+
+def reassign_org_student(
+    org_id: int, student_id: str, main_domain: str, subdomain: str, target_role: str
+) -> bool:
+    with tx() as c:
+        cur = c.execute(
+            "UPDATE students SET main_domain = ?, subdomain = ?, target_role = ? "
+            "WHERE id = ? AND org_id = ?",
+            (main_domain, subdomain, target_role, student_id, org_id),
+        )
+        return cur.rowcount == 1
+
+
+def set_org_student_status(org_id: int, student_id: str, status: str) -> bool:
+    """Suspending also signs the student out everywhere."""
+    with tx() as c:
+        cur = c.execute(
+            "UPDATE students SET account_status = ? WHERE id = ? AND org_id = ?",
+            (status, student_id, org_id),
+        )
+        if cur.rowcount == 1 and status == "suspended":
+            c.execute("DELETE FROM sessions WHERE student_id = ?", (student_id,))
+        return cur.rowcount == 1
+
+
+def reset_org_student_credentials(
+    org_id: int,
+    student_id: str,
+    password_hash: str,
+    code_hash: str,
+    code_salt: str,
+    code_expires_at: float,
+    sent_at: float,
+) -> bool:
+    """A new temporary password and welcome code, one transaction: the old password stops
+    working, the lockout clears, every session ends, and the student must change the password."""
+    with tx() as c:
+        cur = c.execute(
+            "UPDATE students SET must_change_password = 1 WHERE id = ? AND org_id = ?",
+            (student_id, org_id),
+        )
+        if cur.rowcount != 1:
+            return False
+        c.execute(
+            """INSERT INTO credentials (student_id, password_hash) VALUES (?, ?)
+               ON CONFLICT(student_id) DO UPDATE SET password_hash = excluded.password_hash,
+                 failures = 0, locked_until = 0, updated_at = CURRENT_TIMESTAMP""",
+            (student_id, password_hash),
+        )
+        c.execute(
+            """INSERT INTO auth_codes (student_id, purpose, code_hash, salt, expires_at, sent_at)
+               VALUES (?, 'login', ?, ?, ?, ?)
+               ON CONFLICT(student_id, purpose) DO UPDATE SET code_hash = excluded.code_hash,
+                 salt = excluded.salt, expires_at = excluded.expires_at, attempts = 0,
+                 sent_at = excluded.sent_at""",
+            (student_id, code_hash, code_salt, code_expires_at, sent_at),
+        )
+        c.execute("DELETE FROM sessions WHERE student_id = ?", (student_id,))
+        return True
+
+
+def delete_organization(org_code: str) -> int:
+    """Remove an organization with its students (and, by cascade, all their records) and its
+    admin's sessions and code. Dev tooling (scripts/seed_cohort.py --replace); returns how many
+    students went."""
+    with tx() as c:
+        row = c.execute("SELECT id FROM organizations WHERE org_code = ?", (org_code,)).fetchone()
+        if row is None:
+            return 0
+        n = c.execute("DELETE FROM students WHERE org_id = ?", (row["id"],)).rowcount
+        c.execute("DELETE FROM organizations WHERE id = ?", (row["id"],))
+        return n
+
+
+def mark_signed_in(student_id: str) -> None:
+    """The first successful sign-in turns an invited account into an active one."""
+    with tx() as c:
+        c.execute(
+            "UPDATE students SET account_status = 'active' "
+            "WHERE id = ? AND account_status = 'invited'",
+            (student_id,),
+        )
+
+
+def set_must_change_password(student_id: str, flag: bool) -> None:
+    with tx() as c:
+        c.execute(
+            "UPDATE students SET must_change_password = ? WHERE id = ?", (int(flag), student_id)
+        )
 
 
 def latest_profile(student_id: str) -> StudentProfile | None:
@@ -489,11 +1021,19 @@ def resume_versions(student_id: str) -> list[dict]:
 
 
 def first_resume_domain(student_id: str) -> sqlite3.Row | None:
-    """The domain and date of the student's first saved resume (their locked domain)."""
+    """What locks the student's domain, in one query: domain_id and created_at of their first
+    saved resume (None before one), and for an organization's student org_name and
+    target_role (their organization's placement is the lock, resume or not). None when the
+    student has neither."""
     with tx() as c:
         return c.execute(
-            """SELECT domain_id, created_at FROM resume_versions WHERE student_id = ?
-               ORDER BY id LIMIT 1""",
+            """SELECT r.domain_id, COALESCE(r.created_at, s.created_at) AS created_at,
+                      o.name AS org_name, s.target_role
+               FROM students s
+               LEFT JOIN organizations o ON o.id = s.org_id
+               LEFT JOIN resume_versions r ON r.id =
+                 (SELECT MIN(id) FROM resume_versions WHERE student_id = s.id)
+               WHERE s.id = ? AND (r.id IS NOT NULL OR o.id IS NOT NULL)""",
             (student_id,),
         ).fetchone()
 

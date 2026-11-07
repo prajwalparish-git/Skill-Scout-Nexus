@@ -42,8 +42,6 @@ if student is None:
         _go("views/onboard.py")
     if sample:
         _go("views/onboard.py", onboard_sample=services.default_sample())
-    if ui.student_count():
-        st.caption("Already onboarded? Choose your name under Student in the sidebar.")
     st.subheader("How it works", anchor=False)
     for column, (n, (icon, title, text)) in zip(
         st.columns(4, gap="medium"), enumerate(HOW_IT_WORKS, 1), strict=True
@@ -77,14 +75,11 @@ if student is None:
 sid = student["id"]
 profile = services.current_profile(sid)
 if profile is None:
-    if ui.empty_state(
-        "upload_file",
-        "Finish onboarding",
-        "This student has no profile yet. Analyse a resume to get a readiness score.",
-        "Open Onboard",
-        key="home_onboard",
-    ):
-        _go("views/onboard.py")
+    ui.page_header(
+        f"Welcome, {formatter.md_escape(student['name'])}",
+        "Two ways to begin your placement journey.",
+    )
+    ui.no_profile_card("home_start")
     st.stop()
 
 try:
@@ -103,6 +98,11 @@ ui.page_header(
     f"Here is where you stand for {formatter.md_escape(profile.target_role)} "
     f"({formatter.md_escape(domain.name)}), and what to do next.",
 )
+
+if (snap := st.session_state.get("snapshot")) and (snap.roadmap_week or snap.quizzes):
+    st.info(formatter.welcome_back_md(snap), icon=":material/history:")
+
+ui.org_progress_card(sid)  # an organization's student: their stage against its pass marks
 
 action = overview.next_action
 main, side = st.columns([2, 1], gap="medium")

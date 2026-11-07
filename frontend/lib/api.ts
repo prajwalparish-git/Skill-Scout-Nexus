@@ -107,7 +107,7 @@ export type Catalog = {
 export type Student = {
   id: string;
   name: string;
-  usn: string;
+  username: string;
   target_role: string;
   readiness_score: number;
 };

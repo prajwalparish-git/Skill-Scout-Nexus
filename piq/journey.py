@@ -52,20 +52,38 @@ VOICE_STREAMS = STREAMS  # the agent's scenario banks (CATEGORIES too, for the v
 @dataclass(frozen=True)
 class Student:
     id: str  # piq's student id
-    usn: str
+    username: str
     name: str
     target_role: str
     domain: str  # domain name
     stream: str
+    email: str | None = None
+    # An organization's student: telemetry mirrors where the admin placed them (all None for an
+    # individual learner, whose telemetry row then keeps whatever it has).
+    org_code: str | None = None
+    main_domain: str | None = None
+    subdomain: str | None = None
+    account_status: str = "active"
 
 
 def student(student_id: str | None) -> Student:
     row = db.student(student_id) if student_id else None
     if row is None:
-        raise ServiceError("Onboard this student first.")
+        raise ServiceError("Sign in first.")
     d = syllabus.domain_of_role(row["target_role"])
+    stream = syllabus.stream_of(d.id)
     return Student(
-        row["id"], row["usn"], row["name"], row["target_role"], d.name, syllabus.stream_of(d.id)
+        row["id"],
+        row["username"],
+        row["name"],
+        row["target_role"],
+        d.name,
+        stream,
+        row["email"],
+        row["org_code"],
+        row["main_domain"],
+        row["subdomain"],
+        row["account_status"],
     )
 
 
@@ -95,8 +113,57 @@ def voice_stream(stream: str) -> str:
 
 
 def _telemetry_id(s: Student) -> int:
-    row = crud.save_student(s.usn, s.name, s.stream, s.target_role, department=s.domain)
+    if s.org_code and crud.get_organization(s.org_code) is None:
+        _record_org_row(db.organization_by_code(s.org_code))  # its students need it to exist
+    row = crud.save_student(
+        s.username,
+        s.name,
+        s.stream,
+        s.target_role,
+        email=s.email,
+        department=s.domain,
+        org_code=s.org_code,
+        main_domain=s.main_domain,
+        subdomain=s.subdomain,
+        account_status=s.account_status if s.org_code else None,
+    )
     return row.id
+
+
+def _record_org_row(org) -> None:  # type: ignore[no-untyped-def]
+    crud.save_organization(
+        org["org_code"],
+        org["name"],
+        org["org_type"],
+        org["admin_name"],
+        org["admin_email"],
+        official_domain=org["official_domain"],
+        contact_phone=org["contact_phone"],
+        location=org["location"],
+        academic_batch=org["academic_batch"],
+        quiz_cutoff_pct=org["quiz_cutoff_pct"],
+        voice_cutoff_score=org["voice_cutoff_score"],
+    )
+
+
+def record_organization(org_id: int) -> bool:
+    """Create or update the organization's telemetry profile (never its admin's password); it
+    then reaches the cloud copy with the rest. Best-effort, like every telemetry write."""
+    try:
+        org = db.organization(org_id)
+        if org is None:
+            return False
+        _record_org_row(org)
+        return True
+    except Exception:
+        log.exception("telemetry: could not record organization %s", org_id)
+        return False
+
+
+def record_students(student_ids: list[str]) -> int:
+    """Telemetry profiles for these students (an organization's new students, so the admin
+    portal lists them before their first activity); returns how many were recorded."""
+    return sum(record_student(sid) for sid in student_ids)
 
 
 def record_student(student_id: str) -> bool:
@@ -180,7 +247,7 @@ def scan_resume(student_id: str, filename: str, data: bytes, role: str) -> Scan:
         )
         saved = True
     except Exception:
-        log.exception("telemetry: could not save the resume scan for %s", s.usn)
+        log.exception("telemetry: could not save the resume scan for %s", s.username)
         saved = False
     return Scan(analysis, saved)
 
@@ -190,15 +257,82 @@ def latest_gaps(student_id: str) -> tuple[list[str], str]:
     profile from onboarding."""
     s = student(student_id)
     try:
-        t = crud.get_student(s.usn)
+        t = crud.get_student(s.username)
         latest = crud.latest_resume_analysis(t.id) if t else None
     except Exception:
-        log.exception("telemetry: could not read the latest scan for %s", s.usn)
+        log.exception("telemetry: could not read the latest scan for %s", s.username)
         latest = None
     if latest is not None:
         return list(latest.missing_skills), "your latest resume scan"
     profile = db.latest_profile(s.id)
     return (list(profile.missing_skills) if profile else []), "your onboarding profile"
+
+
+@dataclass(frozen=True)
+class SavedScan:
+    """The latest resume scan as saved (the scanner page shows it after a reload)."""
+
+    matched: tuple[str, ...]
+    missing: tuple[str, ...]
+    match_percentage: float
+
+
+@dataclass(frozen=True)
+class Snapshot:
+    """Where a student left off, read in one go from telemetry when they sign in or come back
+    (piq/ui.py keeps it in st.session_state for the session)."""
+
+    scan: SavedScan | None = None
+    roadmap_week: int | None = None  # the latest week
+    tasks_done: int = 0
+    tasks_total: int = 0
+    quizzes: int = 0
+    last_quiz: tuple[int, int] | None = None  # (score, total)
+    voice_sessions: int = 0
+    last_voice: int | None = None  # rubric score, 0-15
+
+
+def snapshot(student_id: str) -> Snapshot:
+    """Everything the journey has saved for the student; an empty Snapshot when telemetry is
+    unavailable or they have done nothing yet (never raises for a valid student)."""
+    s = student(student_id)
+    try:
+        session = crud.student_session(s.username)
+    except Exception:
+        log.exception("telemetry: could not read the snapshot for %s", s.username)
+        return Snapshot()
+    if session is None:
+        return Snapshot()
+    r = session.resume
+    scan = (
+        SavedScan(tuple(r.matched_skills), tuple(r.missing_skills), r.match_percentage)
+        if r
+        else None
+    )
+    week = done = total = 0
+    if session.plans:
+        latest = session.plans[-1]
+        try:
+            plan = SevenDayRoadmap.model_validate(latest.plan_data)
+            week, done = latest.week_number, len(latest.completed_tasks)
+            total = sum(len(d.micro_tasks) for d in plan.days)
+        except ValueError:
+            pass
+    q, v = session.quiz_attempts, session.interviews
+    return Snapshot(
+        scan=scan,
+        roadmap_week=week or None,
+        tasks_done=done,
+        tasks_total=total,
+        quizzes=len(q),
+        last_quiz=(q[-1].score, q[-1].total_questions) if q else None,
+        voice_sessions=len(v),
+        last_voice=v[-1].rubric_score if v else None,
+    )
+
+
+def saved_scan(student_id: str) -> SavedScan | None:
+    return snapshot(student_id).scan
 
 
 def role_skills(role: str) -> list[str]:
@@ -276,10 +410,10 @@ def roadmaps(student_id: str) -> list[Roadmap]:
     """The student's saved roadmaps, oldest week first ([] if telemetry is unavailable)."""
     s = student(student_id)
     try:
-        t = crud.get_student(s.usn)
+        t = crud.get_student(s.username)
         plans = crud.study_plans(t.id) if t else []
     except Exception:
-        log.exception("telemetry: could not read roadmaps for %s", s.usn)
+        log.exception("telemetry: could not read roadmaps for %s", s.username)
         return []
     out = []
     for p in plans:
@@ -287,8 +421,34 @@ def roadmaps(student_id: str) -> list[Roadmap]:
             plan = SevenDayRoadmap.model_validate(p.plan_data)
         except ValueError:  # a plan saved by something else: not a 7-day roadmap
             continue
-        out.append(Roadmap(p.week_number, plan, frozenset(p.completed_tasks)))
+        out.append(_upgrade(s, t.id, Roadmap(p.week_number, plan, frozenset(p.completed_tasks))))  # type: ignore[union-attr]
     return out
+
+
+def _upgrade(s: Student, telemetry_id: int, r: Roadmap) -> Roadmap:
+    """A provisional week (the curated plan saved because the student asked before the
+    personalised one was ready) becomes the personalised one as soon as it is, unless a task is
+    already ticked. Until then the preloader is kept writing it. Never waits, never raises."""
+    if not r.plan.is_provisional or r.done:
+        return r
+    plan = r.plan
+    gaps = plan.addressed_gaps
+    key = preloader.roadmap_key(s.id, plan.target_role, plan.target_stream, gaps)
+    p = preloader.get_preloader()
+    try:
+        ready = p.take_ready(key)
+        if not isinstance(ready, SevenDayRoadmap):
+            p.submit(
+                key,
+                lambda: preloader.make_roadmap(s.id, plan.target_role, plan.target_stream, gaps),
+            )
+            return r
+        crud.save_study_plan(telemetry_id, r.week, ready.model_dump())
+    except Exception:
+        log.exception("preload: could not upgrade week %s for %s", r.week, s.username)
+        return r
+    log.info("roadmap week %s for %s: provisional plan upgraded", r.week, s.username)
+    return Roadmap(r.week, ready)
 
 
 def build_roadmap(student_id: str, gaps: list[str]) -> tuple[Roadmap, bool]:
@@ -298,7 +458,9 @@ def build_roadmap(student_id: str, gaps: list[str]) -> tuple[Roadmap, bool]:
     gaps = preloader.clean_skills(gaps)
     plan = preloader.get_preloader().get_or_wait(
         preloader.roadmap_key(s.id, s.target_role, s.stream, gaps),
-        lambda: build_fallback_roadmap(gaps, s.target_role, s.stream),
+        lambda: build_fallback_roadmap(gaps, s.target_role, s.stream).model_copy(
+            update={"is_provisional": True}  # upgraded by roadmaps() once the real one lands
+        ),
         on_miss=lambda: preloader.make_roadmap(s.id, s.target_role, s.stream, gaps),
     )
     weeks = [r.week for r in roadmaps(student_id)]
@@ -307,7 +469,7 @@ def build_roadmap(student_id: str, gaps: list[str]) -> tuple[Roadmap, bool]:
         crud.save_study_plan(_telemetry_id(s), week, plan.model_dump())
         saved = True
     except Exception:
-        log.exception("telemetry: could not save the roadmap for %s", s.usn)
+        log.exception("telemetry: could not save the roadmap for %s", s.username)
         saved = False
     return Roadmap(week, plan), saved
 
@@ -316,7 +478,7 @@ def set_tasks_done(student_id: str, week: int, done: set[str]) -> bool:
     """Replace the week's completed tasks with `done`."""
     s = student(student_id)
     try:
-        t = crud.get_student(s.usn)
+        t = crud.get_student(s.username)
         plan = (
             next((p for p in crud.study_plans(t.id) if p.week_number == week), None) if t else None
         )
@@ -325,7 +487,7 @@ def set_tasks_done(student_id: str, week: int, done: set[str]) -> bool:
         crud.save_study_plan(t.id, week, plan.plan_data, sorted(done))
         return True
     except Exception:
-        log.exception("telemetry: could not save progress for %s", s.usn)
+        log.exception("telemetry: could not save progress for %s", s.username)
         return False
 
 
@@ -379,7 +541,7 @@ def grade_quiz(student_id: str, batch: QuizBatch, answers: list[int | None]) -> 
         crud.save_quiz_attempt(_telemetry_id(s), s.stream, s.domain, score, total, notes)
         saved = True
     except Exception:
-        log.exception("telemetry: could not save the quiz for %s", s.usn)
+        log.exception("telemetry: could not save the quiz for %s", s.username)
         saved = False
     return QuizGrade(score, total, correct, saved)
 
@@ -461,7 +623,7 @@ def assess_answer(student_id: str, question: VoiceInterviewQuestion, answer: str
         )
         saved = True
     except Exception:
-        log.exception("telemetry: could not save the voice session for %s", s.usn)
+        log.exception("telemetry: could not save the voice session for %s", s.username)
         saved = False
     return VoiceResult(result, saved)
 
@@ -476,15 +638,22 @@ class CohortView:
     error: str = ""
 
 
-def cohort_view(cloud: bool = False) -> CohortView:
-    """This machine's records (instant), or with `cloud` every machine's, from the cloud copy."""
+def cohort_view(cloud: bool = False, org_code: str | None = None) -> CohortView:
+    """This machine's records (instant), or with `cloud` every machine's, from the cloud copy.
+    `org_code`: only that organization's students."""
     try:
-        snap = crud.cohort(source="cloud" if cloud else "local")
+        snap = crud.cohort(source="cloud" if cloud else "local", org_code=org_code)
     except Exception as e:
         log.exception("telemetry: could not read the cohort (%s)", "cloud" if cloud else "local")
         where = "The cloud copy" if cloud else "Telemetry"
         return CohortView(None, [], f"{where} is unavailable: {type(e).__name__}.")
     return CohortView(snap, cohort.student_rows(snap))
+
+
+def student_history(username: str) -> crud.StudentSession | None:
+    """Everything recorded for one student (resume, plans, quizzes, interviews), or None when
+    nothing is. Raises when telemetry is unavailable: the caller says so."""
+    return crud.student_session(username)
 
 
 def active_ai() -> str:

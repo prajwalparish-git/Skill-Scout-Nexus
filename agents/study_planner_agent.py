@@ -14,6 +14,7 @@ Responsibilities:
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
+from pydantic.json_schema import SkipJsonSchema
 
 from piq import llm
 from piq.config import settings
@@ -230,6 +231,10 @@ class SevenDayRoadmap(BaseModel):
     days: list[DailyRoadmap] = Field(
         min_length=7, max_length=7, description="Exact 7-day sequenced daily plans"
     )
+    # Set by piq/journey.py, never by the model (so it is left out of the JSON schema): the
+    # curated plan saved while the personalised one was still being written; it is replaced
+    # once that is ready, unless the student has started ticking tasks.
+    is_provisional: SkipJsonSchema[bool] = False
 
 
 def _get_curated_resources_for_skill(skill: str) -> list[ResourceLink]:
@@ -393,6 +398,7 @@ def generate_study_roadmap(
             size="small",
             temperature=0.3,
         )
+        roadmap.is_provisional = False  # the planner's own answer is final
         # Ensure curated links are augmented if LLM provided generic placeholders
         for day in roadmap.days:
             if not day.resources or any("example.com" in r.url for r in day.resources):

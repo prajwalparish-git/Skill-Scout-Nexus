@@ -148,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
         settings.cache_clear()
         db.init_db()
         seed.main()
-        sid = next(s["id"] for s in db.list_students() if s["usn"] == seed.USN)
+        sid = next(s["id"] for s in db.list_students() if s["username"] == seed.USERNAME)
 
         cold = subprocess.run(
             [sys.executable, "-c", _COLD_START.format(app=ROOT / "app.py", sid=sid)],
