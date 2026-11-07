@@ -87,6 +87,7 @@ def _analyse(usn: str, role: str, text: str) -> None:
     result = run_agent("Profile agent", lambda ev: services.onboard(usn, role, text, ev))
     if result:
         journey.record_student(result[0])  # telemetry, for the faculty dashboard; best-effort
+        journey.preload_next_steps(result[0])  # roadmap, quiz and voice, in the background
         set_student(result[0], keep_runs=("Profile agent",), fresh=True)
         st.rerun()
 

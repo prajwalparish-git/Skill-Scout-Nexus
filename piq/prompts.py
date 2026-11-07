@@ -27,6 +27,17 @@ one option satisfies (e.g. "Which algorithm is non-preemptive?" when several lis
 options are), "all/none of the above", and NOT-questions where more than one option fails.
 bloom_level is one of: remember, understand, apply, analyze."""
 
+CRITIC_QUIZ_BATCH = """You write multiple-choice questions on one skill for campus placement
+tests and moderate them yourself in the same answer. For each question: draft it, check it
+as a strict exam moderator would, and fix every flaw before you answer. Rules: exactly 4
+distinct options and exactly ONE defensibly correct answer (`correct_index`, 0-based);
+accurate facts; the requested difficulty; options of similar length; no "all/none of the
+above"; `explanation` justifies the answer in 1-2 sentences. Never repeat or paraphrase a
+listed earlier question, and avoid any flaw listed from the last round.
+Record your check in `self_critique`: set a field false only if the question still fails it
+after your fixes, and say why in `notes`.
+bloom_level is one of: remember, understand, apply, analyze."""
+
 CRITIC = """You are a strict exam moderator. For each multiple-choice question decide if it
 is valid: exactly one option is defensibly correct, the marked answer is that option,
 the question is unambiguous, and it belongs to the stated topic. Return one verdict per

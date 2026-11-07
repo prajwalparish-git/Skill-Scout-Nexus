@@ -1,11 +1,14 @@
 """Critic Quiz Agent for Skill Scout Nexus (Layer 2 Multi-Agent Orchestration).
 
 Responsibilities:
-- Implements a Generator-Critic loop based on `docs/critic_graph.md`:
-    - Generator: Generates targeted technical/stream MCQs based on the student's skill gaps.
-    - Critic Agent: Validates question factual correctness, answer ambiguity, distractor viability,
-      and difficulty appropriateness. If rejected, regenerates.
-- Falls back to `data/questions/mcq_bank.csv` if offline or LLM fails.
+- Implements a Generator-Critic loop based on `docs/critic_graph.md`, one round trip per round:
+    - Generator + self-critique: a single structured JSON call writes the whole batch and the
+      model's own moderation of each question (facts, one correct answer, difficulty).
+    - Critic: deterministic checks (`validate_mcq_with_critic`) plus that self-verdict. Approved
+      questions are kept; the next round asks only for the ones still missing, with the
+      rejection reasons and the approved stems (so nothing is repeated).
+- Rounds exhausted: the approved questions are topped up from `data/questions/mcq_bank.csv`;
+  with none approved (or offline), the bank serves the whole quiz.
 - All outputs follow strict Pydantic schemas.
 """
 
@@ -18,7 +21,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from piq import llm, question_bank
+from piq import llm, prompts, question_bank
 from piq.config import DATA_DIR, settings
 
 log = logging.getLogger("agents.critic_quiz_agent")
@@ -276,8 +279,89 @@ def validate_mcq_with_critic(question: GeneratedMCQ, target_topic: str) -> Criti
     )
 
 
-class _RawGeneratedQuestionSet(BaseModel):
-    questions: list[GeneratedMCQ] = Field(min_length=1)
+class SelfCritique(BaseModel):
+    """The generator's own moderation of one question, written in the same response."""
+
+    factual_correctness: bool = Field(description="The facts and the keyed answer are accurate")
+    unambiguous: bool = Field(description="Exactly one option is defensibly correct")
+    difficulty_appropriate: bool = Field(description="Matches the requested difficulty")
+    notes: str = Field(default="", description="What was fixed, or why it still fails")
+
+
+class SelfCheckedMCQ(GeneratedMCQ):
+    self_critique: SelfCritique
+
+
+class SelfCheckedQuestionSet(BaseModel):
+    questions: list[SelfCheckedMCQ] = Field(min_length=1)
+
+
+def _stem(text: str) -> str:
+    return " ".join(text.lower().split())
+
+
+def review_question(question: SelfCheckedMCQ, skill: str, seen: set[str]) -> list[str]:
+    """Why a self-checked question is rejected ([] = approved): the deterministic critic, the
+    generator's own verdict, and a repeat of a question already approved."""
+    reasons = list(validate_mcq_with_critic(question, skill).rejection_reasons)
+    c = question.self_critique
+    failed = [
+        name
+        for name, ok in (
+            ("factual correctness", c.factual_correctness),
+            ("one correct answer", c.unambiguous),
+            ("difficulty", c.difficulty_appropriate),
+        )
+        if not ok
+    ]
+    if failed:
+        why = f": {c.notes}" if c.notes.strip() else "."
+        reasons.append(f"Its own check failed on {', '.join(failed)}{why}")
+    if _stem(question.text) in seen:
+        reasons.append("It repeats an approved question.")
+    return reasons
+
+
+def bank_quiz(
+    skill_gap: str,
+    target_role: str,
+    difficulty: str,
+    count: int,
+    notes: list[str],
+    attempts: int = 1,
+) -> QuizBatch:
+    """A quiz from the verified question bank: mock mode, the loop's last resort, and a page
+    that cannot wait for the generator (piq/journey.py)."""
+    return QuizBatch(
+        topic_or_skill=skill_gap,
+        target_role=target_role,
+        difficulty=difficulty,
+        source="question_bank_fallback",
+        questions=_load_bank_fallback_questions(skill_gap, target_role, difficulty, count),
+        attempts=attempts,
+        critic_notes=notes,
+    )
+
+
+def _round_prompt(
+    skill: str,
+    role: str,
+    difficulty: str,
+    need: int,
+    approved: list[GeneratedMCQ],
+    rejections: list[str],
+) -> str:
+    lines = [
+        f"Skill: {skill}",
+        f"Target role: {role}",
+        f"Difficulty: {difficulty}",
+        f"Number of questions: {need}",
+    ]
+    if approved:
+        lines += ["", "Already approved (do not repeat):", *(f"- {q.text}" for q in approved)]
+    if rejections:
+        lines += ["", "Rejected in the last round:", *(f"- {r}" for r in rejections[:5])]
+    return "\n".join(lines)
 
 
 def generate_critic_quiz(
@@ -290,127 +374,95 @@ def generate_critic_quiz(
 ) -> QuizBatch:
     """Executes the Generator-Critic Loop for targeted technical MCQs.
 
-    Workflow based on docs/critic_graph.md:
-    START -> Generator -> Critic Verify -> (Approved -> DONE | Rejected -> Regenerate)
-    If offline or repeated failures -> Fallback to data/questions/mcq_bank.csv.
+    Workflow based on docs/critic_graph.md, one LLM round trip per round:
+    START -> Generate + self-critique (one JSON call) -> Critic -> (all approved -> DONE |
+    some rejected -> ask for the missing ones only). Rounds exhausted -> top up from
+    data/questions/mcq_bank.csv; nothing approved or offline -> the bank serves the quiz.
 
     Args:
         skill_gap: Targeted skill gap or topic name.
         target_role: Target career role.
         difficulty: Desired difficulty ('easy', 'medium', 'hard').
         count: Number of questions to return.
-        max_retries: Retries allowed in the critic loop.
+        max_retries: Extra rounds allowed after the first.
         student_id: Optional tracking identifier.
 
     Returns:
         QuizBatch: Collection of validated MCQs with audit metadata.
     """
-    cfg = settings()
-
     # Mock mode serves the CSV bank at once. Live: the AI router picks a provider; when none
     # answers, the loop below ends in the same bank.
-    if cfg.mock_mode:
+    if settings().mock_mode:
         log.info("Running in mock/offline mode: serving from mcq_bank.csv")
-        bank_qs = _load_bank_fallback_questions(skill_gap, target_role, difficulty, count)
+        note = "Offline/Mock Mode: Questions fetched from verified question bank."
+        return bank_quiz(skill_gap, target_role, difficulty, count, [note])
+
+    approved: list[GeneratedMCQ] = []
+    seen: set[str] = set()
+    notes: list[str] = []
+    rejections: list[str] = []
+    attempt = 0
+    while attempt <= max_retries and len(approved) < count:
+        attempt += 1
+        need = count - len(approved)
+        try:
+            batch, _ = llm.call(
+                SelfCheckedQuestionSet,
+                agent="quiz",
+                system=prompts.CRITIC_QUIZ_BATCH,
+                user=_round_prompt(skill_gap, target_role, difficulty, need, approved, rejections),
+                context={"skill": skill_gap, "role": target_role, "attempt": attempt},
+                student_id=student_id,
+                size="large" if attempt > 1 else "small",
+                temperature=0.7,
+            )
+        except Exception as e:
+            log.warning("LLM call failed in critic quiz agent (attempt %d): %s", attempt, e)
+            notes.append(f"Attempt {attempt} error: {e}")
+            continue
+
+        rejections, kept = [], 0
+        for i, q in enumerate(batch.questions, start=1):
+            if len(approved) >= count:
+                break
+            reasons = review_question(q, skill_gap, seen)
+            if reasons:
+                rejections += [f"Question {i}: {r}" for r in reasons]
+                continue
+            data = q.model_dump(exclude={"self_critique"})
+            approved.append(
+                GeneratedMCQ.model_validate({**data, "skill_tag": q.skill_tag or skill_gap})
+            )
+            seen.add(_stem(q.text))
+            kept += 1
+        if kept < need:
+            detail = f": {'; '.join(rejections[:3])}" if rejections else ""
+            notes.append(f"Attempt {attempt}: {kept} of {need} approved{detail}")
+
+    if len(approved) >= count:
+        done = "Critic approved every question in one round trip."
         return QuizBatch(
             topic_or_skill=skill_gap,
             target_role=target_role,
             difficulty=difficulty,
-            source="question_bank_fallback",
-            questions=bank_qs,
-            attempts=1,
-            critic_notes=["Offline/Mock Mode: Questions fetched from verified question bank."],
+            source="critic_generated",
+            questions=approved[:count],
+            attempts=attempt,
+            critic_notes=notes or [done],
         )
-
-    # Online Generator-Critic Loop
-    system_prompt = (
-        "You are an expert technical interviewer and test creator. "
-        "Generate targeted technical multiple-choice questions focusing specifically on the "
-        "provided skill gap. "
-        "Rules: Exactly 4 distinct options, exactly 1 unambiguously correct option, clear "
-        "explanation, "
-        "no 'all/none of the above' options, balanced option lengths, realistic industrial "
-        "placement standards."
-    )
-
-    rejection_feedback = ""
-    attempt_count = 0
-    all_critic_notes: list[str] = []
-
-    while attempt_count <= max_retries:
-        attempt_count += 1
-        user_prompt = (
-            f"Target Skill Gap: {skill_gap}\n"
-            f"Target Role: {target_role}\n"
-            f"Difficulty: {difficulty}\n"
-            f"Number of Questions: {count}\n"
-            f"{rejection_feedback}\n\n"
-            "Return a _RawGeneratedQuestionSet with high-quality MCQs."
+    if approved:  # keep what the critic approved; the bank supplies the rest
+        extra = _load_bank_fallback_questions(
+            skill_gap, target_role, difficulty, count - len(approved)
         )
-
-        try:
-            raw_result, _ = llm.call(
-                _RawGeneratedQuestionSet,
-                agent="quiz",
-                system=system_prompt,
-                user=user_prompt,
-                context={"skill": skill_gap, "role": target_role, "attempt": attempt_count},
-                student_id=student_id,
-                size="large" if attempt_count > 1 else "small",
-                temperature=0.7,
-            )
-
-            # --- Critic Verification Phase ---
-            verified_questions: list[GeneratedMCQ] = []
-            batch_rejections: list[str] = []
-
-            for i, q in enumerate(raw_result.questions):
-                verdict = validate_mcq_with_critic(q, skill_gap)
-                if verdict.is_valid:
-                    verified_questions.append(q)
-                else:
-                    batch_rejections.extend(
-                        [f"Question {i + 1}: {r}" for r in verdict.rejection_reasons]
-                    )
-
-            if len(verified_questions) >= count:
-                # Generator succeeded and Critic approved!
-                return QuizBatch(
-                    topic_or_skill=skill_gap,
-                    target_role=target_role,
-                    difficulty=difficulty,
-                    source="critic_generated",
-                    questions=verified_questions[:count],
-                    attempts=attempt_count,
-                    critic_notes=all_critic_notes
-                    or ["Critic approved all questions on verification."],
-                )
-
-            # Prepare feedback for the retry loop
-            all_critic_notes.append(
-                f"Attempt {attempt_count} rejected: {'; '.join(batch_rejections[:3])}"
-            )
-            rejection_feedback = (
-                "\n\nCRITIC REJECTION NOTICE: Previous attempt had these flaws. "
-                "Fix them completely:\n" + "\n".join(f"- {r}" for r in batch_rejections[:5])
-            )
-
-        except Exception as e:
-            log.warning("LLM call failed in critic quiz agent (attempt %d): %s", attempt_count, e)
-            all_critic_notes.append(f"Attempt {attempt_count} error: {e}")
-
-    # If retries are exhausted or Critic rejects repeatedly, fall back to vetted Question Bank
+        return QuizBatch(
+            topic_or_skill=skill_gap,
+            target_role=target_role,
+            difficulty=difficulty,
+            source="critic_generated",
+            questions=approved + extra,
+            attempts=attempt,
+            critic_notes=[*notes, f"{len(extra)} question(s) added from the verified bank."],
+        )
     log.warning("Critic loop exhausted attempts; falling back to mcq_bank.csv")
-    fallback_qs = _load_bank_fallback_questions(skill_gap, target_role, difficulty, count)
-    return QuizBatch(
-        topic_or_skill=skill_gap,
-        target_role=target_role,
-        difficulty=difficulty,
-        source="question_bank_fallback",
-        questions=fallback_qs,
-        attempts=attempt_count,
-        critic_notes=[
-            *all_critic_notes,
-            "Fallback activated: Loaded vetted items from question bank.",
-        ],
-    )
+    fallback = "Fallback activated: Loaded vetted items from question bank."
+    return bank_quiz(skill_gap, target_role, difficulty, count, [*notes, fallback], attempt)

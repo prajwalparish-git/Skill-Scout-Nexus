@@ -257,7 +257,7 @@ def _get_curated_resources_for_skill(skill: str) -> list[ResourceLink]:
     return links[:3]
 
 
-def _build_fallback_roadmap(
+def build_fallback_roadmap(
     missing_skills: list[str], target_role: str, target_stream: str
 ) -> SevenDayRoadmap:
     """Builds a deterministic, rich 7-day roadmap when LLM is in mock mode or unavailable."""
@@ -359,7 +359,7 @@ def generate_study_roadmap(
     # Mock mode: the deterministic generator. Live: the AI router picks a provider, and any
     # failure (none answers) falls through to the same generator below.
     if cfg.mock_mode:
-        return _build_fallback_roadmap(missing_gap_skills, target_role, target_stream)
+        return build_fallback_roadmap(missing_gap_skills, target_role, target_stream)
 
     # LLM-guided roadmap generation with strict schema enforcement
     skills_context = (
@@ -400,4 +400,4 @@ def generate_study_roadmap(
         return roadmap
     except Exception:
         # Graceful, fault-tolerant failover to deterministic roadmap
-        return _build_fallback_roadmap(missing_gap_skills, target_role, target_stream)
+        return build_fallback_roadmap(missing_gap_skills, target_role, target_stream)

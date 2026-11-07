@@ -31,6 +31,7 @@ LAYERS = {
     "test_speech_router": ("Unit", "Layer 3 speech router: ElevenLabs and browser voice"),
     "test_load_balancer": ("Unit", "Layer 3 speed: key pool round robin, 429 failover, cache"),
     "test_offline": ("Unit", "Layer 3 offline tier: answers from data/"),
+    "test_preloader": ("Integration", "Layer 3 preloading: concurrent tasks, served once, on disk"),
     "test_graph": ("Unit", "LangGraph critic loop"),
     "test_resume": ("Unit", "Resume parsing"),
     "test_formatter": ("Unit", "Output layer"),

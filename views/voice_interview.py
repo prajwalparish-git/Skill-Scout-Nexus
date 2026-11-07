@@ -6,7 +6,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from piq import formatter, journey
-from piq.config import VOICE_RUBRIC_MAX
+from piq.config import VOICE_DEFAULT_CATEGORY, VOICE_RUBRIC_MAX
 from piq.services import ServiceError
 from piq.ui import Stat, page_header, require_profile, stat_row, status_badge
 
@@ -53,7 +53,7 @@ with setup, st.container(border=True):
     category = st.segmented_control(
         "Question type",
         journey.CATEGORIES,
-        default="situational",
+        default=VOICE_DEFAULT_CATEGORY,  # its question and audio are preloaded
         format_func=lambda c: CATEGORY_LABELS[c],
     )
     if st.button("Generate question", type="primary", icon=":material/play_circle:"):
@@ -85,6 +85,7 @@ with st.container(border=True):
     else:
         components.html(journey.browser_speech_html(vq.speech.text), height=48)
         st.caption("Spoken by your browser's own voice.")
+journey.preload_next_voice(sid, q.stream, q.category)  # the next type's audio, while they answer
 
 st.subheader("Your answer", anchor=False)
 st.audio_input("Record your answer", key=AUDIO)

@@ -132,9 +132,17 @@ def _store(path: Path, audio: bytes) -> None:
             Path(tmp).unlink(missing_ok=True)
 
 
-def synthesize(text: str) -> Speech:
+def needs_synthesis(text: str) -> bool:
+    """Would `synthesize(text)` call ElevenLabs? (A key is set, it is not paused and the clip
+    is not cached yet.) The preloader warms only these."""
+    spoken = clip(text)
+    return bool(spoken) and not elevenlabs_unavailable() and not audio_path(spoken).is_file()
+
+
+def synthesize(text: str, *, network: bool = True) -> Speech:
     """Cached or fresh ElevenLabs audio when a key is set, else a Speech the page renders with
-    the browser voice. Never raises, never asks for anything."""
+    the browser voice. Never raises, never asks for anything. `network=False`: a cached clip or
+    the browser voice, never a request (a preload is already synthesising this text)."""
     spoken = clip(text)
     if not spoken:
         return Speech(spoken, "browser", None, "nothing to say")
@@ -145,6 +153,8 @@ def synthesize(text: str) -> Speech:
                 return Speech(spoken, "elevenlabs", path.read_bytes())
         except OSError:
             pass
+    if not network:
+        return Speech(spoken, "browser", None, "the clip is still being prepared")
     why = elevenlabs_unavailable()
     if not why:
         try:

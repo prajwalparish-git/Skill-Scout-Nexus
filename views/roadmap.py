@@ -4,6 +4,7 @@
 import streamlit as st
 
 from piq import formatter, journey
+from piq.config import ROADMAP_DEFAULT_SKILLS
 from piq.services import URL_RE, ServiceError
 from piq.ui import page_header, require_profile
 
@@ -28,7 +29,7 @@ with st.container(border=True):
     chosen = st.multiselect(
         "Skills to cover",
         options,
-        default=gaps[:7],
+        default=gaps[:ROADMAP_DEFAULT_SKILLS],  # what the preloader wrote ahead
         help="Seven days fit up to seven skills well; more are shared across the days.",
     )
     st.caption(

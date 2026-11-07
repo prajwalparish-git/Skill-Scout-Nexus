@@ -66,6 +66,9 @@ project space for computing roles, and a personal dashboard.
 - **Self-healing AI.** Requests go to Groq first, then Google Gemini, then a local Ollama
   model, then built-in answers from the question bank. Several API keys can share the load
   in turn; a key that hits its rate limit rests while the next one answers.
+- **No waiting between steps.** The moment a resume is scanned, the roadmap, the first quiz
+  and the voice questions are written in the background, so each next step opens on a
+  finished result.
 - **Never blocks on the network.** Records are saved to a local SQLite database at once and
   copied to a cloud PostgreSQL (such as Supabase) in the background, catching up after an
   outage.
@@ -199,6 +202,7 @@ flowchart LR
     subgraph Routers["core/"]
         R["AI router<br/>Groq → Gemini → Ollama → built-in"]
         SP["speech router<br/>ElevenLabs → browser"]
+        PL["preloader<br/>next steps in the background"]
     end
     subgraph Data["Storage"]
         DB[("SQLite<br/>app data")]
@@ -206,6 +210,7 @@ flowchart LR
     end
     V --> S
     S --> A
+    S --> PL --> A
     S --> G --> L --> R
     A --> L
     A --> SP

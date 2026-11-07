@@ -667,6 +667,7 @@ class ProviderStatus:
     label: str
     state: State
     detail: str
+    keys: int = 0  # API keys in the provider's round-robin pool (0: it has no pool)
 
 
 def status() -> list[ProviderStatus]:
@@ -677,17 +678,18 @@ def status() -> list[ProviderStatus]:
         why = provider.unavailable()
         b = breaker(name)
         pool = getattr(provider, "pool", None)
+        keys = len(pool()) if pool else 0
         if why:
-            out.append(ProviderStatus(name, LABELS[name], "off", why))
+            out.append(ProviderStatus(name, LABELS[name], "off", why, keys))
         elif not b.allow():
             detail = f"Paused for {b.retry_in():.0f} s: {b.reason}"
-            out.append(ProviderStatus(name, LABELS[name], "paused", detail))
+            out.append(ProviderStatus(name, LABELS[name], "paused", detail, keys))
         elif pool and not pool().available_count():
             rest = pool().retry_in()
             detail = f"All keys resting after rate limits; back in {rest:.0f} s"
-            out.append(ProviderStatus(name, LABELS[name], "paused", detail))
+            out.append(ProviderStatus(name, LABELS[name], "paused", detail, keys))
         else:
-            out.append(ProviderStatus(name, LABELS[name], "ready", provider.detail()))
+            out.append(ProviderStatus(name, LABELS[name], "ready", provider.detail(), keys))
     return out
 
 

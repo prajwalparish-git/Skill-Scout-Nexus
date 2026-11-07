@@ -183,6 +183,7 @@ def isolated_env(tmp: Path, base: dict[str, str] | None = None) -> dict[str, str
         MOCK_MODE="true",
         SEED_DEMO="true",
         DB_PATH=str(tmp / "screenshots.db"),
+        PRELOAD_CACHE_DIR=str(tmp / "preload"),  # speculative results stay out of data/
         PYTHONIOENCODING="utf-8",
     )
     return env

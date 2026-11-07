@@ -64,6 +64,15 @@ TTS_MAX_CHARS = 2500  # text sent for synthesis; longer text is cut at the last 
 # --- the six-step journey and the faculty dashboard (piq/journey.py, piq/cohort.py) ----------
 CRITIC_QUIZ_SIZES = (3, 5, 10)  # questions a critic-checked quiz can have
 CRITIC_QUIZ_DEFAULT = 5
+CRITIC_QUIZ_DEFAULT_DIFFICULTY = "medium"
+ROADMAP_DEFAULT_SKILLS = 7  # gaps the roadmap page preselects: seven days, one skill each
+VOICE_DEFAULT_CATEGORY = "situational"  # the voice page's preselected question type
+# Speculative preloading (core/preloader.py): the next steps' content is written in the
+# background while the student reads the current one.
+PRELOAD_WORKERS = 4
+PRELOAD_WAIT_S = 1.5  # a page waits this long for a preload still running, then falls back
+PRELOAD_TTL_S = 24 * 3600  # an unused preload is dropped after this
+PRELOAD_QUIZ_SKILLS = 1  # skills quizzed ahead of time: the top gap, the page's default
 # A student's placement readiness (0-100) for the faculty report: the weighted mean of what
 # they have done: resume match (%), quiz average (%), voice rubric (scaled to %). Weights of
 # missing parts are spread over the rest; with none done the student is "Not assessed".
@@ -247,6 +256,9 @@ class Settings:
     elevenlabs_api_key: str = ""
     elevenlabs_voice_id: str = ""
     elevenlabs_model: str = ""
+    # core/preloader.py: false stops speculative generation (saves quota; pages work as before).
+    preload: bool = True
+    preload_cache_dir: Path = DATA_DIR / ".preload_cache"
     # app.py shows a friendly message for a crashed page; tests set PIQ_RAISE_ERRORS=1 so
     # AppTest sees the exception instead.
     raise_page_errors: bool = False
@@ -322,6 +334,8 @@ def settings() -> Settings:
         elevenlabs_api_key=os.getenv("ELEVENLABS_API_KEY", "").strip(),
         elevenlabs_voice_id=os.getenv("ELEVENLABS_VOICE_ID", "").strip(),
         elevenlabs_model=os.getenv("ELEVENLABS_MODEL", "").strip(),
+        preload=_flag("PRELOAD", "true"),
+        preload_cache_dir=Path(os.getenv("PRELOAD_CACHE_DIR", str(DATA_DIR / ".preload_cache"))),
         raise_page_errors=_flag("PIQ_RAISE_ERRORS", "false"),
     )
     if not s.mock_mode:

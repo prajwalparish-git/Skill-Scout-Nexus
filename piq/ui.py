@@ -81,9 +81,10 @@ def student_count() -> int:
     return st.session_state.get("student_count", 0)
 
 
-def sidebar_context(mock_mode: bool, ai: str = "") -> None:
-    """Under the student picker: their readiness at a glance and a quiet badge naming who
-    answers: mock mode, the AI provider in use (Layer 3), or the offline rules."""
+def sidebar_context(mock_mode: bool, ai: str = "", engine: str = "") -> None:
+    """Under the student picker: their readiness at a glance, a quiet badge naming who
+    answers (mock mode, the AI provider in use, or the offline rules) and, last, the
+    engine line: AI, records and preloader (journey.engine_status)."""
     with st.sidebar:
         if student := current_student():
             score = student["readiness_score"] or 0
@@ -110,6 +111,8 @@ def sidebar_context(mock_mode: bool, ai: str = "") -> None:
                 color="gray",
                 help="The first healthy provider answers; others take over if it fails.",
             )
+        if engine:  # small print at the foot: for whoever runs the demo, not the student
+            st.caption(f":material/memory: {formatter.md_escape(engine)}")
 
 
 def require_profile() -> tuple[str, StudentProfile]:

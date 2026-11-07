@@ -113,6 +113,7 @@ def main() -> int:
         TELEMETRY_DB_PATH=str(tmp / "telemetry.db"),
         AI_CACHE_PATH=str(tmp / "ai_cache.json"),
         AUDIO_CACHE_DIR=str(tmp / "audio"),
+        PRELOAD_CACHE_DIR=str(tmp / "preload"),
     )
     for key in ("DATABASE_URL", "SUPABASE_DB_URL", "GROQ_API_KEY", "GROQ_API_KEYS", "SEED_DEMO"):
         os.environ.pop(key, None)

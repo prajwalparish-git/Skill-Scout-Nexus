@@ -25,10 +25,12 @@ from pydantic import BaseModel, Field
 from core import speech_router
 
 log = logging.getLogger("agents.voice_interview_agent")
+Category = Literal["technical", "behavioral", "situational"]
+CATEGORIES: tuple[Category, ...] = ("technical", "behavioral", "situational")
 
 
 class VoiceInterviewQuestion(BaseModel):
-    category: Literal["technical", "behavioral", "situational"]
+    category: Category
     stream: str = Field(
         description="Target discipline / stream (Engineering, Commerce, Law, Management)"
     )
@@ -221,6 +223,14 @@ DOMAIN_SCENARIOS: dict[str, list[dict[str, str]]] = {
 }
 
 
+STREAMS = tuple(DOMAIN_SCENARIOS)  # the streams with their own scenario bank
+
+
+def bank_stream(stream: str) -> str:
+    """The scenario bank for a catalog stream (one without its own bank: Engineering)."""
+    return stream if stream in DOMAIN_SCENARIOS else "Engineering"
+
+
 def synthesize_speech_elevenlabs(text: str, api_key: str | None = None) -> tuple[bytes | None, str]:
     """(MP3 bytes, "elevenlabs") or (None, "browser_fallback"). core/speech_router.py does the
     work: ELEVENLABS_API_KEY from .env, a circuit breaker, and no exception ever escapes.
@@ -252,7 +262,7 @@ def get_stream_from_role_or_domain(role: str, domain_id: str = "") -> str:
 def generate_voice_interview_question(
     target_role: str,
     stream: str | None = None,
-    category: Literal["technical", "behavioral", "situational"] | None = None,
+    category: Category | None = None,
     include_audio: bool = True,
     elevenlabs_key: str | None = None,
 ) -> VoiceInterviewQuestion:

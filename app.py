@@ -44,7 +44,8 @@ def _startup() -> None:
 _startup()
 
 student_selector()
-sidebar_context(mock_mode=cfg.mock_mode, ai=journey.active_ai())
+engine = journey.engine_status()  # one router check feeds both the badge and the footer line
+sidebar_context(mock_mode=cfg.mock_mode, ai=engine.active_ai, engine=engine.line)
 
 # Computing domains get a Project space; the selected student's row already names the role.
 student = current_student()

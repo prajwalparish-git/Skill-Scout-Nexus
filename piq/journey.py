@@ -8,22 +8,33 @@ Agents degrade on their own (the AI router, question bank, curated roadmaps, rub
 so a result always comes back. Telemetry is best-effort: a write that fails is logged and
 reported as `saved=False`, never raised, so a storage problem never costs a student a result.
 Bad input raises services.ServiceError with a message safe to show.
+
+Steps 3 to 5 are preloaded (core/preloader.py): a scan or onboarding starts the roadmap, the
+first quiz and the voice questions in the background, so the pages take a finished result
+instead of generating one. Preloading is best-effort too: it never raises, and a page that
+finds nothing preloaded generates as before.
 """
 
 import logging
 from dataclasses import dataclass, field
-from typing import Literal
+from urllib.parse import urlsplit
 
-from agents.critic_quiz_agent import GeneratedMCQ, QuizBatch, generate_critic_quiz
+from agents.critic_quiz_agent import GeneratedMCQ, QuizBatch, bank_quiz
 from agents.resume_parser_agent import ResumeAnalysisResult, parse_resume
 from agents.rubric_evaluator_agent import (
     RubricEvaluationResult,
     evaluate_rubric_answer,
     transcribe_audio_with_whisper,
 )
-from agents.study_planner_agent import SevenDayRoadmap, generate_study_roadmap
-from agents.voice_interview_agent import VoiceInterviewQuestion, generate_voice_interview_question
-from core import ai_router, speech_router
+from agents.study_planner_agent import SevenDayRoadmap, build_fallback_roadmap
+from agents.voice_interview_agent import (
+    CATEGORIES,
+    STREAMS,
+    Category,
+    VoiceInterviewQuestion,
+    bank_stream,
+)
+from core import ai_router, preloader, speech_router
 from core.speech_router import Speech
 from database import crud
 from database.connection import get_manager
@@ -32,9 +43,7 @@ from piq.config import CRITIC_QUIZ_SIZES, DIFFICULTIES, settings
 from piq.services import MAX_ANSWER_CHARS, SAMPLES_DIR, ServiceError, sample_resumes
 
 log = logging.getLogger("piq.journey")
-VOICE_STREAMS = ("Engineering", "Commerce", "Law", "Management")  # the agent's scenario banks
-Category = Literal["technical", "behavioral", "situational"]
-CATEGORIES: tuple[Category, ...] = ("technical", "behavioral", "situational")
+VOICE_STREAMS = STREAMS  # the agent's scenario banks (CATEGORIES too, for the voice page)
 
 
 # --- who and where ----------------------------------------------------------------------------
@@ -79,7 +88,7 @@ def roles_in(domain_id: str) -> list[str]:
 
 def voice_stream(stream: str) -> str:
     """The agent's scenario bank for a catalog stream (one without its own bank: Engineering)."""
-    return stream if stream in VOICE_STREAMS else "Engineering"
+    return bank_stream(stream)
 
 
 # --- telemetry: best-effort -------------------------------------------------------------------
@@ -196,6 +205,59 @@ def role_skills(role: str) -> list[str]:
     return list(syllabus.role_skills().get(role, {}))
 
 
+def quiz_skills(student_id: str) -> list[str]:
+    """The skills the quiz page offers, in order: the gaps, then the role's other skills."""
+    gaps, _ = latest_gaps(student_id)
+    return list(dict.fromkeys([*gaps, *role_skills(student(student_id).target_role)]))
+
+
+# --- preloading: the next steps, written in the background ------------------------------------
+
+
+def preload_next_steps(student_id: str) -> list[str]:
+    """After onboarding or a scan: start the roadmap, the first quiz and the voice questions
+    with exactly the inputs those pages preselect. Returns the task keys started; never
+    raises (a page with nothing preloaded generates as before)."""
+    try:
+        s = student(student_id)
+        gaps, _ = latest_gaps(student_id)
+        matched = [k for k in role_skills(s.target_role) if k not in gaps]
+        return preloader.get_preloader().trigger_post_resume_preload(
+            s.id, s.stream, s.target_role, matched, gaps
+        )
+    except Exception:
+        log.exception("preload: could not start the next steps for %s", student_id)
+        return []
+
+
+def preload_next_quiz(student_id: str, batch: QuizBatch) -> list[str]:
+    """While a quiz is open: write the next set on the same skill, difficulty and size."""
+    try:
+        s = student(student_id)
+        return preloader.get_preloader().trigger_quiz_next_batch_preload(
+            s.id, s.target_role, [batch.topic_or_skill], batch.difficulty, len(batch.questions)
+        )
+    except Exception:
+        log.exception("preload: could not start the next quiz for %s", student_id)
+        return []
+
+
+def next_category(category: Category) -> Category:
+    return CATEGORIES[(CATEGORIES.index(category) + 1) % len(CATEGORIES)]
+
+
+def preload_next_voice(student_id: str, stream: str, category: Category) -> list[str]:
+    """While a voice question is open: ready the next type's question and synthesise it."""
+    try:
+        s = student(student_id)
+        return preloader.get_preloader().preload_voice_question(
+            s.id, s.target_role, stream, next_category(category), speak=True
+        )
+    except Exception:
+        log.exception("preload: could not start the next voice question for %s", student_id)
+        return []
+
+
 # --- step 3: 7-day roadmap --------------------------------------------------------------------
 
 
@@ -230,10 +292,15 @@ def roadmaps(student_id: str) -> list[Roadmap]:
 
 
 def build_roadmap(student_id: str, gaps: list[str]) -> tuple[Roadmap, bool]:
-    """A new 7-day roadmap for the gaps, saved as the next week."""
+    """A new 7-day roadmap for the gaps, saved as the next week: the preloaded one when it is
+    ready, the curated one when it is still being written, else written now."""
     s = student(student_id)
-    gaps = [g.strip() for g in gaps if g.strip()]
-    plan = generate_study_roadmap(gaps, s.target_role, s.stream, student_id=s.id)
+    gaps = preloader.clean_skills(gaps)
+    plan = preloader.get_preloader().get_or_wait(
+        preloader.roadmap_key(s.id, s.target_role, s.stream, gaps),
+        lambda: build_fallback_roadmap(gaps, s.target_role, s.stream),
+        on_miss=lambda: preloader.make_roadmap(s.id, s.target_role, s.stream, gaps),
+    )
     weeks = [r.week for r in roadmaps(student_id)]
     week = max(weeks, default=0) + 1
     try:
@@ -286,13 +353,13 @@ def critic_quiz(student_id: str, skill: str, difficulty: str, count: int) -> Qui
         raise ServiceError(f"Difficulty must be one of {', '.join(DIFFICULTIES)}.")
     if count not in CRITIC_QUIZ_SIZES:
         raise ServiceError(f"A quiz has {', '.join(map(str, CRITIC_QUIZ_SIZES))} questions.")
-    return generate_critic_quiz(
-        skill,
-        s.target_role,
-        difficulty,  # type: ignore[arg-type]
-        count,
-        max_retries=settings().max_critic_retries,
-        student_id=s.id,
+    # Preloaded: at once. Still being checked: the verified bank now (the checked set is kept
+    # for the next request). Nothing preloaded: the generator-critic loop runs now.
+    still_writing = "The checked questions were still being written; these are from the bank."
+    return preloader.get_preloader().get_or_wait(
+        preloader.quiz_key(s.id, s.target_role, skill, difficulty, count),
+        lambda: bank_quiz(skill, s.target_role, difficulty, count, [still_writing]),
+        on_miss=lambda: preloader.make_quiz(s.id, s.target_role, skill, difficulty, count),
     )
 
 
@@ -334,10 +401,19 @@ def voice_question(student_id: str, stream: str, category: Category | None) -> V
     s = student(student_id)
     if category is not None and category not in CATEGORIES:
         raise ServiceError(f"Question type must be one of {', '.join(CATEGORIES)}.")
-    q = generate_voice_interview_question(
-        s.target_role, stream=voice_stream(stream), category=category, include_audio=False
+    p = preloader.get_preloader()
+
+    def ask() -> VoiceInterviewQuestion:  # a bank pick: instant, so it is also the fallback
+        return preloader.make_voice_question(s.target_role, stream, category)
+
+    q = p.get_or_wait(preloader.voice_key(s.id, s.target_role, stream, category), ask)
+    # Audio still being synthesised: the browser voice now, never a second paid request.
+    speech = p.get_or_wait(
+        preloader.audio_key(q.question_text),
+        lambda: speech_router.synthesize(q.question_text, network=False),
+        on_miss=lambda: speech_router.synthesize(q.question_text),
     )
-    return VoiceQuestion(q, speech_router.synthesize(q.question_text))
+    return VoiceQuestion(q, speech)
 
 
 def browser_speech_html(text: str) -> str:
@@ -423,6 +499,49 @@ class ServiceStatus:
     voice: str
     voice_detail: str
     telemetry: str
+
+
+@dataclass(frozen=True)
+class EngineStatus:
+    active_ai: str  # as active_ai(): the sidebar badge
+    ai: str
+    db: str
+    preloader: str
+
+    @property
+    def line(self) -> str:
+        return f"AI: {self.ai} · DB: {self.db} · Preloader: {self.preloader}"
+
+
+def _db_engine() -> str:
+    try:
+        sync = crud.sync_status()
+    except Exception:
+        log.exception("telemetry: status unavailable")
+        return "unavailable"
+    if not sync.cloud_configured:
+        return "local WAL"
+    host = urlsplit(settings().database_url).hostname or ""
+    cloud = "Supabase" if host.endswith("supabase.com") else "cloud"
+    if sync.state == "offline":
+        return f"local WAL + {cloud} sync (offline, {sync.pending} waiting)"
+    waiting = f" ({sync.pending} waiting)" if sync.pending else ""
+    return f"local WAL + {cloud} sync{waiting}"
+
+
+def engine_status() -> EngineStatus:
+    """The sidebar footer, from one router check per run: who answers (and over how many
+    keys), where records go, and the preloader. Keys are counted, never shown or asked for."""
+    if settings().mock_mode:
+        active, ai = "Mock mode", "mock mode"
+    else:
+        ready = next((p for p in ai_router.status() if p.state == "ready"), None)
+        if ready is None:
+            active, ai = "Offline rules", "built-in answers"
+        else:
+            active = ready.label
+            ai = f"{ready.label} LB ({ready.keys} keys)" if ready.keys > 1 else ready.label
+    return EngineStatus(active, ai, _db_engine(), preloader.get_preloader().status().label)
 
 
 def service_status() -> ServiceStatus:

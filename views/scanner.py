@@ -51,6 +51,7 @@ with st.container(border=True):
                 name, data = (upload.name, upload.getvalue()) if upload else ("", b"")
             with st.spinner("Reading the resume"):
                 st.session_state[SCAN] = journey.scan_resume(sid, name, data, role)
+            journey.preload_next_steps(sid)  # roadmap, quiz and voice, in the background
         except ServiceError as e:
             st.error(formatter.md_escape(str(e)), icon=":material/error:")
 

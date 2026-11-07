@@ -4,7 +4,12 @@ before the student sees it (agents/critic_quiz_agent.py); the score is recorded.
 import streamlit as st
 
 from piq import formatter, journey
-from piq.config import CRITIC_QUIZ_DEFAULT, CRITIC_QUIZ_SIZES, DIFFICULTIES
+from piq.config import (
+    CRITIC_QUIZ_DEFAULT,
+    CRITIC_QUIZ_DEFAULT_DIFFICULTY,
+    CRITIC_QUIZ_SIZES,
+    DIFFICULTIES,
+)
 from piq.services import ServiceError
 from piq.ui import Stat, page_header, require_profile, stat_row, status_badge
 
@@ -17,9 +22,7 @@ page_header(
     "rewritten, and the verified question bank fills any gap.",
 )
 sid, _ = require_profile()
-me = journey.student(sid)
-gaps, _ = journey.latest_gaps(sid)
-skills = list(dict.fromkeys([*gaps, *journey.role_skills(me.target_role)]))
+skills = journey.quiz_skills(sid)  # the gaps first: the first one is quizzed ahead of time
 
 with st.form("cq_setup", border=True):
     skill = st.selectbox(
@@ -27,14 +30,20 @@ with st.form("cq_setup", border=True):
     )
     left, right = st.columns(2)
     difficulty = left.segmented_control(
-        "Difficulty", DIFFICULTIES, default="medium", format_func=str.capitalize
+        "Difficulty",
+        DIFFICULTIES,
+        default=CRITIC_QUIZ_DEFAULT_DIFFICULTY,
+        format_func=str.capitalize,
     )
     count = right.segmented_control("Questions", CRITIC_QUIZ_SIZES, default=CRITIC_QUIZ_DEFAULT)
     if st.form_submit_button("Generate quiz", type="primary", icon=":material/quiz:"):
         try:
             with st.spinner("Writing questions and checking each one"):
                 st.session_state[BATCH] = journey.critic_quiz(
-                    sid, skill or "", difficulty or "medium", count or CRITIC_QUIZ_DEFAULT
+                    sid,
+                    skill or "",
+                    difficulty or CRITIC_QUIZ_DEFAULT_DIFFICULTY,
+                    count or CRITIC_QUIZ_DEFAULT,
                 )
             st.session_state[GRADE] = None
             st.session_state[ROUND] = st.session_state.get(ROUND, 0) + 1
@@ -58,6 +67,8 @@ with st.container(border=True):
 
 grade: journey.QuizGrade | None = st.session_state.get(GRADE)
 n = st.session_state.get(ROUND, 0)
+if grade is None:  # the form gives no rerun per answer: write the next set as the quiz opens
+    journey.preload_next_quiz(sid, batch)
 with st.form(f"cq_answers_{n}", border=False):
     answers: list[int | None] = []
     for i, q in enumerate(batch.questions):
