@@ -278,6 +278,9 @@ def password_banner(student: dict) -> None:
 def org_progress_card(student_id: str | None) -> None:
     """An organization's student: where they stand against its pass marks, stage by stage,
     and what is next. Nothing for an individual learner."""
+    me = current_student()
+    if not me or me.get("org_id") is None:  # an individual learner: no query, no card
+        return
     progress = orgs.student_progress(student_id)
     if progress is None:
         return
