@@ -16,6 +16,7 @@ finds nothing preloaded generates as before.
 """
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
@@ -525,7 +526,12 @@ def critic_quiz(student_id: str, skill: str, difficulty: str, count: int) -> Qui
     )
 
 
-def grade_quiz(student_id: str, batch: QuizBatch, answers: list[int | None]) -> QuizGrade:
+def grade_quiz(
+    student_id: str,
+    batch: QuizBatch,
+    answers: list[int | None],
+    proctor_flags: Sequence[str] = (),
+) -> QuizGrade:
     """Mark the answers (None = skipped) and record the attempt."""
     s = student(student_id)
     if len(answers) != len(batch.questions):
@@ -538,7 +544,9 @@ def grade_quiz(student_id: str, batch: QuizBatch, answers: list[int | None]) -> 
         + " ".join(batch.critic_notes)
     )
     try:
-        crud.save_quiz_attempt(_telemetry_id(s), s.stream, s.domain, score, total, notes)
+        crud.save_quiz_attempt(
+            _telemetry_id(s), s.stream, s.domain, score, total, notes, proctor_flags=proctor_flags
+        )
         saved = True
     except Exception:
         log.exception("telemetry: could not save the quiz for %s", s.username)
@@ -559,10 +567,28 @@ class VoiceQuestion:
     speech: Speech
 
 
-def voice_question(student_id: str, stream: str, category: Category | None) -> VoiceQuestion:
+def voice_question(
+    student_id: str,
+    stream: str,
+    category: Category | None,
+    custom_question: str | None = None,
+) -> VoiceQuestion:
     s = student(student_id)
     if category is not None and category not in CATEGORIES:
         raise ServiceError(f"Question type must be one of {', '.join(CATEGORIES)}.")
+
+    if custom_question:
+        from agents.voice_interview_agent import generate_voice_interview_question
+        q = generate_voice_interview_question(
+            s.target_role,
+            stream=stream,
+            category=category or "technical",
+            include_audio=False,
+            custom_question=custom_question,
+        )
+        speech = speech_router.synthesize(q.question_text)
+        return VoiceQuestion(q, speech)
+
     p = preloader.get_preloader()
 
     def ask() -> VoiceInterviewQuestion:  # a bank pick: instant, so it is also the fallback
@@ -594,7 +620,12 @@ class VoiceResult:
     saved: bool
 
 
-def assess_answer(student_id: str, question: VoiceInterviewQuestion, answer: str) -> VoiceResult:
+def assess_answer(
+    student_id: str,
+    question: VoiceInterviewQuestion,
+    answer: str,
+    proctor_flags: Sequence[str] = (),
+) -> VoiceResult:
     s = student(student_id)
     answer = answer.strip()
     if not answer:
@@ -610,6 +641,7 @@ def assess_answer(student_id: str, question: VoiceInterviewQuestion, answer: str
         + [f"Strength: {x}" for x in result.strengths]
         + [f"Improve: {x}" for x in result.areas_for_improvement]
     )
+    all_flags = list(dict.fromkeys([*result.gap_flags.flag_details, *proctor_flags]))
     try:
         crud.save_voice_session(
             _telemetry_id(s),
@@ -619,7 +651,7 @@ def assess_answer(student_id: str, question: VoiceInterviewQuestion, answer: str
             r.verbal_clarity_star,
             r.content_knowledge,
             feedback,
-            result.gap_flags.flag_details,
+            all_flags,
         )
         saved = True
     except Exception:

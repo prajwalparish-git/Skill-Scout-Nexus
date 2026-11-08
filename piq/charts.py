@@ -788,6 +788,26 @@ def tier_bars(tiers: Sequence[tuple[str, int]]) -> alt.Chart:
     )
 
 
+def momentum_bars(stages: Sequence[tuple[str, int]]) -> alt.Chart:
+    """How many students are in each momentum stage:
+    Placement Ready, On Track, Falling Behind, Stalled."""
+    df = pd.DataFrame(stages, columns=["stage", "students"])
+    total = max(1, int(df["students"].sum()) if len(df) else 1)
+    df["label"] = [f"{s}  {n}" for s, n in zip(df["stage"], df["students"], strict=True)]
+    df["share"] = df["students"] / total
+    return _label_bars(
+        df,
+        value="students",
+        top=total,
+        fmt="d",
+        tooltip=[
+            alt.Tooltip("stage:N", title="Momentum Stage"),
+            alt.Tooltip("students:Q", title="Students"),
+            alt.Tooltip("share:Q", title="Share of the batch", format=".0%"),
+        ],
+    )
+
+
 def percent_bars(items: Sequence[tuple[str, float]], noun: str = "Score") -> alt.Chart:
     """Scores out of 100 per name (one student's average per topic), lowest first so the
     weakest topic leads."""
@@ -857,6 +877,15 @@ def tier_spec(tiers: Sequence[tuple[str, int]]) -> dict:
 @lru_cache(maxsize=64)
 def _tier_json(tiers: tuple[tuple[str, int], ...]) -> str:
     return json.dumps(to_spec(tier_bars(tiers)))
+
+
+def momentum_spec(stages: Sequence[tuple[str, int]]) -> dict:
+    return json.loads(_momentum_json(tuple(stages)))
+
+
+@lru_cache(maxsize=64)
+def _momentum_json(stages: tuple[tuple[str, int], ...]) -> str:
+    return json.dumps(to_spec(momentum_bars(stages)))
 
 
 def percent_bars_spec(items: Sequence[tuple[str, float]], noun: str = "Score") -> dict:

@@ -173,6 +173,38 @@ def _overview() -> None:
         )
 
     with st.container(border=True):
+        st.subheader("Learner Momentum Radar", anchor=False)
+        m_mix = org_insights.momentum_mix(rows, cut, now)
+        m_counts = dict(m_mix)
+        mc1, mc2, mc3, mc4 = st.columns(4)
+        mc1.metric(
+            "🟢 Placement Ready",
+            m_counts.get("Placement Ready", 0),
+            help="Resume scanned, >70% plan done, cutoffs cleared",
+        )
+        mc2.metric(
+            "🔵 On Track",
+            m_counts.get("On Track", 0),
+            help="Active in last 3 days, making study plan progress",
+        )
+        mc3.metric(
+            "🟡 Falling Behind",
+            m_counts.get("Falling Behind", 0),
+            help="Active, but <30% plan done or failing cutoffs",
+        )
+        mc4.metric(
+            "🔴 Stalled",
+            m_counts.get("Stalled", 0),
+            help="Provisioned, but 0 activity in last 5 days",
+        )
+        st.vega_lite_chart(charts.momentum_spec(m_mix), width="stretch")
+        st.caption(
+            "Learner momentum categorizes student activity into 4 stages: Placement Ready, "
+            "On Track, Falling Behind, and Stalled. Students in Falling Behind or Stalled "
+            "states can be nudged with a personalized email in the Students tab."
+        )
+
+    with st.container(border=True):
         by = st.segmented_control(
             "Compare by", ["Main domain", "Subdomain"], default="Main domain", key="org_perf_by"
         )
@@ -490,6 +522,9 @@ def _directory() -> None:
         selection_mode="single-row",
         key="org_dir",
         column_config={
+            "Momentum Status": st.column_config.TextColumn(
+                "Momentum Status", help="Current learner momentum stage"
+            ),
             "Readiness": st.column_config.ProgressColumn(
                 "Readiness", min_value=0, max_value=100, format="%.0f"
             ),
@@ -714,6 +749,28 @@ def _actions(sid: str, acct: dict, row, cand) -> None:  # type: ignore[no-untype
                 st.error(formatter.md_escape(str(e)), icon=":material/error:")
             else:
                 st.rerun()
+        momentum = org_insights.calculate_learner_momentum(row, cut)
+        if momentum.stage in ("Falling Behind", "Stalled"):
+            st.markdown("**Learner Momentum Nudge**")
+            st.caption(
+                f"Status: {momentum.badge} — {momentum.reason} "
+                "Send an encouraging email with their pending roadmap tasks."
+            )
+            if st.button(
+                "Send Nudge Email",
+                icon=":material/outgoing_mail:",
+                type="primary",
+                key=f"org_nudge_{sid}",
+            ):
+                try:
+                    orgs.send_student_nudge(org.id, acct["username"])
+                except services.ServiceError as e:
+                    st.error(formatter.md_escape(str(e)), icon=":material/error:")
+                else:
+                    st.toast(
+                        f"Nudge email sent to {acct['email'] or acct['username']}.",
+                        icon=":material/mark_email_read:",
+                    )
     with right, st.container(border=True):
         st.markdown("**Domain, subdomain and role**")
         streams = orgs.streams()

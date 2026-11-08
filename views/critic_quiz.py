@@ -3,6 +3,7 @@ before the student sees it (agents/critic_quiz_agent.py); the score is recorded.
 
 import streamlit as st
 
+from core import proctor_guard
 from piq import formatter, journey
 from piq.config import (
     CRITIC_QUIZ_DEFAULT,
@@ -67,6 +68,17 @@ with st.container(border=True):
 
 grade: journey.QuizGrade | None = st.session_state.get(GRADE)
 n = st.session_state.get(ROUND, 0)
+
+if grade is None:
+    proctor_guard.render_proctor_guard(page_type="critic_quiz")
+    proctor_guard.render_warning_banner()
+    if proctor_guard.is_breached():
+        answers = [st.session_state.get(f"cq{n}_{i}") for i in range(len(batch.questions))]
+        st.session_state[GRADE] = grade = journey.grade_quiz(
+            sid, batch, answers, proctor_flags=[proctor_guard.FLAG_PROCTOR_BREACH]
+        )
+        st.rerun()
+
 if grade is None:  # the form gives no rerun per answer: write the next set as the quiz opens
     journey.preload_next_quiz(sid, batch)
 with st.form(f"cq_answers_{n}", border=False):
@@ -94,6 +106,13 @@ if submitted:
 
 if grade is None:
     st.stop()
+
+if proctor_guard.is_breached():
+    st.error(
+        "🚨 **PROCTOR BREACH:** This quiz was force-submitted due to 3 proctoring violations "
+        "(tab switching, window blur, or camera absence).",
+        icon=":material/gavel:",
+    )
 
 skipped = sum(st.session_state.get(f"cq{n}_{i}") is None for i in range(grade.total))
 stat_row(

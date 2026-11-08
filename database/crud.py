@@ -357,6 +357,7 @@ def save_quiz_attempt(
     score: int,
     total_questions: int,
     critique_notes: str | None = None,
+    proctor_flags: Sequence[str] = (),
     db: DatabaseManager | None = None,
 ) -> QuizAttempt:
     total = int(total_questions)
@@ -369,6 +370,7 @@ def save_quiz_attempt(
         "score": int(_in_range(int(score), 0, total, "Score")),
         "total_questions": total,
         "critique_notes": (critique_notes or "").strip() or None,
+        "proctor_flags": _strings(proctor_flags, "Proctor flags"),
     }
     return _db(db).write(lambda s: _insert(s, QuizAttempt, values), "quiz")
 

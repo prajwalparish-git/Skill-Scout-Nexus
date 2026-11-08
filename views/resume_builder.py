@@ -9,12 +9,15 @@ from functools import partial
 
 import streamlit as st
 
+from core import github_readme as gh
 from piq import charts, formatter, resume_builder, services, ui
 from piq.config import EXPERIENCE_TYPES, RESUME_MAX_EDUCATION, RESUME_MAX_EXPERIENCE
 
 BUILT = "built_resume"  # (domain id, resume dict, ATS result) of the last Generate
 SAVED = "resume_saved"  # the version number just saved, shown once
 PICK = "rb_pick"  # (domain id, role) chosen in "Find roles for your degree"
+_GH_INTEL = "gh_intel"      # shared with projects.py: the last GitHubIntelligence result
+_GH_URL = "gh_url_last"     # URL that produced it
 
 ui.page_header(
     "Resume builder",
@@ -188,11 +191,98 @@ if sid and profile:
 
 st.divider()
 
+# --- GitHub project import ---------------------------------------------------------------
+has_rb_intel = bool(st.session_state.get(_GH_INTEL))
+with st.expander(
+    "Import project from GitHub URL", icon=":material/hub:", expanded=has_rb_intel
+):
+    st.caption(
+        "Paste any public GitHub repository URL to auto-fill STAR bullets and tech stack "
+        "into Section 5 of this form, and save 2 viva questions for your voice interview."
+    )
+    rb_gh_url = st.text_input(
+        "Import Project from GitHub URL",
+        placeholder="https://github.com/username/repo",
+        key="rb_gh_import_url",
+    )
+    rb_col1, rb_col2 = st.columns([2, 1], gap="small")
+    with rb_col1:
+        rb_fetch = st.button(
+            "Import from GitHub",
+            type="primary",
+            icon=":material/cloud_download:",
+            key="rb_gh_import_btn",
+            disabled=not rb_gh_url.strip(),
+        )
+    with rb_col2:
+        if st.button("Clear", icon=":material/close:", key="rb_gh_clear"):
+            st.session_state.pop(_GH_INTEL, None)
+            st.session_state.pop(_GH_URL, None)
+            st.session_state.pop(gh.VIVA_SESSION_KEY, None)
+            st.rerun()
+
+    if rb_fetch and rb_gh_url.strip():
+        if rb_gh_url.strip() == st.session_state.get(_GH_URL):
+            st.info("Already imported. Clear and re-import to refresh.", icon=":material/info:")
+        elif not gh.parse_github_url(rb_gh_url.strip()):
+            st.error(
+                "Not a recognised GitHub URL. Use https://github.com/owner/repo.",
+                icon=":material/error:",
+            )
+        else:
+            with st.spinner("Fetching README …"):
+                readme = gh.fetch_readme(rb_gh_url.strip())
+            if readme is None:
+                st.error(
+                    "Could not fetch the README. Make sure the repository is public "
+                    "and has a README.md at the root.",
+                    icon=":material/error:",
+                )
+            else:
+                role_kws = role_info.get("ats_keywords", [])
+                with st.spinner("Extracting project intelligence …"):
+                    intel = gh.extract_github_intelligence(readme, role_kws)
+                if intel.is_empty:
+                    st.warning(
+                        "README fetched but the AI could not parse structured information. "
+                        "Try a repository with a more detailed README.",
+                        icon=":material/warning:",
+                    )
+                else:
+                    st.session_state[_GH_INTEL] = intel
+                    st.session_state[_GH_URL] = rb_gh_url.strip()
+                    if intel.viva_questions:
+                        st.session_state[gh.VIVA_SESSION_KEY] = intel.viva_questions
+                    st.rerun()
+
+    rb_intel = st.session_state.get(_GH_INTEL)
+    if rb_intel and not rb_intel.is_empty:
+        st.success(
+            f"Imported: **{formatter.md_escape(rb_intel.project_title)}**",
+            icon=":material/task_alt:",
+        )
+        st.markdown(formatter.github_intelligence_md(rb_intel))
+        st.caption(
+            "Copy the STAR bullets above into the **What you did and what it achieved** "
+            "field in Section 5 below, and the tech stack into **Tools and technologies**."
+        )
+        if rb_intel.viva_questions:
+            st.caption(
+                ":material/mic: Viva questions are saved and will be used in your next "
+                "Voice Interview automatically."
+            )
+
+st.divider()
+
 # --- the form -----------------------------------------------------------------------------
+gh_intel = st.session_state.get(_GH_INTEL)
+gh_tech_skills = list(gh_intel.tech_stack) if (gh_intel and not gh_intel.is_empty) else []
 previous_skills = (
     list(latest.resume["skills"]) if latest else list(profile.matched_skills) if profile else []
 )
-options = list(dict.fromkeys([*role_info.get("ats_keywords", []), *previous_skills]))
+options = list(
+    dict.fromkeys([*role_info.get("ats_keywords", []), *previous_skills, *gh_tech_skills])
+)
 space_projects = services.resume_projects(sid) if domain.code_space else []
 
 # How many entries the form shows: outside the form, so a change redraws it at once.
@@ -375,9 +465,12 @@ with st.form(f"builder_{key}", border=False):
         default=[s for s in previous_skills if s in options],
         help="The role's keywords are listed; choose only those you have used.",
     )
+    extra_default = form.get("extra_skills", "") or (
+        ", ".join(gh_tech_skills) if gh_tech_skills and not form.get("extra_skills") else ""
+    )
     extra_raw = st.text_input(
         "Other skills (comma-separated)",
-        value=form.get("extra_skills", ""),
+        value=extra_default,
         placeholder="e.g. Oscilloscope, KiCad, Python",
     )
 
@@ -392,11 +485,18 @@ with st.form(f"builder_{key}", border=False):
             help="Projects marked On resume in your Project space; highlights become bullets.",
         )
     st.caption("Describe a project as: what you built, how, and the result, one bullet per line.")
-    proj_title = st.text_input("Project title", value=form.get("project_title", ""))
-    proj_tech = st.text_input("Tools and technologies", value=form.get("project_tech", ""))
+    gh_proj_title = form.get("project_title", "") or (gh_intel.project_title if gh_intel else "")
+    gh_proj_tech = form.get("project_tech", "") or (
+        ", ".join(gh_intel.tech_stack) if gh_intel else ""
+    )
+    gh_proj_desc = form.get("project_desc", "") or (
+        "\n".join(gh_intel.star_bullets) if gh_intel else ""
+    )
+    proj_title = st.text_input("Project title", value=gh_proj_title)
+    proj_tech = st.text_input("Tools and technologies", value=gh_proj_tech)
     proj_desc = st.text_area(
         "What you did and what it achieved (one bullet per line)",
-        value=form.get("project_desc", ""),
+        value=gh_proj_desc,
         placeholder="Built X with Y, which did Z\nReduced A by 30% by changing B",
         height=110,
     )
@@ -487,7 +587,17 @@ if built and built[0] == domain.id and built[1]["target_role"] == role:
             st.rerun()
 
     with st.expander("Preview", expanded=True, icon=":material/visibility:"):
-        st.markdown(formatter.resume_preview_md(res))
+        preview_tab, standard_tab = st.tabs(
+            [":material/auto_awesome: ATS-Optimised Preview", ":material/description: Standard"]
+        )
+        with preview_tab:
+            st.caption(
+                "Matched ATS keywords are **bolded**. Skills are grouped into ATS categories "
+                "(Core Competencies · Frameworks · Tools · Action Verbs)."
+            )
+            st.markdown(formatter.ats_resume_preview_md(res, ats.matched_keywords))
+        with standard_tab:
+            st.markdown(formatter.resume_preview_md(res))
 
 # --- version history -----------------------------------------------------------------------
 if versions:

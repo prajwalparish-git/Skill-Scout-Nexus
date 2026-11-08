@@ -3,6 +3,7 @@ interview scores), then how the agents and the critic behave, kept apart."""
 
 import streamlit as st
 
+from core import calendar_export
 from piq import charts, formatter, services, ui
 from piq.ui import Stat, empty_state, page_header, require_profile, stat_row
 
@@ -168,6 +169,46 @@ def _plans(d: services.Dashboard) -> None:
     week, done = d.plans_done[-1][0].week_no, len(d.plans_done[-1][1])
     st.markdown(formatter.days_done_md(week, done))
     st.caption("Minutes per week, split by topic.")
+
+    curr_plan = d.plans[-1]
+    done_set = d.plans_done[-1][1] if d.plans_done else set()
+
+    with st.container(horizontal=True):
+        st.download_button(
+            "📥 Download Schedule (.ics)",
+            data=calendar_export.generate_plan_ics(curr_plan),
+            file_name=f"study-schedule-week-{curr_plan.week_no}.ics",
+            mime="text/calendar",
+            key="dash_plan_download_ics",
+            help="Download RFC-5545 compliant 7-day schedule for your calendar",
+        )
+        pending_days = [
+            d_ for d_ in sorted(curr_plan.days, key=lambda x: x.day) if d_.day not in done_set
+        ]
+        next_d = pending_days[0] if pending_days else curr_plan.days[0]
+        gcal_title = f"[Skill Scout Nexus] Day {next_d.day}: {next_d.topic}"
+        gcal_desc = (
+            f"Day {next_d.day} Study Plan - Week {curr_plan.week_no}\n"
+            f"Topic: {next_d.topic} ({next_d.duration_min} min)\n"
+            f"Practice Goal: {next_d.practice_goal}\n"
+            f"Subtopics: {', '.join(next_d.subtopics)}"
+        )
+        st.link_button(
+            f"📅 Day {next_d.day} to GCal",
+            url=calendar_export.build_gcal_url(
+                gcal_title, gcal_desc, duration_min=next_d.duration_min
+            ),
+            help=f"Add Day {next_d.day} study session to Google Calendar in a new tab",
+        )
+
+    with st.expander("📝 Export to Google Keep / Tasks", icon=":material/checklist:"):
+        dash_checklist = calendar_export.format_tasks_checklist(curr_plan, done_days=done_set)
+        st.code(dash_checklist, language="markdown")
+        st.html(calendar_export.copy_clipboard_button_html(dash_checklist, "dash_copy_btn"))
+        st.caption(
+            ":material/sync_alt: *Advanced: Configure Zapier/Make webhook in settings "
+            "to auto-sync to Google Tasks*"
+        )
 
 
 def _under_the_hood(d: services.Dashboard) -> None:

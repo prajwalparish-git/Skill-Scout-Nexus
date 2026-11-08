@@ -187,6 +187,24 @@ def _baseline(ctx: dict) -> dict:
     return {"plan": plan, "quiz": _quiz(ctx)}
 
 
+def _github_readme(ctx: dict) -> dict:
+    title = ctx.get("title") or "Smart Nexus Platform"
+    return {
+        "project_title": title,
+        "one_line_pitch": "An enterprise-grade platform for modern distributed applications.",
+        "tech_stack": ["Python", "Streamlit", "SQLite", "Docker"],
+        "star_bullets": [
+            f"Architected {title} data pipeline using asynchronous task workers.",
+            "Engineered modular REST API services with automated schema validation and testing.",
+            "Optimized query performance and reduced database connection latency by 35%.",
+        ],
+        "viva_questions": [
+            f"How did you design {title}'s architecture for state synchronization?",
+            "What architectural trade-offs guided the selection of the core database layer?",
+        ],
+    }
+
+
 _HANDLERS = {
     "profile": _profile,
     "planner": _planner,
@@ -198,6 +216,7 @@ _HANDLERS = {
     "baseline_quiz": _quiz,
     "judge": _judge,
     "bullet": _bullet,
+    "github_readme": _github_readme,
 }
 
 

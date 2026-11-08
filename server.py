@@ -398,3 +398,22 @@ class BulletRequest(BaseModel):
 def enhance_bullet(body: BulletRequest) -> dict:
     """One bullet in XYZ form (interactive lane: Groq key 1); numbers are never invented."""
     return {"bullet": services.enhance_bullet(body.text, body.role)}
+
+
+class TasksWebhookPayload(BaseModel):
+    student_id: str | None = None
+    tasks: list[dict[str, Any]] | list[str] = Field(default_factory=list)
+    week_no: int | None = None
+    notes: str | None = None
+
+
+@app.post("/api/webhooks/tasks")
+def tasks_webhook(payload: TasksWebhookPayload) -> dict:
+    """Mock webhook endpoint for integrating tasks with Zapier, Make, Google Tasks, etc."""
+    count = len(payload.tasks)
+    return {
+        "status": "success",
+        "message": f"Successfully received {count} task(s) for sync.",
+        "tasks_received": count,
+        "week_no": payload.week_no,
+    }

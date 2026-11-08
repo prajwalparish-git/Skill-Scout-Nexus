@@ -149,6 +149,7 @@ class QuizAttempt(Base):
     score: Mapped[int] = mapped_column(Integer)  # questions answered correctly
     total_questions: Mapped[int] = mapped_column(Integer)
     critique_notes: Mapped[str | None] = mapped_column(Text)
+    proctor_flags: Mapped[list[str]] = mapped_column(JSON, default=list)
     timestamp: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
 
 
@@ -258,6 +259,7 @@ ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("student_profiles", "main_domain", "VARCHAR(40)"),
     ("student_profiles", "subdomain", "VARCHAR(120)"),
     ("student_profiles", "account_status", "VARCHAR(12) NOT NULL DEFAULT 'active'"),
+    ("quiz_attempts", "proctor_flags", "JSON DEFAULT '[]'"),
 )
 ADDED_INDEXES = (("ix_student_profiles_org_id", "student_profiles", "org_id"),)
 

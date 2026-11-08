@@ -192,7 +192,10 @@ def student_rows(c: Snapshot) -> list[StudentRow]:
                 voice_sessions=len(vs),
                 rubric_average=rubric_avg,
                 rubric_best=max((v.rubric_score for v in vs), default=None),
-                proctor_flags=sum(len(v.proctor_flags) for v in vs),
+                proctor_flags=(
+                    sum(len(v.proctor_flags) for v in vs)
+                    + sum(len(getattr(q, "proctor_flags", []) or []) for q in qs)
+                ),
                 plans=len(ps),
                 tasks_done=sum(len(p.completed_tasks) for p in ps),
                 last_active=max(stamps, default=None),

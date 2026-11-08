@@ -265,6 +265,9 @@ def generate_voice_interview_question(
     category: Category | None = None,
     include_audio: bool = True,
     elevenlabs_key: str | None = None,
+    custom_question: str | None = None,
+    custom_scenario: str | None = None,
+    custom_intent: str | None = None,
 ) -> VoiceInterviewQuestion:
     """Generates a high-fidelity scenario question and synthesizes its audio.
 
@@ -274,17 +277,56 @@ def generate_voice_interview_question(
         category: Optional category ('technical', 'behavioral', 'situational').
         include_audio: Whether to invoke ElevenLabs TTS if key is present.
         elevenlabs_key: "" forces the browser voice; None uses ELEVENLABS_API_KEY from .env.
+        custom_question: Optional custom question text (e.g. from GitHub Project Viva).
+        custom_scenario: Optional context label for custom question.
+        custom_intent: Optional competency intent for custom question.
     """
     stream_name = stream or get_stream_from_role_or_domain(target_role)
-    scenarios = DOMAIN_SCENARIOS.get(stream_name, DOMAIN_SCENARIOS["Engineering"])
 
-    if category:
-        pool = [s for s in scenarios if s["category"] == category]
-        selected = random.choice(pool) if pool else random.choice(scenarios)
+    # Check for custom question or viva questions in session state
+    if not custom_question:
+        try:
+            import streamlit as st  # type: ignore
+
+            viva_pool = st.session_state.get("github_viva_questions")
+            if (
+                viva_pool
+                and isinstance(viva_pool, list)
+                and len(viva_pool) > 0
+                and (category == "technical" or category is None)
+            ):
+                custom_question = random.choice(viva_pool)
+                custom_scenario = "GitHub Project Architecture & Code Viva"
+                custom_intent = (
+                    "Evaluates architectural trade-offs, code modularity, and technical "
+                    "mastery of the candidate's GitHub project."
+                )
+        except Exception:
+            pass
+
+    if custom_question:
+        q_text = custom_question
+        selected_category = category or "technical"
+        scenario_context = custom_scenario or "GitHub Project Architecture Viva"
+        intent = (
+            custom_intent
+            or "Evaluates architectural depth, code quality, and engineering trade-offs "
+            "of the candidate's GitHub project."
+        )
     else:
-        selected = random.choice(scenarios)
+        scenarios = DOMAIN_SCENARIOS.get(stream_name, DOMAIN_SCENARIOS["Engineering"])
 
-    q_text = selected["question"]
+        if category:
+            pool = [s for s in scenarios if s["category"] == category]
+            selected = random.choice(pool) if pool else random.choice(scenarios)
+        else:
+            selected = random.choice(scenarios)
+
+        q_text = selected["question"]
+        selected_category = selected["category"]
+        scenario_context = selected["scenario"]
+        intent = selected["intent"]
+
     audio_b64 = None
     tts_source = "browser_fallback"
 
@@ -294,12 +336,12 @@ def generate_voice_interview_question(
             audio_b64 = base64.b64encode(audio_bytes).decode("ascii")
 
     return VoiceInterviewQuestion(
-        category=selected["category"],  # type: ignore
+        category=selected_category,  # type: ignore
         stream=stream_name,
         role=target_role,
         question_text=q_text,
-        intent=selected["intent"],
-        scenario_context=selected["scenario"],
+        intent=intent,
+        scenario_context=scenario_context,
         audio_base64=audio_b64,
         tts_source=tts_source,
     )

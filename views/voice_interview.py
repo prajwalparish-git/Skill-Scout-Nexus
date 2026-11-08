@@ -5,6 +5,7 @@ rubric score with proctor flags (agents/rubric_evaluator_agent.py), recorded for
 import streamlit as st
 import streamlit.components.v1 as components
 
+from core import proctor_guard
 from piq import formatter, journey
 from piq.config import VOICE_DEFAULT_CATEGORY, VOICE_RUBRIC_MAX
 from piq.services import ServiceError
@@ -56,9 +57,24 @@ with setup, st.container(border=True):
         default=VOICE_DEFAULT_CATEGORY,  # its question and audio are preloaded
         format_func=lambda c: CATEGORY_LABELS[c],
     )
+    viva_list = st.session_state.get("github_viva_questions", [])
+    use_viva = False
+    if viva_list:
+        use_viva = st.toggle(
+            ":material/hub: Ask GitHub Project Viva question",
+            value=True,
+            help="Asks questions tailored to your imported GitHub repository architecture.",
+        )
     if st.button("Generate question", type="primary", icon=":material/play_circle:"):
         try:
-            st.session_state[QUESTION] = journey.voice_question(sid, stream, category)
+            proctor_guard.reset_proctor_state()
+            picked_viva = None
+            if use_viva and viva_list:
+                import random
+                picked_viva = random.choice(viva_list)
+            st.session_state[QUESTION] = journey.voice_question(
+                sid, stream, category, custom_question=picked_viva
+            )
             st.session_state[RESULT] = None
             st.session_state[TEXT] = ""
         except ServiceError as e:
@@ -72,6 +88,20 @@ if vq is None:
     st.caption("No question yet. Choose the stream and type, then press Generate question.")
     st.stop()
 
+result: journey.VoiceResult | None = st.session_state.get(RESULT)
+if result is None:
+    proctor_guard.render_proctor_guard(page_type="voice_interview")
+    proctor_guard.render_warning_banner()
+    if proctor_guard.is_breached():
+        ans = (
+            st.session_state.get(TEXT, "").strip()
+            or "[Force-submitted due to 3 proctoring strikes / PROCTOR_BREACH]"
+        )
+        st.session_state[RESULT] = journey.assess_answer(
+            sid, vq.question, ans, proctor_flags=[proctor_guard.FLAG_PROCTOR_BREACH]
+        )
+        st.rerun()
+
 q = vq.question
 with st.container(border=True):
     st.caption(
@@ -81,7 +111,7 @@ with st.container(border=True):
     st.markdown(f"#### {formatter.md_escape(q.question_text)}")
     st.markdown(f":gray[What the interviewer looks for: {formatter.md_escape(q.intent)}]")
     if vq.speech.audio:
-        st.audio(vq.speech.audio, format="audio/mpeg")
+        st.audio(vq.speech.audio, format=getattr(vq.speech, "mime_type", "audio/mpeg"))
     else:
         components.html(journey.browser_speech_html(vq.speech.text), height=48)
         st.caption("Spoken by your browser's own voice.")
@@ -113,6 +143,13 @@ if st.button("Score my answer", type="primary", icon=":material/grading:"):
 result: journey.VoiceResult | None = st.session_state.get(RESULT)
 if result is None:
     st.stop()
+
+if proctor_guard.is_breached():
+    st.error(
+        "🚨 **PROCTOR BREACH:** This interview was force-submitted due to 3 proctoring violations "
+        "(tab switching, window blur, or camera absence).",
+        icon=":material/gavel:",
+    )
 
 ev = result.evaluation
 r = ev.rubric

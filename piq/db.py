@@ -373,6 +373,20 @@ def mark_admin_verified(org_id: int) -> None:
         )
 
 
+def set_admin_password(org_id: int, password_hash: str) -> None:
+    with tx() as c:
+        c.execute(
+            "UPDATE organizations SET admin_password_hash = ?, admin_verified = 1, "
+            "admin_failures = 0, admin_locked_until = 0 WHERE id = ?",
+            (password_hash, org_id),
+        )
+
+
+def delete_admin_sessions(org_id: int) -> None:
+    with tx() as c:
+        c.execute("DELETE FROM admin_sessions WHERE org_id = ?", (org_id,))
+
+
 def save_admin_code(
     org_id: int, code_hash: str, salt: str, expires_at: float, sent_at: float
 ) -> None:

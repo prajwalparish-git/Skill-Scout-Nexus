@@ -187,6 +187,74 @@ machines.</td></tr>
 </body></html>"""
 
 
+def export_placement_shortlist_pdf(
+    org_name: str,
+    cutoffs: tuple[float, float] | str,
+    students: Sequence[object],
+    out: Path | None = None,
+) -> bytes:
+    """Generate a branded placement shortlist PDF report for an organization.
+    Header prominently displays Organization.name and exact cutoffs used.
+    Table includes 'Proctor Breach' column showing BREACH or CLEARED."""
+    from fpdf import FPDF
+
+    from piq.resume_builder import pdf_safe
+
+    pdf = FPDF(format="A4")
+    pdf.set_auto_page_break(True, margin=15)
+    pdf.add_page()
+    w = pdf.w - pdf.l_margin - pdf.r_margin
+
+    # Header
+    pdf.set_font("Helvetica", "B", 18)
+    pdf.set_text_color(26, 35, 38)
+    pdf.cell(0, 10, pdf_safe(f"{org_name} - Placement Shortlist"), new_x="LMARGIN", new_y="NEXT")
+
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(90, 105, 110)
+    if isinstance(cutoffs, tuple):
+        cutoff_str = f"Quiz > {cutoffs[0]:g}%, Voice > {cutoffs[1]:g}/15"
+    else:
+        cutoff_str = str(cutoffs)
+    pdf.multi_cell(
+        w, 5.5, pdf_safe(f"Pass Cutoffs Used: {cutoff_str}"), new_x="LMARGIN", new_y="NEXT"
+    )
+    pdf.ln(3)
+
+    # Table
+    pdf.set_font("Helvetica", "B", 9)
+    headers = ["Name", "Domain", "Target role", "Quiz", "Voice", "Readiness", "Proctor Breach"]
+    widths = (30, 32, 40, 14, 15, 17, 22)
+    with pdf.table(col_widths=widths, text_align="LEFT", line_height=6) as t:
+        head = t.row()
+        for h in headers:
+            head.cell(pdf_safe(h))
+        pdf.set_font("Helvetica", "", 8)
+        for s in students:
+            row = t.row()
+            name = getattr(s, "name", str(s))
+            domain = getattr(s, "main_domain", "") or getattr(s, "stream", "")
+            role = getattr(s, "target_role", "")
+            quiz = getattr(s, "quiz_average", None)
+            quiz_str = f"{quiz:g}%" if quiz is not None else "-"
+            voice = getattr(s, "rubric_average", None)
+            voice_str = f"{voice:g}/15" if voice is not None else "-"
+            ready = getattr(s, "readiness", None)
+            ready_str = f"{ready:.0f}" if ready is not None else "-"
+            flags = getattr(s, "proctor_flags", 0)
+            breach_str = "BREACH" if flags > 0 else "CLEARED"
+
+            for cell_val in (name, domain, role, quiz_str, voice_str, ready_str, breach_str):
+                row.cell(pdf_safe(str(cell_val)))
+
+    content = bytes(pdf.output())
+    if out:
+        out = Path(out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(content)
+    return content
+
+
 def render(page: str, out: Path) -> None:
     """Print the HTML to an A4 PDF with Chromium."""
     from playwright.sync_api import sync_playwright  # dev dependency; tests never render

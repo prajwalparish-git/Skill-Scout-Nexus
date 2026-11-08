@@ -1318,6 +1318,280 @@ def resume_filename(name: str, role: str) -> str:
     return f"{slug or 'resume'}.pdf"
 
 
+# ---------------------------------------------------------------------------
+# ATS keyword categorisation helpers
+# ---------------------------------------------------------------------------
+
+# A curated map of common skill→category for the ATS preview panel.
+# Skills not in the map stay in "Core Competencies" (the catch-all).
+_FRAMEWORKS: frozenset[str] = frozenset(
+    {
+        "react",
+        "angular",
+        "vue",
+        "next.js",
+        "django",
+        "flask",
+        "fastapi",
+        "spring",
+        "spring boot",
+        "express",
+        "node.js",
+        "pytorch",
+        "tensorflow",
+        "keras",
+        "scikit-learn",
+        "pandas",
+        "numpy",
+        "bootstrap",
+        "tailwind",
+        "junit",
+        "pytest",
+        "jest",
+        "hibernate",
+        "laravel",
+        "rails",
+        "asp.net",
+        "redux",
+        ".net",
+        "hadoop",
+        "spark",
+        "kafka",
+    }
+)
+
+_TOOLS: frozenset[str] = frozenset(
+    {
+        "git",
+        "github",
+        "gitlab",
+        "docker",
+        "kubernetes",
+        "jenkins",
+        "terraform",
+        "aws",
+        "azure",
+        "gcp",
+        "linux",
+        "postman",
+        "jira",
+        "confluence",
+        "figma",
+        "vscode",
+        "mysql",
+        "postgresql",
+        "mongodb",
+        "redis",
+        "elasticsearch",
+        "sqlite",
+        "firebase",
+        "nginx",
+        "ansible",
+        "maven",
+        "gradle",
+        "npm",
+        "pnpm",
+        "yarn",
+        "cmake",
+        "makefile",
+        "heroku",
+        "netlify",
+        "vercel",
+    }
+)
+
+_ACTION_VERB_LIST: frozenset[str] = frozenset(
+    {
+        "architected",
+        "engineered",
+        "designed",
+        "developed",
+        "implemented",
+        "optimized",
+        "deployed",
+        "automated",
+        "spearheaded",
+        "authored",
+        "analyzed",
+        "reduced",
+        "improved",
+        "scaled",
+        "modeled",
+        "simulated",
+        "directed",
+        "built",
+        "programmed",
+        "integrated",
+        "migrated",
+        "refactored",
+        "orchestrated",
+        "containerised",
+        "containerized",
+        "benchmarked",
+        "mentored",
+        "delivered",
+        "shipped",
+        "launched",
+        "configured",
+        "documented",
+        "maintained",
+    }
+)
+
+
+def categorise_skills(
+    skills: list[str],
+) -> dict[str, list[str]]:
+    """Split a flat skill list into the four ATS resume categories.
+
+    Returns a dict with keys: 'Core Competencies', 'Frameworks',
+    'Tools', 'Action Verbs'. Skills appear in exactly one
+    category; unlisted ones go to 'Core Competencies'.
+    """
+    categories: dict[str, list[str]] = {
+        "Core Competencies": [],
+        "Frameworks": [],
+        "Tools": [],
+        "Action Verbs": [],
+    }
+    for s in skills:
+        low = s.lower()
+        if low in _ACTION_VERB_LIST:
+            categories["Action Verbs"].append(s)
+        elif low in _TOOLS:
+            categories["Tools"].append(s)
+        elif low in _FRAMEWORKS:
+            categories["Frameworks"].append(s)
+        else:
+            categories["Core Competencies"].append(s)
+    return {k: v for k, v in categories.items() if v}
+
+
+def _bold_keywords(text: str, keywords: list[str]) -> str:
+    """Bold every occurrence of each keyword in `text` (case-insensitive, boundary-aware)."""
+    for kw in sorted(keywords, key=len, reverse=True):  # longest first avoids partial matches
+        if not kw.strip():
+            continue
+        text = re.sub(
+            rf"(?<![A-Za-z0-9_*])({re.escape(kw)})(?![A-Za-z0-9_*])",
+            r"**\1**",
+            text,
+            flags=re.IGNORECASE,
+        )
+    return text
+
+
+def ats_categorised_skills_md(
+    skills: list[str],
+    matched_keywords: list[str] | None = None,
+) -> str:
+    """The ATS-formatted skills panel: skills grouped by category, matched keywords bolded."""
+    cats = categorise_skills(skills)
+    matched_set = {k.lower() for k in (matched_keywords or [])}
+    lines = []
+    for cat, items in cats.items():
+        formatted = []
+        for s in items:
+            if s.lower() in matched_set:
+                formatted.append(f"**{md_escape(s)}**")
+            else:
+                formatted.append(md_escape(s))
+        lines.append(f"**{cat}:** {', '.join(formatted)}")
+    return "  \n".join(lines) if lines else "—"
+
+
+def ats_resume_preview_md(
+    res: Mapping,
+    matched_keywords: list[str] | None = None,
+) -> str:
+    """The built resume as an ATS-optimised Markdown preview.
+
+    Matches and bolds target role keywords from data/role_skills.json in every
+    bullet point and groups skills into ATS categories: Core Competencies, Frameworks,
+    Tools, and Action Verbs.
+    """
+    target_role = str(res.get("target_role", "")).strip()
+    role_kws: list[str] = []
+    if target_role:
+        try:
+            from piq import syllabus
+            role_kws = list(syllabus.role_skills().get(target_role, {}).keys())
+        except Exception:
+            pass
+    kws = list(dict.fromkeys([*(matched_keywords or []), *role_kws]))
+    # Header
+    out = [
+        f"### {md_escape(res['full_name'])}",
+        f"**{md_escape(res['target_role'])}**",
+        f":gray[{md_escape(res['contact_line'])}]",
+        "---",
+        f"**Professional Summary**  \n{md_escape(res['summary'])}",
+        "---",
+        f"**Skills**  \n{ats_categorised_skills_md(res.get('skills', []), kws)}",
+    ]
+    # Work experience with keyword bolding
+    jobs = resume_builder.experience_entries(res)
+    if jobs:
+        out.append("---\n**Work Experience**")
+    for e in jobs:
+        bullets = "\n".join(
+            f"- {_bold_keywords(md_escape(b), kws)}" for b in e["bullets"]
+        )
+        when = " · ".join(x for x in (e["type"], resume_builder.job_dates(e)) if x)
+        head = f"**{md_escape(resume_builder.job_label(e))}** :gray[{md_escape(when)}]"
+        out.append(f"{head}\n\n{bullets}" if bullets else head)
+    # Projects with keyword bolding
+    if res.get("projects"):
+        out.append("---\n**Projects**")
+    for p in res.get("projects", []):
+        bullets = "\n".join(
+            f"- {_bold_keywords(md_escape(b), kws)}" for b in p["bullets"]
+        )
+        tech_line = (
+            f" :gray[{md_escape(p['tech'])}]" if p.get("tech") else ""
+        )
+        out.append(
+            f"**{md_escape(p['title'])}**{tech_line}\n\n{bullets}"
+        )
+    # Education
+    lines = []
+    for e in resume_builder.education_entries(res):
+        detail = ", ".join(
+            x for x in (e.get("institution", ""), resume_builder.education_dates(e)) if x
+        )
+        score = f" · {e['score']}" if e.get("score") else ""
+        name = degrees.entry_label({**e, "status": "Completed"})
+        extra = f" :gray[{md_escape(detail + score)}]" if detail or score else ""
+        lines.append(f"{md_escape(name)}{extra}")
+    out.append("---\n**Education**  \n" + ("  \n".join(lines) or "—"))
+    if res.get("certifications"):
+        certs = "  \n".join(md_escape(c) for c in res["certifications"])
+        out.append(f"---\n**Certifications**  \n{certs}")
+    return "\n\n".join(out)
+
+
+def github_intelligence_md(intel: object) -> str:
+    """A compact card for the GitHub README extraction result."""
+    lines = [
+        f"#### :material/hub: {md_escape(intel.project_title)}",
+        f":gray[{md_escape(intel.one_line_pitch)}]",
+    ]
+    if intel.tech_stack:
+        lines.append(
+            "**Tech stack:** "
+            + ", ".join(f"`{md_escape(t)}`" for t in intel.tech_stack)
+        )
+    if intel.star_bullets:
+        lines.append("**STAR bullets (copy to resume):**")
+        for b in intel.star_bullets:
+            lines.append(f"- {md_escape(b)}")
+    if intel.viva_questions:
+        lines.append("**Viva questions saved for your voice interview:**")
+        for i, q in enumerate(intel.viva_questions, 1):
+            lines.append(f"**Q{i}.** {md_escape(q)}")
+    return "  \n".join(lines)
+
+
 def resume_preview_md(res: Mapping) -> str:
     """The built resume as Markdown, section by section; every value escaped."""
     out = [

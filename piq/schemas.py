@@ -144,6 +144,16 @@ class BaselineOutput(BaseModel):
     quiz: QuizSet
 
 
+class GitHubReadmeExtraction(BaseModel):
+    """Structured intelligence the LLM extracts from a public GitHub README."""
+
+    project_title: str = Field(min_length=1, max_length=120)
+    one_line_pitch: str = Field(min_length=5, max_length=300)
+    tech_stack: list[str] = Field(default_factory=list)
+    star_bullets: list[str] = Field(min_length=1, max_length=3)
+    viva_questions: list[str] = Field(min_length=1, max_length=2)
+
+
 # --- organizations ----------------------------------------------------------------------------
 
 OrgType = Literal["University", "Autonomous Institute", "Law/Commerce College", "Corporate L&D"]

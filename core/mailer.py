@@ -168,6 +168,55 @@ def welcome_message(
     return Message(to, subject, text, body)
 
 
+def nudge_message(
+    to: str,
+    *,
+    name: str,
+    org_name: str,
+    pending_tasks: Sequence[str],
+    momentum_stage: str = "Falling Behind",
+) -> Message:
+    """A polite reminder email for a student who is falling behind or stalled, containing their
+    pending tasks and encouragement to get back on track."""
+    subject = f"Get back on track with your {APP_NAME} placement preparation"
+    task_items = list(pending_tasks) or ["Resume and complete your pending study plan roadmap"]
+    task_lines = "\n".join(f"- {task}" for task in task_items)
+    text = (
+        f"Hello {name},\n\n"
+        f"This is a friendly reminder from {org_name} regarding your placement preparation "
+        f"on {APP_NAME}.\n\n"
+        f"Our records show that your progress is currently {momentum_stage}. Consistent "
+        f"preparation is key to clearing placement cutoffs and securing top roles.\n\n"
+        f"Here are your recommended next steps to get back on track:\n"
+        f"{task_lines}\n\n"
+        f"Log in to {APP_NAME} today to continue your preparation.\n\n"
+        f"Best regards,\n{org_name} Placement Team\n{APP_NAME}"
+    )
+    items_html = "".join(
+        f"<li style='margin-bottom:6px'>{html.escape(task)}</li>" for task in task_items
+    )
+    body = f"""<!doctype html>
+<html><body style="margin:0;font-family:system-ui,sans-serif;color:#1f2a2c">
+<div style="max-width:520px;margin:0 auto">
+<div style="background:{BRAND_COLOR};color:#fff;padding:16px 20px;font-size:18px;font-weight:700">
+{APP_NAME}</div>
+<div style="padding:20px">
+<p>Hello {html.escape(name)},</p>
+<p>This is a friendly reminder from <strong>{html.escape(org_name)}</strong> regarding your
+placement preparation on {APP_NAME}.</p>
+<p>Our records show your learning momentum is currently
+<strong>{html.escape(momentum_stage)}</strong>. Consistent daily practice is essential to
+clearing company cutoffs and staying competitive for placement drives.</p>
+<p><strong>Your recommended pending tasks:</strong></p>
+<ul style="padding-left:20px;color:#2c3e50">
+{items_html}
+</ul>
+<p>Log in to {APP_NAME} to continue your preparation and build your placement readiness score.</p>
+<p style="color:#5b6b6e">Best regards,<br>{html.escape(org_name)} Placement Team<br>{APP_NAME}</p>
+</div></div></body></html>"""
+    return Message(to, subject, text, body)
+
+
 def _email(msg: Message, sender: str) -> EmailMessage:
     email = EmailMessage()
     email["From"], email["To"], email["Subject"] = f"{APP_NAME} <{sender}>", msg.to, msg.subject

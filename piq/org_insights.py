@@ -30,8 +30,18 @@ from piq.cohort import StudentRow
 from piq.config import ACTIVE_WITHIN_DAYS, NEARLY_READY_AT, VOICE_RUBRIC_MAX
 
 TIERS = ("Ready", "In Progress", "At Risk")
+MOMENTUM_STAGES = ("Placement Ready", "On Track", "Falling Behind", "Stalled")
 Group = Literal["main_domain", "subdomain"]
 FUNNEL_STAGES = ("Enrolled", "Resume scanned", "Plan active", "Quiz passed", "Voice cleared")
+
+
+@dataclass(frozen=True)
+class LearnerMomentum:
+    stage: str
+    badge: str
+    icon: str
+    reason: str
+    pending_tasks: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -62,6 +72,165 @@ def tier(r: StudentRow, c: Cutoffs) -> str:
 
 def is_active(r: StudentRow, now: datetime) -> bool:
     return r.last_active is not None and now - r.last_active <= timedelta(days=ACTIVE_WITHIN_DAYS)
+
+
+def calculate_learner_momentum(
+    student: object,
+    c: Cutoffs | None = None,
+    now: datetime | None = None,
+    plan_percent: int | None = None,
+) -> LearnerMomentum:
+    """Categorize a student into one of 4 momentum stages:
+    * 🟢 Placement Ready: Resume scanned, >70% plan done, cutoffs cleared.
+    * 🔵 On Track: Active in the last 3 days, making study plan progress.
+    * 🟡 Falling Behind: Active, but <30% plan done or failing quiz cutoffs.
+    * 🔴 Stalled: Provisioned, but 0 activity in the last 5 days.
+    """
+    now = now or datetime.now(UTC)
+    c = c or Cutoffs(70.0, 9.0)
+
+    # If student is passed as username or student id string/int:
+    if isinstance(student, (int, str)):
+        from database import crud
+
+        sess = crud.student_session(str(student))
+        if sess is not None:
+            c360 = candidate_360(sess)
+            qs = sess.quiz_attempts
+            vs = sess.interviews
+            stamps = [q.timestamp for q in qs] + [v.timestamp for v in vs]
+            q_avg = _mean(q.score / q.total_questions * 100 for q in qs) if qs else None
+            v_avg = _mean(v.rubric_score for v in vs) if vs else None
+            t_done = sum(len(p.completed_tasks) for p in sess.plans)
+            r = StudentRow(
+                username=sess.profile.username,
+                name=sess.profile.name,
+                stream=sess.profile.stream,
+                department=sess.profile.department or "",
+                target_role=sess.profile.target_role,
+                resume_match=c360.match_percent,
+                missing_skills=c360.missing,
+                quizzes=len(qs),
+                quiz_average=q_avg,
+                voice_sessions=len(vs),
+                rubric_average=v_avg,
+                rubric_best=max((v.rubric_score for v in vs), default=None),
+                proctor_flags=sum(len(v.proctor_flags) for v in vs),
+                plans=len(sess.plans),
+                tasks_done=t_done,
+                last_active=max(stamps, default=None),
+                readiness=sess.profile.readiness_score,
+                band="Ready" if meets_quiz(student, c) else "Needs work",  # type: ignore[arg-type]
+            )
+            plan_percent = c360.plan_percent
+            student = r
+
+    r_match = getattr(student, "resume_match", None)
+    resume_scanned = r_match is not None
+    q_avg = getattr(student, "quiz_average", None)
+    quiz_cleared = q_avg is not None and q_avg >= c.quiz_pct
+    v_avg = getattr(student, "rubric_average", None)
+    voice_cleared = v_avg is not None and v_avg >= c.voice_score
+    tasks_done = getattr(student, "tasks_done", 0)
+    num_plans = getattr(student, "plans", 0)
+    last_active = getattr(student, "last_active", None)
+
+    if plan_percent is None:
+        if num_plans > 0:
+            plan_percent = min(100, round(tasks_done / (num_plans * 7) * 100))
+        elif tasks_done > 0:
+            plan_percent = min(100, round(tasks_done / 7 * 100))
+        else:
+            plan_percent = 0
+
+    # 1. 🟢 Placement Ready: Resume scanned, >70% plan done, cutoffs cleared
+    if resume_scanned and plan_percent > 70 and quiz_cleared and voice_cleared:
+        return LearnerMomentum(
+            stage="Placement Ready",
+            badge="🟢 Placement Ready",
+            icon="🟢",
+            reason="Resume scanned, >70% study plan done, and all cutoffs cleared.",
+            pending_tasks=(),
+        )
+
+    # 2. 🔴 Stalled: Provisioned, but 0 activity in the last 5 days
+    if last_active is None or (now - last_active) >= timedelta(days=5):
+        tasks = []
+        if not resume_scanned:
+            tasks.append("Scan latest resume against target role")
+        if tasks_done == 0 or plan_percent < 30:
+            tasks.append("Begin and complete Week 1 study roadmap tasks")
+        if not quiz_cleared:
+            tasks.append(f"Pass domain quizzes (cutoff: {c.quiz_pct:g}%)")
+        if not voice_cleared:
+            tasks.append(
+                f"Complete mock voice interviews (cutoff: {c.voice_score:g}/{VOICE_RUBRIC_MAX})"
+            )
+        days_inact = (now - last_active).days if last_active else 0
+        reason = (
+            "Provisioned, but no activity yet."
+            if last_active is None
+            else f"No activity for {days_inact} days (>= 5 days)."
+        )
+        return LearnerMomentum(
+            stage="Stalled",
+            badge="🔴 Stalled",
+            icon="🔴",
+            reason=reason,
+            pending_tasks=tuple(tasks),
+        )
+
+    # 3. 🟡 Falling Behind: Active, but <30% plan done or failing quiz cutoffs
+    if plan_percent < 30 or not quiz_cleared:
+        tasks = []
+        if not resume_scanned:
+            tasks.append("Scan latest resume against target role")
+        if plan_percent < 30:
+            tasks.append("Complete pending daily tasks to reach 30%+ study plan completion")
+        if not quiz_cleared:
+            tasks.append(f"Retake quizzes to clear the {c.quiz_pct:g}% pass mark")
+        if not voice_cleared:
+            tasks.append(
+                f"Practise voice interview to meet {c.voice_score:g}/{VOICE_RUBRIC_MAX}"
+            )
+        reasons = []
+        if plan_percent < 30:
+            reasons.append(f"study plan completion is {plan_percent}% (<30%)")
+        if not quiz_cleared:
+            reasons.append(f"quiz average is below {c.quiz_pct:g}% pass mark")
+        return LearnerMomentum(
+            stage="Falling Behind",
+            badge="🟡 Falling Behind",
+            icon="🟡",
+            reason="Active, but " + " and ".join(reasons) + ".",
+            pending_tasks=tuple(tasks),
+        )
+
+    # 4. 🔵 On Track: Active in the last 3 days, making study plan progress
+    tasks = []
+    if plan_percent <= 70:
+        tasks.append("Continue daily study plan tasks towards 70%+ milestone")
+    if not voice_cleared:
+        tasks.append(f"Clear voice interview pass mark ({c.voice_score:g}/{VOICE_RUBRIC_MAX})")
+    return LearnerMomentum(
+        stage="On Track",
+        badge="🔵 On Track",
+        icon="🔵",
+        reason="Active in the last 3 days and making steady study plan progress.",
+        pending_tasks=tuple(tasks),
+    )
+
+
+def momentum_mix(
+    rows: Sequence[StudentRow], c: Cutoffs, now: datetime | None = None
+) -> list[tuple[str, int]]:
+    now = now or datetime.now(UTC)
+    counts = Counter(
+        calculate_learner_momentum(r, c, now).stage
+        for r in rows
+        if r.account_status != "suspended"
+    )
+    return [(s, counts[s]) for s in MOMENTUM_STAGES]
 
 
 def _mean(values: Iterable[float | None]) -> float | None:
@@ -255,6 +424,7 @@ def directory_rows(rows: Sequence[StudentRow], c: Cutoffs) -> list[dict[str, obj
             "Subdomain": r.subdomain,
             "Target role": r.target_role,
             "Status": r.account_status,
+            "Momentum Status": calculate_learner_momentum(r, c).badge,
             "Tier": tier(r, c),
             "Readiness": r.readiness,
             "Resume match (%)": r.resume_match,
@@ -448,6 +618,7 @@ SHORTLIST_COLUMNS = (
     (f"Voice average (/{VOICE_RUBRIC_MAX})", lambda r: r.rubric_average),
     (f"Voice best (/{VOICE_RUBRIC_MAX})", lambda r: r.rubric_best),
     ("Proctor flags", lambda r: r.proctor_flags),
+    ("Proctor breach", lambda r: "BREACH" if r.proctor_flags > 0 else "CLEARED"),
 )
 
 
@@ -688,12 +859,16 @@ def executive_summary_pdf(s: Summary) -> bytes:
     """One or two pages for a company's recruiters: who the organization is, how its students
     are doing, and who clears the drive's criteria."""
     p = _Report()
-    p.title("Placement readiness summary")
+    p.title(f"{s.org_name} - Placement Shortlist")
     about = " | ".join(
         x for x in (s.org_type, s.location, f"Batch {s.batch}" if s.batch else "") if x
     )
-    p.line(s.org_name, 11)
-    p.line(f"{about}  -  generated {s.generated}", 11)
+    p.line(f"Organization: {s.org_name}  |  {about}  |  Generated {s.generated}", 10)
+    p.line(
+        f"Cutoffs Used: Quiz > {s.cutoffs.quiz_pct:g}%, "
+        f"Voice > {s.cutoffs.voice_score:g}/{VOICE_RUBRIC_MAX}",
+        10,
+    )
 
     k = s.kpis
     p.heading("Where the batch stands")
@@ -737,7 +912,7 @@ def executive_summary_pdf(s: Summary) -> bytes:
     p.line(f"{s.total_shortlisted} student(s) meet them{more}")
     if s.shortlisted:
         p.table(
-            ["Name", "Domain", "Target role", "Quiz", "Voice", "Readiness"],
+            ["Name", "Domain", "Target role", "Quiz", "Voice", "Readiness", "Proctor Breach"],
             [
                 [
                     r.name,
@@ -746,10 +921,11 @@ def executive_summary_pdf(s: Summary) -> bytes:
                     _fmt(r.quiz_average, "%"),
                     _fmt(r.rubric_average, f"/{VOICE_RUBRIC_MAX}"),
                     _fmt(r.readiness),
+                    "BREACH" if r.proctor_flags > 0 else "CLEARED",
                 ]
                 for r in s.shortlisted
             ],
-            [34, 38, 48, 14, 16, 18],
+            [30, 32, 40, 14, 15, 17, 22],
         )
     return p.bytes()
 

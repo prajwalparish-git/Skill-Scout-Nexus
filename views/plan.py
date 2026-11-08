@@ -5,6 +5,7 @@ from functools import partial
 
 import streamlit as st
 
+from core import calendar_export
 from piq import charts, formatter, services
 from piq.config import STUDY_TIME, TIMEZONE
 from piq.ui import empty_state, page_header, require_profile, run_agent, show_last_run
@@ -86,14 +87,81 @@ def _plans(sid: str, ov: services.PlanOverview) -> None:
             shown = next(p for p in ov.plans if p.week_no == week)
             previous = next((p for p in ov.plans if p.week_no == shown.week_no - 1), None)
             with st.container(border=True):
-                st.subheader(f"Week {shown.week_no}", anchor=False)
-                st.caption(formatter.plan_summary(shown))
+                w_top1, w_top2 = st.columns([3, 2], vertical_alignment="center")
+                with w_top1:
+                    st.subheader(f"Week {shown.week_no}", anchor=False)
+                    st.caption(formatter.plan_summary(shown))
+                with w_top2:
+                    st.download_button(
+                        "📥 Download 7-Day Schedule (.ics)",
+                        data=calendar_export.generate_plan_ics(shown),
+                        file_name=f"study-schedule-week-{shown.week_no}.ics",
+                        mime="text/calendar",
+                        type="primary",
+                        icon=":material/calendar_month:",
+                        help="Export all 7 days as all-day events for Google Calendar / Outlook",
+                        key=f"plan_shown_ics_{shown.week_no}",
+                    )
                 st.info(
                     f"**Why this plan.** {formatter.md_escape(shown.rationale)}",
                     icon=":material/lightbulb:",
                 )
                 done = _days_done(sid, shown.week_no, ov.done.get(shown.week_no, set()))
                 ov.done[shown.week_no] = done  # a fragment rerun keeps its first arguments
+
+                st.markdown("##### 📅 Daily Tasks & Schedule")
+                for d in sorted(shown.days, key=lambda x: x.day):
+                    day_is_done = d.day in done
+                    badge_icon = "✅" if day_is_done else "📖"
+                    task_title = f"[Skill Scout Nexus] Day {d.day}: {d.topic}"
+                    task_desc = (
+                        f"Day {d.day} Study Plan - Week {shown.week_no}\n"
+                        f"Topic: {d.topic} ({d.duration_min} min)\n"
+                        f"Practice Goal: {d.practice_goal}\n"
+                        f"Subtopics: {', '.join(d.subtopics)}"
+                    )
+                    gcal_url = calendar_export.build_gcal_url(
+                        title=task_title,
+                        details=task_desc,
+                        duration_min=d.duration_min,
+                    )
+                    with st.container(border=True):
+                        d_col1, d_col2 = st.columns([4, 1], vertical_alignment="center")
+                        with d_col1:
+                            sub_text = " · ".join(d.subtopics)
+                            status_tag = " :green[(Completed)]" if day_is_done else ""
+                            st.markdown(
+                                f"**{badge_icon} Day {d.day}: {d.topic}** "
+                                f"({d.duration_min} min){status_tag}  \n"
+                                f":gray[Subtopics: {formatter.md_escape(sub_text)}]  \n"
+                                f"🎯 *Goal: {formatter.md_escape(d.practice_goal)}*"
+                            )
+                        with d_col2:
+                            st.link_button(
+                                "📅 Add to GCal",
+                                url=gcal_url,
+                                help=f"Add Day {d.day} task to Google Calendar in a new tab",
+                                key=f"gcal_btn_w{shown.week_no}_d{d.day}",
+                            )
+
+                with st.container(border=True):
+                    st.subheader("📝 Export to Google Keep / Tasks", anchor=False)
+                    st.caption(
+                        "Copy your 7-day checklist formatted with task boxes `[ ]` "
+                        "ready to paste directly into Google Keep, Apple Notes, Notion, or Tasks."
+                    )
+                    checklist_md = calendar_export.format_tasks_checklist(shown, done_days=done)
+                    st.code(checklist_md, language="markdown")
+                    st.html(
+                        calendar_export.copy_clipboard_button_html(
+                            checklist_md, f"copy_btn_w{shown.week_no}"
+                        )
+                    )
+                    st.caption(
+                        ":material/sync_alt: *Advanced: Configure Zapier/Make webhook in "
+                        "settings to auto-sync to Google Tasks*"
+                    )
+
                 if st.toggle("Table view", help="The same seven days as a table."):
                     st.dataframe(formatter.plan_table(shown), width="stretch")
                 else:
@@ -137,9 +205,26 @@ page_header(
 sid, profile = require_profile()
 ov = services.plan_overview(sid, profile)
 
-if st.button(
-    f"Generate week {ov.next_week} plan", type="primary", icon=":material/autorenew:"
-) and run_agent("Planner agent", lambda ev: services.generate_next_plan(sid, ev)):
-    st.rerun()
+col_top_gen, col_top_ics = st.columns([1, 1], vertical_alignment="center")
+with col_top_gen:
+    if st.button(
+        f"Generate week {ov.next_week} plan", type="primary", icon=":material/autorenew:"
+    ) and run_agent("Planner agent", lambda ev: services.generate_next_plan(sid, ev)):
+        st.rerun()
+
+with col_top_ics:
+    if ov.plans:
+        latest = ov.plans[-1]
+        st.download_button(
+            "📥 Download 7-Day Schedule (.ics)",
+            data=calendar_export.generate_plan_ics(latest),
+            file_name=f"study-schedule-week-{latest.week_no}.ics",
+            mime="text/calendar",
+            type="primary",
+            icon=":material/event:",
+            help="Download RFC-5545 compliant 7-day schedule for Google Calendar, Outlook, Apple",
+            key="plan_top_primary_ics",
+        )
+
 show_last_run("Planner agent")
 _plans(sid, ov)

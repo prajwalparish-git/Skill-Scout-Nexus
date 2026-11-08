@@ -64,6 +64,7 @@ class AdminPending:
     org_id: int | None
     sent_to: str  # masked
     outbox: bool  # True: SMTP is not set up, the code is in data/.mail_outbox.log
+    purpose: str = "verify"
 
 
 @dataclass(frozen=True)
@@ -141,21 +142,23 @@ def _fail(row: sqlite3.Row) -> None:
     db.set_admin_lockout(row["id"], after.failures, after.locked_until)
 
 
-def _send_admin_code(row: sqlite3.Row, *, force: bool = True) -> AdminPending:
+def _send_admin_code(
+    row: sqlite3.Row, *, force: bool = True, purpose: mailer.Purpose = "verify"
+) -> AdminPending:
     now = accounts.clock()
     live = db.admin_code(row["id"])
     sent_to = auth.mask_email(row["admin_email"])
     if not force and live and now - live["sent_at"] < AUTH_CODE_RESEND_S:
-        return AdminPending(row["id"], sent_to, not mailer.configured())
+        return AdminPending(row["id"], sent_to, not mailer.configured(), purpose=purpose)
     code, salt = auth.new_code(), auth.new_salt()
     pepper = settings().auth_pepper
     db.save_admin_code(
         row["id"], auth.hash_code(code, salt, pepper=pepper), salt, now + AUTH_CODE_TTL_S, now
     )
     msg = mailer.code_message(
-        row["admin_email"], row["admin_name"], auth.format_code(code), "verify"
+        row["admin_email"], row["admin_name"], auth.format_code(code), purpose
     )
-    return AdminPending(row["id"], sent_to, mailer.send(msg) == "outbox")
+    return AdminPending(row["id"], sent_to, mailer.send(msg) == "outbox", purpose=purpose)
 
 
 def create_organization(
@@ -222,7 +225,61 @@ def resend_admin_code(pending: AdminPending) -> AdminPending:
     live = db.admin_code(row["id"])
     if live and accounts.clock() - live["sent_at"] < AUTH_CODE_RESEND_S:
         raise ServiceError(f"Wait {AUTH_CODE_RESEND_S} seconds before asking for another code.")
-    return _send_admin_code(row)
+    return _send_admin_code(row, purpose=pending.purpose)  # type: ignore[arg-type]
+
+
+def start_admin_recovery(email: str) -> AdminPending:
+    """Email a 9-digit recovery code to the admin of the organization with this admin email.
+    The answer masks the email or returns a dummy pending for unknown emails (nothing leaked)."""
+    clean_email = (email or "").strip().lower()
+    row = db.organization_login(clean_email) if clean_email else None
+    usable = (
+        row is not None and row["admin_email"] and not _locked(row).remaining(accounts.clock())
+    )
+    if not usable:
+        guess = clean_email if "@" in clean_email else ""
+        return AdminPending(
+            None, auth.mask_email(guess), not mailer.configured(), purpose="recover"
+        )
+    return _send_admin_code(row, force=False, purpose="recover")
+
+
+def finish_admin_recovery(
+    pending: AdminPending, typed: str, password: str, confirm: str
+) -> int:
+    """Check the 9-digit code, set the new admin password, delete older admin sessions,
+    and return the org_id so the admin is signed in."""
+    org_id = pending.org_id
+    if org_id is None:
+        raise ServiceError(accounts.WRONG_CODE)
+    row = db.organization_state(org_id)
+    if row is None:
+        raise ServiceError(accounts.WRONG_CODE)
+    _refuse_if_locked(row)
+    accounts.check_password(password, confirm, "", row["admin_email"])
+    code = db.admin_code(org_id)
+    now = accounts.clock()
+    ok = (
+        code is not None
+        and now < code["expires_at"]
+        and code["attempts"] < AUTH_CODE_MAX_ATTEMPTS
+        and auth.verify_code(
+            typed, code["salt"], code["code_hash"], pepper=settings().auth_pepper
+        )
+    )
+    if not ok:
+        if code is not None:
+            db.count_admin_code_attempt(org_id)
+            if code["attempts"] + 1 >= AUTH_CODE_MAX_ATTEMPTS:
+                db.delete_admin_code(org_id)
+        _fail(row)
+        raise ServiceError(accounts.WRONG_CODE)
+    db.delete_admin_code(org_id)
+    new_hash = auth.hash_password(password, pepper=settings().auth_pepper)
+    db.set_admin_password(org_id, new_hash)
+    db.delete_admin_sessions(org_id)
+    journey.record_organization(org_id)
+    return org_id
 
 
 def verify_admin(pending: AdminPending, typed: str) -> int:
@@ -472,6 +529,45 @@ def set_status(org_id: int, student_id: str, status: str) -> str:
         raise ServiceError(NOT_YOURS)
     journey.record_student(student_id)
     return status
+
+
+def send_student_nudge(org_id: int, username: str) -> bool:
+    """Send a personalized nudge email with pending tasks to a student."""
+    org = organization(org_id)
+    sid = student_id_of(org_id, username)
+    cand = candidate(org_id, sid)
+    acct, row, detail = cand.account, cand.row, cand.detail
+    email = acct.get("email") or ""
+    if not email:
+        raise ServiceError(f"No email address on file for @{username}.")
+    momentum = org_insights.calculate_learner_momentum(row, cutoffs(org))
+    tasks = list(momentum.pending_tasks)
+    if not tasks:
+        if row.resume_match is None:
+            tasks.append("Scan your latest resume against your target role")
+        if detail.plans:
+            for w in detail.plans:
+                if w.done < w.total:
+                    tasks.append(f"Complete week {w.week} tasks ({w.done}/{w.total} completed)")
+        else:
+            tasks.append("Generate and begin your 7-day study plan")
+        if row.quiz_average is None or row.quiz_average < org.quiz_cutoff_pct:
+            tasks.append(f"Take practice quizzes to reach the pass mark ({org.quiz_cutoff_pct}%)")
+        if row.rubric_average is None or row.rubric_average < org.voice_cutoff_score:
+            tasks.append(
+                f"Complete mock voice interviews (cutoff: "
+                f"{org.voice_cutoff_score}/{VOICE_RUBRIC_MAX})"
+            )
+    msg = mailer.nudge_message(
+        to=email,
+        name=acct.get("name") or username,
+        org_name=org.name,
+        pending_tasks=tasks,
+        momentum_stage=momentum.stage,
+    )
+    mailer.send(msg)
+    log.info("sent nudge email to %s for org %d", email, org_id)
+    return True
 
 
 # --- the placement drive ------------------------------------------------------------------------

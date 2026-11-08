@@ -4,14 +4,34 @@ contribution calendar. Projects marked "On resume" feed the Resume builder."""
 
 import streamlit as st
 
+from core import github_readme as gh
 from piq import charts, formatter, services
 from piq.config import PROJECT_STATUSES
 from piq.ui import Stat, empty_state, page_header, require_profile, stat_row
+
+# Session-state keys used by the GitHub importer
+_GH_INTEL = "gh_intel"      # last GitHubIntelligence result
+_GH_URL = "gh_url_last"     # URL that produced that result (to avoid re-fetching on rerun)
 
 
 def _fields(prefix: str, row: dict | None = None) -> dict:
     """The project inputs (inside a form), prefilled from `row` when editing."""
     row = row or {}
+    if not row and prefix == "new":
+        intel = st.session_state.get(_GH_INTEL)
+        if intel and not intel.is_empty:
+            bullets = list(intel.star_bullets)
+            desc = intel.one_line_pitch
+            summary_lines = [desc, *bullets] if desc else bullets
+            row = {
+                "name": intel.project_title,
+                "repo_url": st.session_state.get(_GH_URL, ""),
+                "tech": ", ".join(intel.tech_stack),
+                "status": "Done",
+                "summary": "\n".join(summary_lines),
+                "readme": st.session_state.get("gh_readme_raw", ""),
+                "on_resume": True,
+            }
     name = st.text_input("Repository name *", value=row.get("name", ""), key=f"{prefix}_name")
     repo = st.text_input(
         "Repository link",
@@ -131,8 +151,100 @@ stat_row(
 
 list_col, side_col = st.columns([3, 2], gap="medium")
 with list_col:
+    # --- GitHub README importer -----------------------------------------------------------
+    has_intel = bool(st.session_state.get(_GH_INTEL))
+    with st.expander(
+        "Import project from GitHub URL",
+        icon=":material/cloud_download:",
+        expanded=has_intel,
+    ):
+        st.caption(
+            "Paste any public GitHub repository URL to auto-fill the project name, tech stack, "
+            "STAR resume bullets, and 2 viva questions for your voice interview."
+        )
+        gh_url = st.text_input(
+            "Import Project from GitHub URL",
+            placeholder="https://github.com/username/repo",
+            key="gh_import_url",
+        )
+        col_fetch, col_clear = st.columns([2, 1], gap="small")
+        with col_fetch:
+            fetch_clicked = st.button(
+                "Import from GitHub",
+                type="primary",
+                icon=":material/hub:",
+                key="gh_import_btn",
+                disabled=not gh_url.strip(),
+            )
+        with col_clear:
+            if st.button("Clear", icon=":material/close:", key="gh_clear_btn"):
+                st.session_state.pop(_GH_INTEL, None)
+                st.session_state.pop(_GH_URL, None)
+                st.session_state.pop("gh_readme_raw", None)
+                st.session_state.pop(gh.VIVA_SESSION_KEY, None)
+                st.rerun()
+
+        if fetch_clicked and gh_url.strip():
+            if gh_url.strip() == st.session_state.get(_GH_URL):
+                st.info("Already imported. Clear and re-import to refresh.", icon=":material/info:")
+            else:
+                # Validate URL format before hitting the network
+                if not gh.parse_github_url(gh_url.strip()):
+                    st.error(
+                        "That doesn't look like a GitHub repository URL. "
+                        "Use the format https://github.com/owner/repo.",
+                        icon=":material/error:",
+                    )
+                else:
+                    with st.spinner("Fetching README …"):
+                        readme = gh.fetch_readme(gh_url.strip())
+                    if readme is None:
+                        st.error(
+                            "Could not fetch the README. Make sure the repository is public "
+                            "and has a README.md at the root.",
+                            icon=":material/error:",
+                        )
+                    else:
+                        st.session_state["gh_readme_raw"] = readme
+                        with st.spinner("Extracting project intelligence …"):
+                            intel = gh.extract_github_intelligence(readme)
+                        if intel.is_empty:
+                            st.warning(
+                                "README fetched but structured extraction failed. "
+                                "Try a repository with a more detailed README.",
+                                icon=":material/warning:",
+                            )
+                        else:
+                            st.session_state[_GH_INTEL] = intel
+                            st.session_state[_GH_URL] = gh_url.strip()
+                            # Save viva questions for the Voice Interviewer
+                            if intel.viva_questions:
+                                st.session_state[gh.VIVA_SESSION_KEY] = intel.viva_questions
+                            st.rerun()
+
+        # Display last successful result
+        intel = st.session_state.get(_GH_INTEL)
+        if intel and not intel.is_empty:
+            st.success(
+                f"Imported: **{formatter.md_escape(intel.project_title)}**",
+                icon=":material/task_alt:",
+            )
+            st.markdown(formatter.github_intelligence_md(intel))
+            st.divider()
+            st.caption(
+                ":material/auto_awesome: The **New repository** form below has been prefilled with "
+                "your STAR bullets and tech stack!"
+            )
+            if intel.viva_questions:
+                st.caption(
+                    ":material/mic: Viva questions are saved and will appear in your next "
+                    "Voice Interview automatically."
+                )
+
+    # --- New repository form --------------------------------------------------------------
+    new_expanded = not space.projects or bool(st.session_state.get(_GH_INTEL))
     with (
-        st.expander("New repository", icon=":material/add:", expanded=not space.projects),
+        st.expander("New repository", icon=":material/add:", expanded=new_expanded),
         st.form("new_project", border=False, clear_on_submit=True),
     ):
         fields = _fields("new")

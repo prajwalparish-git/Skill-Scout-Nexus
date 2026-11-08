@@ -247,9 +247,34 @@ def _create_org_tab() -> None:
     st.rerun()
 
 
+def _admin_recover_tab() -> None:
+    with st.form("auth_admin_recover", border=False):
+        email = st.text_input("Admin email", autocomplete="email", key="auth_ad_rec_email")
+        st.caption(
+            "We will send a 9-digit code to this administrator address to set a new password."
+        )
+        go = st.form_submit_button(
+            "Send recovery code", type="primary", icon=":material/lock_reset:"
+        )
+    if not go:
+        return
+    try:
+        pending = orgs.start_admin_recovery(email)
+    except services.ServiceError as e:
+        st.error(formatter.md_escape(str(e)), icon=":material/error:")
+        return
+    st.session_state[ADMIN_PENDING] = pending
+    st.rerun()
+
+
 def _admin_code_step(pending: orgs.AdminPending) -> None:
-    """The organization admin's 9-digit code (confirming the admin email)."""
-    st.subheader("Confirm the admin email", anchor=False, icon=":material/mark_email_read:")
+    """The organization admin's 9-digit code (confirming admin email or password recovery)."""
+    recovering = getattr(pending, "purpose", "verify") == "recover"
+    st.subheader(
+        "Reset admin password" if recovering else "Confirm the admin email",
+        anchor=False,
+        icon=":material/lock_reset:" if recovering else ":material/mark_email_read:",
+    )
     st.markdown(
         f"We sent a 9-digit code to **{formatter.md_escape(pending.sent_to)}**. It works once, "
         "for 10 minutes."
@@ -264,8 +289,18 @@ def _admin_code_step(pending: orgs.AdminPending) -> None:
         typed = st.text_input(
             "9-digit code", max_chars=11, placeholder="123-456-789", key="auth_ad_code"
         )
+        if recovering:
+            left, right = st.columns(2)
+            password = left.text_input(
+                "New password", type="password", autocomplete="new-password", key="auth_ad_new_pw"
+            )
+            confirm = right.text_input(
+                "Repeat it", type="password", autocomplete="new-password", key="auth_ad_new_pw2"
+            )
         go = st.form_submit_button(
-            "Verify and open the portal", type="primary", icon=":material/verified_user:"
+            "Set password and open portal" if recovering else "Verify and open the portal",
+            type="primary",
+            icon=":material/verified_user:",
         )
     with st.container(horizontal=True):
         again = st.button("Send a new code", icon=":material/refresh:", key="auth_ad_resend")
@@ -281,10 +316,14 @@ def _admin_code_step(pending: orgs.AdminPending) -> None:
             st.error(formatter.md_escape(str(e)), icon=":material/error:")
     if go:
         try:
-            org_id = orgs.verify_admin(pending, typed)
+            if recovering:
+                org_id = orgs.finish_admin_recovery(pending, typed, password, confirm)
+            else:
+                org_id = orgs.verify_admin(pending, typed)
         except services.ServiceError as e:
             st.error(formatter.md_escape(str(e)), icon=":material/error:")
             return
+        st.session_state.pop(ADMIN_PENDING, None)
         sign_in_admin(org_id)
         st.rerun()
 
@@ -326,11 +365,15 @@ def _signed_out() -> None:
                     with recover:
                         _recover_tab()
                 with admins:
-                    admin_in, create = st.tabs(["Admin sign in", "Create organization"])
+                    admin_in, create, recover_admin = st.tabs(
+                        ["Admin sign in", "Create organization", "Recover admin account"]
+                    )
                     with admin_in:
                         _admin_sign_in_tab()
                     with create:
                         _create_org_tab()
+                    with recover_admin:
+                        _admin_recover_tab()
         with st.container(horizontal=True, horizontal_alignment="center"):
             demo = st.button(
                 "Continue with demo account", icon=":material/rocket_launch:", key="auth_demo"
