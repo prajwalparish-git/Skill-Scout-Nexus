@@ -10,8 +10,8 @@ from piq.config import PROJECT_STATUSES
 from piq.ui import Stat, empty_state, page_header, require_profile, stat_row
 
 # Session-state keys used by the GitHub importer
-_GH_INTEL = "gh_intel"      # last GitHubIntelligence result
-_GH_URL = "gh_url_last"     # URL that produced that result (to avoid re-fetching on rerun)
+_GH_INTEL = "gh_intel"  # last GitHubIntelligence result
+_GH_URL = "gh_url_last"  # URL that produced that result (to avoid re-fetching on rerun)
 
 
 def _fields(prefix: str, row: dict | None = None) -> dict:

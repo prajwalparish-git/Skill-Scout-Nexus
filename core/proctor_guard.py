@@ -178,9 +178,7 @@ def save_proctor_breach_to_db(
             domain=domain,
             score=score,
             total_questions=total,
-            critique_notes=(
-                "[TEST TERMINATED: Force-submitted due to 3 strikes / PROCTOR_BREACH]"
-            ),
+            critique_notes=("[TEST TERMINATED: Force-submitted due to 3 strikes / PROCTOR_BREACH]"),
             proctor_flags=flags,
             db=db,
         )

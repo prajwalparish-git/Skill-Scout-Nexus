@@ -190,9 +190,7 @@ def calculate_learner_momentum(
         if not quiz_cleared:
             tasks.append(f"Retake quizzes to clear the {c.quiz_pct:g}% pass mark")
         if not voice_cleared:
-            tasks.append(
-                f"Practise voice interview to meet {c.voice_score:g}/{VOICE_RUBRIC_MAX}"
-            )
+            tasks.append(f"Practise voice interview to meet {c.voice_score:g}/{VOICE_RUBRIC_MAX}")
         reasons = []
         if plan_percent < 30:
             reasons.append(f"study plan completion is {plan_percent}% (<30%)")
@@ -226,9 +224,7 @@ def momentum_mix(
 ) -> list[tuple[str, int]]:
     now = now or datetime.now(UTC)
     counts = Counter(
-        calculate_learner_momentum(r, c, now).stage
-        for r in rows
-        if r.account_status != "suspended"
+        calculate_learner_momentum(r, c, now).stage for r in rows if r.account_status != "suspended"
     )
     return [(s, counts[s]) for s in MOMENTUM_STAGES]
 

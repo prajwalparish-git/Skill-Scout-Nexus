@@ -115,18 +115,20 @@ def generate_plan_ics(
             f"Duration: {dur} minutes"
         )
 
-        lines.extend([
-            "BEGIN:VEVENT",
-            f"UID:ssn-w{week_no}-d{day_num}-{event_date:%Y%m%d}@skillscoutnexus",
-            f"DTSTAMP:{now_utc:%Y%m%dT%H%M%SZ}",
-            f"DTSTART;VALUE=DATE:{event_date:%Y%m%d}",
-            f"DTEND;VALUE=DATE:{next_date:%Y%m%d}",
-            f"SUMMARY:{_ics_escape(summary)}",
-            f"DESCRIPTION:{_ics_escape(description)}",
-            "STATUS:CONFIRMED",
-            "TRANSP:TRANSPARENT",
-            "END:VEVENT",
-        ])
+        lines.extend(
+            [
+                "BEGIN:VEVENT",
+                f"UID:ssn-w{week_no}-d{day_num}-{event_date:%Y%m%d}@skillscoutnexus",
+                f"DTSTAMP:{now_utc:%Y%m%dT%H%M%SZ}",
+                f"DTSTART;VALUE=DATE:{event_date:%Y%m%d}",
+                f"DTEND;VALUE=DATE:{next_date:%Y%m%d}",
+                f"SUMMARY:{_ics_escape(summary)}",
+                f"DESCRIPTION:{_ics_escape(description)}",
+                "STATUS:CONFIRMED",
+                "TRANSP:TRANSPARENT",
+                "END:VEVENT",
+            ]
+        )
 
     lines.append("END:VCALENDAR")
     return ("\r\n".join(_ics_fold(line) for line in lines) + "\r\n").encode("utf-8")

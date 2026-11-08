@@ -238,23 +238,11 @@ def _gemini_tts(text: str) -> tuple[bytes, str]:
     model = s.gemini_model or "gemini-3.8-flash"
     url = GEMINI_URL.format(model=model)
     body = {
-        "contents": [
-            {
-                "parts": [
-                    {"text": f"Read aloud verbatim with natural cadence:\n\n{text}"}
-                ]
-            }
-        ],
+        "contents": [{"parts": [{"text": f"Read aloud verbatim with natural cadence:\n\n{text}"}]}],
         "generationConfig": {
             "responseModalities": ["AUDIO"],
-            "speechConfig": {
-                "voiceConfig": {
-                    "prebuiltVoiceConfig": {
-                        "voiceName": "Puck"
-                    }
-                }
-            }
-        }
+            "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": "Puck"}}},
+        },
     }
 
     last_err: Exception | None = None
@@ -316,12 +304,15 @@ def _gemini_tts(text: str) -> tuple[bytes, str]:
 
 def _pyttsx3_synthesize(text: str, out_path: Path, rate: int = 160) -> bool:
     """Run pyttsx3 in a background thread to generate a local .wav file."""
+
     def worker() -> bool:
         try:
             with contextlib.suppress(Exception):
                 import pythoncom  # type: ignore
+
                 pythoncom.CoInitialize()
             import pyttsx3
+
             engine = pyttsx3.init()
             engine.setProperty("rate", rate)
             voices = engine.getProperty("voices")
@@ -338,6 +329,7 @@ def _pyttsx3_synthesize(text: str, out_path: Path, rate: int = 160) -> bool:
         finally:
             with contextlib.suppress(Exception):
                 import pythoncom  # type: ignore
+
                 pythoncom.CoUninitialize()
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
@@ -473,9 +465,7 @@ def browser_speech_html(
 ) -> str:
     """A self-contained HTML/JS component with Web Speech API button and optional autoplay."""
     light, dark = PALETTE["light"], PALETTE["dark"]
-    autoplay_js = (
-        "if (typeof triggerSpeak === 'function') { triggerSpeak(); }" if autoplay else ""
-    )
+    autoplay_js = "if (typeof triggerSpeak === 'function') { triggerSpeak(); }" if autoplay else ""
     return f"""<!doctype html>
 <html><head><meta charset="utf-8"><style>
   :root {{ color-scheme: light dark; }}

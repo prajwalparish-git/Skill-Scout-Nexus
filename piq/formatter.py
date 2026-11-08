@@ -1515,6 +1515,7 @@ def ats_resume_preview_md(
     if target_role:
         try:
             from piq import syllabus
+
             role_kws = list(syllabus.role_skills().get(target_role, {}).keys())
         except Exception:
             pass
@@ -1534,9 +1535,7 @@ def ats_resume_preview_md(
     if jobs:
         out.append("---\n**Work Experience**")
     for e in jobs:
-        bullets = "\n".join(
-            f"- {_bold_keywords(md_escape(b), kws)}" for b in e["bullets"]
-        )
+        bullets = "\n".join(f"- {_bold_keywords(md_escape(b), kws)}" for b in e["bullets"])
         when = " · ".join(x for x in (e["type"], resume_builder.job_dates(e)) if x)
         head = f"**{md_escape(resume_builder.job_label(e))}** :gray[{md_escape(when)}]"
         out.append(f"{head}\n\n{bullets}" if bullets else head)
@@ -1544,15 +1543,9 @@ def ats_resume_preview_md(
     if res.get("projects"):
         out.append("---\n**Projects**")
     for p in res.get("projects", []):
-        bullets = "\n".join(
-            f"- {_bold_keywords(md_escape(b), kws)}" for b in p["bullets"]
-        )
-        tech_line = (
-            f" :gray[{md_escape(p['tech'])}]" if p.get("tech") else ""
-        )
-        out.append(
-            f"**{md_escape(p['title'])}**{tech_line}\n\n{bullets}"
-        )
+        bullets = "\n".join(f"- {_bold_keywords(md_escape(b), kws)}" for b in p["bullets"])
+        tech_line = f" :gray[{md_escape(p['tech'])}]" if p.get("tech") else ""
+        out.append(f"**{md_escape(p['title'])}**{tech_line}\n\n{bullets}")
     # Education
     lines = []
     for e in resume_builder.education_entries(res):
@@ -1577,10 +1570,7 @@ def github_intelligence_md(intel: object) -> str:
         f":gray[{md_escape(intel.one_line_pitch)}]",
     ]
     if intel.tech_stack:
-        lines.append(
-            "**Tech stack:** "
-            + ", ".join(f"`{md_escape(t)}`" for t in intel.tech_stack)
-        )
+        lines.append("**Tech stack:** " + ", ".join(f"`{md_escape(t)}`" for t in intel.tech_stack))
     if intel.star_bullets:
         lines.append("**STAR bullets (copy to resume):**")
         for b in intel.star_bullets:

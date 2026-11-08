@@ -71,6 +71,7 @@ with setup, st.container(border=True):
             picked_viva = None
             if use_viva and viva_list:
                 import random
+
                 picked_viva = random.choice(viva_list)
             st.session_state[QUESTION] = journey.voice_question(
                 sid, stream, category, custom_question=picked_viva

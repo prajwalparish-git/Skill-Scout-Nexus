@@ -233,9 +233,7 @@ def start_admin_recovery(email: str) -> AdminPending:
     The answer masks the email or returns a dummy pending for unknown emails (nothing leaked)."""
     clean_email = (email or "").strip().lower()
     row = db.organization_login(clean_email) if clean_email else None
-    usable = (
-        row is not None and row["admin_email"] and not _locked(row).remaining(accounts.clock())
-    )
+    usable = row is not None and row["admin_email"] and not _locked(row).remaining(accounts.clock())
     if not usable:
         guess = clean_email if "@" in clean_email else ""
         return AdminPending(
@@ -244,9 +242,7 @@ def start_admin_recovery(email: str) -> AdminPending:
     return _send_admin_code(row, force=False, purpose="recover")
 
 
-def finish_admin_recovery(
-    pending: AdminPending, typed: str, password: str, confirm: str
-) -> int:
+def finish_admin_recovery(pending: AdminPending, typed: str, password: str, confirm: str) -> int:
     """Check the 9-digit code, set the new admin password, delete older admin sessions,
     and return the org_id so the admin is signed in."""
     org_id = pending.org_id
@@ -263,9 +259,7 @@ def finish_admin_recovery(
         code is not None
         and now < code["expires_at"]
         and code["attempts"] < AUTH_CODE_MAX_ATTEMPTS
-        and auth.verify_code(
-            typed, code["salt"], code["code_hash"], pepper=settings().auth_pepper
-        )
+        and auth.verify_code(typed, code["salt"], code["code_hash"], pepper=settings().auth_pepper)
     )
     if not ok:
         if code is not None:

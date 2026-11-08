@@ -16,8 +16,8 @@ from piq.config import EXPERIENCE_TYPES, RESUME_MAX_EDUCATION, RESUME_MAX_EXPERI
 BUILT = "built_resume"  # (domain id, resume dict, ATS result) of the last Generate
 SAVED = "resume_saved"  # the version number just saved, shown once
 PICK = "rb_pick"  # (domain id, role) chosen in "Find roles for your degree"
-_GH_INTEL = "gh_intel"      # shared with projects.py: the last GitHubIntelligence result
-_GH_URL = "gh_url_last"     # URL that produced it
+_GH_INTEL = "gh_intel"  # shared with projects.py: the last GitHubIntelligence result
+_GH_URL = "gh_url_last"  # URL that produced it
 
 ui.page_header(
     "Resume builder",
@@ -193,9 +193,7 @@ st.divider()
 
 # --- GitHub project import ---------------------------------------------------------------
 has_rb_intel = bool(st.session_state.get(_GH_INTEL))
-with st.expander(
-    "Import project from GitHub URL", icon=":material/hub:", expanded=has_rb_intel
-):
+with st.expander("Import project from GitHub URL", icon=":material/hub:", expanded=has_rb_intel):
     st.caption(
         "Paste any public GitHub repository URL to auto-fill STAR bullets and tech stack "
         "into Section 5 of this form, and save 2 viva questions for your voice interview."

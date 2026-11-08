@@ -579,6 +579,7 @@ def voice_question(
 
     if custom_question:
         from agents.voice_interview_agent import generate_voice_interview_question
+
         q = generate_voice_interview_question(
             s.target_role,
             stream=stream,
