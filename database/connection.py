@@ -36,6 +36,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from sqlalchemy import URL, Engine, create_engine, delete, event, func, select
 from sqlalchemy.engine import make_url
@@ -166,10 +167,13 @@ def create_local_engine(path: Path) -> Engine:
 # --- the manager --------------------------------------------------------------------------------
 
 
+SyncState = Literal["local only", "up to date", "syncing", "offline"]
+
+
 @dataclass(frozen=True)
 class SyncStatus:
     cloud_configured: bool
-    state: str  # "local only", "up to date", "syncing", "offline"
+    state: SyncState  # derived in DatabaseManager.status() from the config and the worker
     pending: int
     set_aside: int  # rejected SYNC_MAX_ATTEMPTS times
     last_synced_at: datetime | None
@@ -328,6 +332,7 @@ class DatabaseManager:
             )
             last = s.scalar(select(func.max(SyncOutbox.synced_at)))
         w = self.sync
+        state: SyncState
         if not self.cloud_configured:
             state = "local only"
         elif w.retry_in() > 0:
