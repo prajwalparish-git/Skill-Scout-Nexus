@@ -10,8 +10,8 @@ Responsibilities:
    - Webcam Presence Check: Requests navigator.mediaDevices.getUserMedia({video: true}).
      Draws frames to a hidden canvas every 3s. Checks average brightness and motion.
      If camera is completely black or static for >5 seconds, triggers a CAMERA_ABSENT warning.
-2. 3-Strike Rule:
-   - When strikes >= 3, sets PROCTOR_BREACH flag.
+2. 3-Strike Rule (ProctorState: clean -> warned -> breached, one object per session):
+   - The third strike adds the PROCTOR_BREACH flag.
    - Persists PROCTOR_BREACH to database via database/crud.py (QuizAttempt or voice session).
    - Force-submits the test.
 3. Clean warning banners displayed in Streamlit UI.
@@ -23,11 +23,12 @@ import contextlib
 import json
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
 import streamlit as st
 import streamlit.components.v1 as components
+from streamlit.runtime.scriptrunner import get_script_run_ctx
 
 from database import crud
 from database.connection import DatabaseManager
@@ -40,35 +41,92 @@ FLAG_WINDOW_BLUR = "WINDOW_BLUR"
 FLAG_CAMERA_ABSENT = "CAMERA_ABSENT"
 FLAG_PROCTOR_BREACH = "PROCTOR_BREACH"
 
-# Session state keys
-STRIKES_KEY = "proctor_strikes"
-WARNING_KEY = "proctor_warning"
-FLAGS_KEY = "proctor_flags"
-BREACH_KEY = "proctor_breached"
-EVENTS_KEY = "proctor_processed_events"
+STATE_KEY = "proctor_state"  # the session's ProctorState (piq.ui.PER_STUDENT_KEYS)
 
-_fallback_state: dict[str, Any] = {
-    STRIKES_KEY: 0,
-    WARNING_KEY: None,
-    FLAGS_KEY: [],
-    BREACH_KEY: False,
-    EVENTS_KEY: set(),
-}
+Phase = Literal["clean", "warned", "breached"]
 
 
-def _state_get(key: str, default: Any = None) -> Any:
-    try:
-        if key in st.session_state:
-            return st.session_state[key]
-    except Exception:
-        pass
-    return _fallback_state.get(key, default)
+@dataclass(frozen=True)
+class ProctorState:
+    """One assessment's proctoring, as an explicit state machine.
+
+    clean --strike / camera notice--> warned --strike #MAX_PROCTOR_STRIKES--> breached
+    Any phase --reset_proctor_state()--> clean. "Breached" is derived from the strike count,
+    so a breach without its strikes (or the reverse) cannot be represented.
+    """
+
+    strikes: int = 0
+    flags: tuple[str, ...] = ()  # first-seen order, no repeats
+    warning: str | None = None
+    seen_events: frozenset[str] = frozenset()  # query-param events already counted
+
+    @property
+    def phase(self) -> Phase:
+        if self.strikes >= MAX_PROCTOR_STRIKES:
+            return "breached"
+        return "warned" if self.strikes or self.warning else "clean"
+
+    def _flagged(self, *new: str) -> tuple[str, ...]:
+        return tuple(dict.fromkeys([*self.flags, *new]))
+
+    def with_strike(self, reason: str, detail: str = "") -> ProctorState:
+        strikes = self.strikes + 1
+        if strikes >= MAX_PROCTOR_STRIKES:
+            return replace(
+                self,
+                strikes=strikes,
+                flags=self._flagged(reason, FLAG_PROCTOR_BREACH),
+                warning=(
+                    f"3 strikes reached ({reason}). Assessment force-submitted due to proctor "
+                    "breach."
+                ),
+            )
+        desc = f" ({detail})" if detail else ""
+        return replace(
+            self,
+            strikes=strikes,
+            flags=self._flagged(reason),
+            warning=(
+                f"Proctoring warning: {reason}{desc}. Strike {strikes}/{MAX_PROCTOR_STRIKES}."
+            ),
+        )
+
+    def with_camera_warning(self, detail: str) -> ProctorState:
+        """A camera notice: flagged and shown, but not a strike."""
+        return replace(
+            self,
+            flags=self._flagged(FLAG_CAMERA_ABSENT),
+            warning=f"CAMERA_ABSENT: {detail}. Please ensure your face is visible.",
+        )
+
+    def with_event_seen(self, event: str) -> ProctorState:
+        return replace(self, seen_events=self.seen_events | {event})
 
 
-def _state_set(key: str, value: Any) -> None:
-    _fallback_state[key] = value
-    with contextlib.suppress(Exception):
-        st.session_state[key] = value
+# Only for bare mode (no Streamlit session: plain unit tests and scripts). A real session
+# always keeps its own state in st.session_state, so one student's strikes can never reach
+# another session through this module.
+_bare_state = ProctorState()
+
+
+def _in_session() -> bool:
+    return get_script_run_ctx(suppress_warning=True) is not None
+
+
+def _load() -> ProctorState:
+    if _in_session():
+        state = st.session_state.get(STATE_KEY)
+        return state if isinstance(state, ProctorState) else ProctorState()
+    return _bare_state
+
+
+def _save(state: ProctorState) -> ProctorState:
+    global _bare_state
+    if _in_session():
+        st.session_state[STATE_KEY] = state
+    else:
+        _bare_state = state
+    return state
 
 
 @dataclass(frozen=True)
@@ -79,83 +137,48 @@ class ProctorGuardStatus:
     flags: list[str] = field(default_factory=list)
 
 
+def proctor_state() -> ProctorState:
+    """This session's proctoring state (clean until the first strike or notice)."""
+    return _load()
+
+
 def init_proctor_state() -> None:
-    """Initialize proctor state in Streamlit session_state if not present."""
-    if _state_get(STRIKES_KEY) is None:
-        _state_set(STRIKES_KEY, 0)
-    if _state_get(FLAGS_KEY) is None:
-        _state_set(FLAGS_KEY, [])
-    if _state_get(BREACH_KEY) is None:
-        _state_set(BREACH_KEY, False)
-    if _state_get(EVENTS_KEY) is None:
-        _state_set(EVENTS_KEY, set())
+    """Start this session's proctoring state if it has none (a no-op otherwise)."""
+    _save(_load())
 
 
 def reset_proctor_state() -> None:
     """Reset proctor strikes, flags, and warnings for a new test."""
-    _state_set(STRIKES_KEY, 0)
-    _state_set(WARNING_KEY, None)
-    _state_set(FLAGS_KEY, [])
-    _state_set(BREACH_KEY, False)
-    _state_set(EVENTS_KEY, set())
+    _save(ProctorState())
 
 
 def get_strikes() -> int:
-    return int(_state_get(STRIKES_KEY, 0))
+    return _load().strikes
 
 
 def is_breached() -> bool:
-    return bool(_state_get(BREACH_KEY, False) or get_strikes() >= MAX_PROCTOR_STRIKES)
+    return _load().phase == "breached"
 
 
 def get_warning() -> str | None:
-    return _state_get(WARNING_KEY)
+    return _load().warning
 
 
 def get_proctor_flags() -> list[str]:
-    return list(_state_get(FLAGS_KEY, []))
+    return list(_load().flags)
 
 
 get_flags = get_proctor_flags  # Alias
 
 
 def record_strike(reason: str = FLAG_TAB_SWITCH, detail: str = "") -> int:
-    """Increment strike counter, add flag, and check 3-strike breach condition."""
-    init_proctor_state()
-    cur_strikes = get_strikes() + 1
-    _state_set(STRIKES_KEY, cur_strikes)
-
-    flags = get_proctor_flags()
-    if reason not in flags:
-        flags.append(reason)
-        _state_set(FLAGS_KEY, flags)
-
-    if cur_strikes >= MAX_PROCTOR_STRIKES:
-        _state_set(BREACH_KEY, True)
-        if FLAG_PROCTOR_BREACH not in flags:
-            flags.append(FLAG_PROCTOR_BREACH)
-            _state_set(FLAGS_KEY, flags)
-        _state_set(
-            WARNING_KEY,
-            f"3 strikes reached ({reason}). Assessment force-submitted due to proctor breach.",
-        )
-    else:
-        desc = f" ({detail})" if detail else ""
-        _state_set(
-            WARNING_KEY,
-            f"Proctoring warning: {reason}{desc}. Strike {cur_strikes}/{MAX_PROCTOR_STRIKES}.",
-        )
-    return cur_strikes
+    """Count one strike; the MAX_PROCTOR_STRIKES-th one breaches. Returns the strike count."""
+    return _save(_load().with_strike(reason, detail)).strikes
 
 
 def record_camera_warning(detail: str = "Webcam absent or black/static for >5s") -> None:
-    """Record a camera absence warning without necessarily triggering an immediate strike."""
-    init_proctor_state()
-    flags = get_proctor_flags()
-    if FLAG_CAMERA_ABSENT not in flags:
-        flags.append(FLAG_CAMERA_ABSENT)
-        _state_set(FLAGS_KEY, flags)
-    _state_set(WARNING_KEY, f"CAMERA_ABSENT: {detail}. Please ensure your face is visible.")
+    """Record a camera absence warning without triggering a strike."""
+    _save(_load().with_camera_warning(detail))
 
 
 def save_proctor_breach_to_db(
@@ -394,21 +417,17 @@ def render_proctor_guard(
     on_breach: Callable[[], None] | None = None,
 ) -> ProctorGuardStatus:
     """Inject hidden proctoring script, read incoming strike events, and handle breach callbacks."""
-    init_proctor_state()
-
-    # Process query param events if sent by the JS component
+    # Process query param events if sent by the JS component (each one counts once)
     raw_event = st.query_params.get("proctor_event")
-    if raw_event:
-        processed = st.session_state[EVENTS_KEY]
-        if raw_event not in processed:
-            processed.add(raw_event)
-            event_type = raw_event.split(":")[0] if ":" in raw_event else raw_event
-            if event_type in (FLAG_TAB_SWITCH, FLAG_WINDOW_BLUR):
-                record_strike(event_type, "Tab switched or window blur detected")
-            elif event_type == FLAG_CAMERA_ABSENT:
-                record_camera_warning("Webcam feed is inactive, black, or static")
-            with contextlib.suppress(Exception):
-                del st.query_params["proctor_event"]
+    if raw_event and raw_event not in _load().seen_events:
+        _save(_load().with_event_seen(raw_event))
+        event_type = raw_event.split(":")[0] if ":" in raw_event else raw_event
+        if event_type in (FLAG_TAB_SWITCH, FLAG_WINDOW_BLUR):
+            record_strike(event_type, "Tab switched or window blur detected")
+        elif event_type == FLAG_CAMERA_ABSENT:
+            record_camera_warning("Webcam feed is inactive, black, or static")
+        with contextlib.suppress(Exception):
+            del st.query_params["proctor_event"]
 
     # Check 3-strike rule
     if is_breached() and on_breach:

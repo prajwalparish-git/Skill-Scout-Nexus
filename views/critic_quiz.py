@@ -39,6 +39,7 @@ with st.form("cq_setup", border=True):
     count = right.segmented_control("Questions", CRITIC_QUIZ_SIZES, default=CRITIC_QUIZ_DEFAULT)
     if st.form_submit_button("Generate quiz", type="primary", icon=":material/quiz:"):
         try:
+            proctor_guard.reset_proctor_state()  # a new quiz starts with no strikes
             with st.spinner("Writing questions and checking each one"):
                 st.session_state[BATCH] = journey.critic_quiz(
                     sid,
