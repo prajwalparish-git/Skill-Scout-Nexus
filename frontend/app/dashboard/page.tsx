@@ -35,8 +35,16 @@ export default function DashboardPage() {
 
   useEffect(() => {
     setD(null);
+    setError(null);
     if (!candidate) return;
-    get<DashboardPayload>(`/api/dashboard/${candidate.id}`).then(setD, (e: Error) => setError(e.message));
+    let current = true; // a reply for the previous candidate must not land on this one
+    get<DashboardPayload>(`/api/dashboard/${candidate.id}`).then(
+      (payload) => current && setD(payload),
+      (e: Error) => current && setError(e.message),
+    );
+    return () => {
+      current = false;
+    };
   }, [candidate]);
 
   if (!candidate)

@@ -23,14 +23,20 @@ export default function InterviewPage() {
   useEffect(() => {
     setResult(null);
     setTracks([]);
+    setError(null);
     if (!candidate) return;
+    let current = true; // a reply for the previous candidate must not land on this one
     get<Track[]>(`/api/interview/tracks/${candidate.id}`).then(
       (t) => {
+        if (!current) return;
         setTracks(t);
         setTrack(t[0]?.name ?? "");
       },
-      (e: Error) => setError(e.message),
+      (e: Error) => current && setError(e.message),
     );
+    return () => {
+      current = false;
+    };
   }, [candidate]);
 
   // Braces: newer browsers return a Promise from scrollIntoView, and React would take a

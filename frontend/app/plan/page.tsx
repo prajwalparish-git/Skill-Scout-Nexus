@@ -17,8 +17,16 @@ export default function PlanPage() {
 
   useEffect(() => {
     setData(null);
+    setError(null);
     if (!candidate) return;
-    get<PlanPayload>(`/api/plan/${candidate.id}`).then(setData, (e: Error) => setError(e.message));
+    let current = true; // a reply for the previous candidate must not land on this one
+    get<PlanPayload>(`/api/plan/${candidate.id}`).then(
+      (payload) => current && setData(payload),
+      (e: Error) => current && setError(e.message),
+    );
+    return () => {
+      current = false;
+    };
   }, [candidate]);
 
   async function generate() {
