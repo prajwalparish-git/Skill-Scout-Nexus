@@ -25,7 +25,9 @@
   <a href="#quick-start">Quick start</a> ·
   <a href="#configure-env">Configure .env</a> ·
   <a href="#running-locally">Running locally</a> ·
-  <a href="#how-it-works">How it works</a>
+  <a href="#working-offline">Working offline</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#for-developers">For developers</a>
 </p>
 
 </div>
@@ -166,12 +168,14 @@ GEMINI_API_KEYS=AIza_your_key         # optional second provider, also comma-sep
 | `GROQ_API_KEYS` | The fastest cloud AI, and speech-to-text for spoken answers | Skipped |
 | `GEMINI_API_KEYS` | A second cloud AI | Skipped |
 | `OLLAMA_BASE_URL`, `OLLAMA_MODEL` | A local model that works without internet ([ollama.com](https://ollama.com), then `ollama pull llama3.2:3b`) | Skipped |
-| `ELEVENLABS_API_KEY` | A natural voice for interview questions (optional: Gemini TTS, `gemini-3.8-flash-tts`, speaks with the Gemini key) | Gemini TTS, then the PC's own voice, then the browser's |
+| `GEMINI_TTS_MODEL`, `GEMINI_TTS_FALLBACK_MODEL` | Gemini speaks the interview questions with the Gemini key (the ElevenLabs alternative) | The PC's own voice, then the browser's |
+| `ELEVENLABS_API_KEY` | ElevenLabs speaks the interview questions instead (optional) | Gemini TTS, then the PC's own voice, then the browser's |
+| `LOCAL_STT_MODEL` | Transcribes spoken answers on this machine with no internet (see [Working offline](#working-offline)) | Groq or Gemini transcribe them online; otherwise the student types |
 | `SUPABASE_DB_URL` | A cloud copy of all records (organizations, students and their results), kept in step in the background | Records stay on this machine |
 | `SMTP_EMAIL`, `SMTP_APP_PASSWORD` | Emails the 9-digit codes and an organization's welcome emails (Gmail with an App Password) | Codes and credentials go to `data/.mail_outbox.log` on this machine |
 
-The model names in `.env.example` are current; every option is explained in that file. Never
-commit `.env`.
+The model names in `.env.example` are current (model IDs live only in `.env`, never in code);
+every option is explained in that file. Never commit `.env`.
 
 ## Running locally
 
@@ -204,7 +208,12 @@ npm install
 npm run dev                                # http://localhost:3000
 ```
 
-Set `NEXT_PUBLIC_API_URL=http://localhost:8000` in `frontend/.env.local`.
+Set `NEXT_PUBLIC_API_URL=http://localhost:8000` in `frontend/.env.local`. If the front end runs
+on another address, list it in `FRONTEND_ORIGINS` in `.env` (comma-separated).
+
+> **Local use only.** The API has no sign-in of its own: any caller that can reach it can read
+> and write any student's records by id. Keep it on `localhost` (or behind your own
+> authentication); the Streamlit app is the one with accounts.
 
 </details>
 
@@ -220,6 +229,26 @@ python -m scripts.check_models
 It confirms the configured models are still served, answer in JSON and have quota left.
 
 </details>
+
+## Working offline
+
+Nothing has to be switched: each tier is skipped on its own when it has no key or no network.
+
+| Part | Order |
+|---|---|
+| AI text | Groq → Gemini → Ollama (local model) → built-in answers from `data/` |
+| Voice out | ElevenLabs → Gemini TTS → the PC's own voice (pyttsx3) → the browser's voice |
+| Voice in | Groq Whisper → Gemini → faster-whisper (local) → the student types |
+
+For the local tiers, once, while online:
+
+```bash
+pip install -r requirements-offline.txt    # pyttsx3 and faster-whisper (optional)
+ollama pull llama3.2:3b                    # after installing Ollama from ollama.com
+python -m scripts.offline_setup            # downloads the speech model, then says what is ready
+```
+
+Set `OLLAMA_MODEL` and `LOCAL_STT_MODEL` in `.env` to the models you pulled.
 
 ## How it works
 
@@ -269,6 +298,37 @@ flowchart LR
 | AI | Groq and Google Gemini (round-robin key pools), local Ollama, built-in answers |
 | Voice | ElevenLabs, Gemini TTS, the PC's own voice or the browser's Web Speech API; Whisper on Groq, Gemini or faster-whisper (offline) for transcription. `python -m scripts.offline_setup` checks the no-internet setup |
 | Storage | SQLite for the app; telemetry on local SQLite with a background copy to Supabase PostgreSQL |
+
+## For developers
+
+```
+app.py              Streamlit entry point: settings check, session gate, navigation
+server.py           FastAPI over the same services, for the Next.js front end
+views/              One file per page; thin, no business logic
+piq/                Application core: services, journey, accounts, organizations, LLM gateway,
+                    prompts, checks, formatting and charts (only piq/ui.py imports Streamlit)
+agents/             The journey's agents: resume parser, planner, critic quiz, voice, rubric
+core/               Self-healing routers: AI, speech, transcription, preloader, mail, auth
+database/           Telemetry: local SQLite with a background copy to PostgreSQL
+data/               Catalog, role skills, degrees, interview tracks, question bank, samples
+scripts/            Seeding, model checks, offline setup, CI checks and dev tools
+evaluation/         The frozen baseline-vs-agents evaluation and its report
+frontend/           Optional Next.js 14 front end
+```
+
+Before opening a pull request, run what CI runs:
+
+```bash
+ruff format --check .
+ruff check .
+python -m scripts.ci_check         # every module compiles, datasets agree, every page renders
+cd frontend && npm run typecheck && npm run build   # if you changed the front end
+```
+
+Conventions: views call `piq` (never `agents`, `core` or `database` directly), all SQL lives in
+`piq/db.py`, constants in `piq/config.py`, prompts in `piq/prompts.py`, every AI answer is a
+validated Pydantic model, and a new dependency needs a pinned version and a one-line reason in
+`requirements.txt`. Commits follow Conventional Commits (`feat(scope): ...`, `fix(scope): ...`).
 
 <div align="center">
 <br>
