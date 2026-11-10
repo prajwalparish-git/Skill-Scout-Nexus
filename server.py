@@ -19,13 +19,14 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict
 from typing import Any
 
+from dotenv import dotenv_values
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, ValidationError
 
 from piq import db, formatter, graph, llm, question_bank, resume_builder, services, syllabus
-from piq.config import INSTANT_QUIZ_SIZE, QUIZ_MAX_PER_TOPIC
+from piq.config import INSTANT_QUIZ_SIZE, QUIZ_MAX_PER_TOPIC, ROOT
 from piq.services import InterviewSession, ServiceError
 
 log = logging.getLogger("server")
@@ -41,10 +42,25 @@ async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
     yield
 
 
+DEFAULT_ORIGINS = "http://localhost:3000"
+
+
+def cors_origins() -> list[str]:
+    """FRONTEND_ORIGINS from the environment, else from .env, else the local Next.js app.
+    Read without loading .env into os.environ: the middleware is built at import, before
+    settings() runs."""
+    raw = (
+        os.getenv("FRONTEND_ORIGINS")
+        or dotenv_values(os.getenv("PIQ_DOTENV", ROOT / ".env")).get("FRONTEND_ORIGINS")
+        or DEFAULT_ORIGINS
+    )
+    return [o.strip() for o in raw.split(",") if o.strip()]
+
+
 app = FastAPI(title="Skill Scout Nexus API", version="1.0", lifespan=_lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("FRONTEND_ORIGINS", "http://localhost:3000").split(","),
+    allow_origins=cors_origins(),
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type"],
     expose_headers=["Content-Disposition"],  # the PDF's file name, read by the browser
