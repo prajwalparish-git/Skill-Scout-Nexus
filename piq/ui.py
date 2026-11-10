@@ -38,6 +38,18 @@ PER_STUDENT_KEYS = (
     "voice_q",
     "voice_result",
     "voice_text",
+    "voice_audio",  # the recorded answer (st.audio_input)
+    "proctor_state",  # core.proctor_guard.STATE_KEY: the open assessment's strikes
+)
+# Kept for the same student after a re-profile (a new resume does not change their GitHub
+# analysis or resume-builder picks), but never carried over to another account.
+PER_ACCOUNT_KEYS = (
+    "gh_intel",
+    "gh_url_last",
+    "gh_readme_raw",
+    "github_viva_questions",  # core.github_readme.VIVA_SESSION_KEY
+    "resume_saved",
+    "rb_pick",
 )
 RUN_PREFIX = "run:"  # session key prefix for persisted agent step logs
 AUTH_PREFIX = "auth_"  # the sign-in page's keys, dropped once signed in
@@ -54,7 +66,10 @@ def set_student(
     """Make `student_id` current. On a change, drop the previous student's quiz, interview and
     agent step logs, except the logs of `keep_runs` (labels) already made for the new student.
     `fresh`: drop them even for the same student (a new profile makes their open quiz and
-    interview stale)."""
+    interview stale). PER_ACCOUNT_KEYS go only when the student changes (or signs out)."""
+    if student_id != st.session_state.get("student_id"):
+        for k in PER_ACCOUNT_KEYS:
+            st.session_state.pop(k, None)
     if fresh or student_id != st.session_state.get("student_id"):
         kept = {RUN_PREFIX + label for label in keep_runs}
         for k in list(st.session_state):

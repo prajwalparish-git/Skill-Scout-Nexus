@@ -78,6 +78,7 @@ with setup, st.container(border=True):
             )
             st.session_state[RESULT] = None
             st.session_state[TEXT] = ""
+            st.session_state.pop(AUDIO, None)  # the last question's recording goes with it
         except ServiceError as e:
             st.error(formatter.md_escape(str(e)), icon=":material/error:")
 with rubric, st.container(border=True):

@@ -286,27 +286,8 @@ def generate_voice_interview_question(
     """
     stream_name = stream or get_stream_from_role_or_domain(target_role)
 
-    # Check for custom question or viva questions in session state
-    if not custom_question:
-        try:
-            import streamlit as st  # type: ignore
-
-            viva_pool = st.session_state.get("github_viva_questions")
-            if (
-                viva_pool
-                and isinstance(viva_pool, list)
-                and len(viva_pool) > 0
-                and (category == "technical" or category is None)
-            ):
-                custom_question = random.choice(viva_pool)
-                custom_scenario = "GitHub Project Architecture & Code Viva"
-                custom_intent = (
-                    "Evaluates architectural trade-offs, code modularity, and technical "
-                    "mastery of the candidate's GitHub project."
-                )
-        except Exception:
-            pass
-
+    # A GitHub viva question arrives only as `custom_question` (the voice page's toggle); the
+    # agent never reads UI state, so the same inputs always give the same kind of question.
     if custom_question:
         q_text = custom_question
         selected_category = category or "technical"
