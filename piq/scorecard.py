@@ -12,7 +12,6 @@ from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
-SYSTEMS = ("baseline", "placementiq")
 PIQ_AGENTS = ("critic", "interviewer", "planner", "profile", "quiz")
 BASELINE_AGENTS = ("baseline", "baseline_quiz")
 DAILY_TOKENS = 200_000  # Groq free tier, per model per day (CLAUDE.md)

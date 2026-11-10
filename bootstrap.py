@@ -37,7 +37,6 @@ ROOT = Path(__file__).resolve().parent
 PYTHON = (3, 13)  # the version the pinned requirements and CI are verified on
 VENV = ROOT / ".venv"
 TOOLS = ROOT / ".tools"  # uv, its private Python and its cache: all git-ignored
-REPO = "https://github.com/prajwalparish-git/Skill-Scout-Nexus"
 
 # uv, pinned: a release over two weeks old, with the SHA-256 of each archive taken from that
 # release's sha256.sum. A download that does not match is refused.

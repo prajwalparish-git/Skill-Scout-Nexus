@@ -323,12 +323,6 @@ def _overview() -> None:
 
 # --- tab 2: provisioning ----------------------------------------------------------------------
 
-READY_ICON = {
-    "Ready": ":material/check_circle:",
-    "Duplicate": ":material/content_copy:",
-    "Invalid Email": ":material/mail_off:",
-}
-
 
 def _preview_table(preview) -> None:  # type: ignore[no-untyped-def]
     st.dataframe(

@@ -188,10 +188,6 @@ def current_profile(student_id: str | None) -> StudentProfile | None:
     return db.latest_profile(student_id) if student_id else None
 
 
-def target_roles() -> list[str]:
-    return list(agents.roles())
-
-
 @lru_cache(maxsize=1)
 def sample_resumes() -> tuple[str, ...]:
     """The bundled sample files; they ship with the app, so the folder is listed once."""

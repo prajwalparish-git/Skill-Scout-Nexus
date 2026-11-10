@@ -718,15 +718,6 @@ def _rubric_breakdown_json(items: tuple[tuple[str, float], ...]) -> str:
     return json.dumps(to_spec(rubric_breakdown(dict(items))))
 
 
-def gap_bars_spec(gaps: Sequence[tuple[str, int]], students: int) -> dict:
-    return json.loads(_gap_bars_json(tuple(gaps), students))
-
-
-@lru_cache(maxsize=64)
-def _gap_bars_json(gaps: tuple[tuple[str, int], ...], students: int) -> str:
-    return json.dumps(to_spec(gap_bars(gaps, students)))
-
-
 def histogram_spec(values: Sequence[float], *, top: int, step: int, noun: str) -> dict:
     return json.loads(_histogram_json(tuple(values), top, step, noun))
 

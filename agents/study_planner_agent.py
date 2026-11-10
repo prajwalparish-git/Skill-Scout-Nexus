@@ -190,12 +190,6 @@ CURATED_RESOURCES: dict[str, list[dict[str, str]]] = {
     ],
 }
 
-DEFAULT_RESOURCE = {
-    "title": "W3Schools & GeeksforGeeks Tech Guides",
-    "url": "https://www.geeksforgeeks.org/",
-    "type": "Guide",
-}
-
 
 class ResourceLink(BaseModel):
     title: str = Field(description="Name or title of learning resource")

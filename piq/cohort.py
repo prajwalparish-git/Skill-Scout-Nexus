@@ -29,23 +29,6 @@ ALL = "All streams"
 
 # Structural types: the detached ORM rows of database/models.py satisfy them, and tests can pass
 # plain objects. This module never imports SQLAlchemy.
-class _Student(Protocol):
-    id: int
-    username: str
-    name: str
-    stream: str
-    department: str | None
-    target_role: str
-    created_at: datetime
-
-
-class _Resume(Protocol):
-    student_id: int
-    matched_skills: list[str]
-    missing_skills: list[str]
-    match_percentage: float
-
-
 class _Plan(Protocol):
     student_id: int
     week_number: int
@@ -214,10 +197,6 @@ def streams(rows: Sequence[StudentRow]) -> list[str]:
     return sorted({r.stream for r in rows})
 
 
-def in_stream(rows: Sequence[StudentRow], stream: str) -> list[StudentRow]:
-    return list(rows) if stream == ALL else [r for r in rows if r.stream == stream]
-
-
 def stream_summaries(rows: Sequence[StudentRow]) -> list[StreamSummary]:
     """Per stream, sorted by name: students, average readiness and its parts, and bands.
     Each average is over the students who have that part."""
@@ -380,8 +359,3 @@ def gaps_takeaway(gaps: Sequence[tuple[str, int]], scanned: int) -> str:
         return "No skill gaps recorded yet"
     skill, n = gaps[0]
     return f"{skill} is missing for {n} of {scanned} scanned students"
-
-
-def report_rows(rows: Sequence[StudentRow]) -> list[dict[str, object]]:
-    """The report as records (column name -> value) for an on-screen table."""
-    return [{name: get(r) for name, get in REPORT_COLUMNS} for r in rows]
