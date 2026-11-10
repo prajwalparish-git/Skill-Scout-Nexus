@@ -94,7 +94,7 @@ def _plans(sid: str, ov: services.PlanOverview) -> None:
                 with w_top2:
                     st.download_button(
                         "📥 Download 7-Day Schedule (.ics)",
-                        data=calendar_export.generate_plan_ics(shown),
+                        data=partial(calendar_export.generate_plan_ics, shown),  # on click
                         file_name=f"study-schedule-week-{shown.week_no}.ics",
                         mime="text/calendar",
                         type="primary",
@@ -217,7 +217,7 @@ with col_top_ics:
         latest = ov.plans[-1]
         st.download_button(
             "📥 Download 7-Day Schedule (.ics)",
-            data=calendar_export.generate_plan_ics(latest),
+            data=partial(calendar_export.generate_plan_ics, latest),  # built on click
             file_name=f"study-schedule-week-{latest.week_no}.ics",
             mime="text/calendar",
             type="primary",
