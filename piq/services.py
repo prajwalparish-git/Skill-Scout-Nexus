@@ -16,9 +16,10 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from functools import lru_cache
+from typing import Literal, Self
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from piq import agents, checks, db, degrees, question_bank, resume_builder, scorecard, syllabus
 from piq.config import (
@@ -782,12 +783,20 @@ class AnsweredTurn(BaseModel):
     evaluation: AnswerEvaluation
 
 
-class InterviewSession(BaseModel):
-    """Typed state of one mock interview, kept in st.session_state between reruns.
+InterviewPhase = Literal["asking", "awaiting_question", "finished"]
 
+
+class InterviewSession(BaseModel):
+    """Typed state of one mock interview, kept in st.session_state between reruns (and sent
+    back and forth by the Next.js app).
+
+    Its `phase` is a small state machine:
+      asking --answer_question--> awaiting_question --continue_interview--> asking
+      asking --answer to the final question--> finished
     `current` is the question awaiting an answer. It is None after an answer is saved
     until `continue_interview` succeeds, so a failed follow-up can be retried without
-    re-answering (and without saving the same turn twice).
+    re-answering (and without saving the same turn twice). A finished session never holds
+    an open question (validated).
     """
 
     session_id: str
@@ -796,6 +805,18 @@ class InterviewSession(BaseModel):
     history: list[AnsweredTurn] = []
     current: InterviewTurn | None = None
     done: bool = False
+
+    @model_validator(mode="after")
+    def _finished_has_no_open_question(self) -> Self:
+        if self.done and self.current is not None:
+            raise ValueError("A finished interview has no open question.")
+        return self
+
+    @property
+    def phase(self) -> InterviewPhase:
+        if self.done:
+            return "finished"
+        return "asking" if self.current is not None else "awaiting_question"
 
     @property
     def average(self) -> float | None:
@@ -891,7 +912,7 @@ def start_interview(
 
 def answer_question(student_id: str, session: InterviewSession, answer: str) -> InterviewSession:
     """Evaluate and save the answer to `session.current`; returns state with current=None."""
-    if session.done or session.current is None:
+    if session.phase != "asking" or session.current is None:
         raise ServiceError("There is no open question in this session.")
     answer = (answer or "").strip()
     if not answer:
@@ -915,7 +936,7 @@ def continue_interview(
     student_id: str, session: InterviewSession, on_event: OnEvent | None = None
 ) -> InterviewSession:
     """Ask the next question after an answered turn."""
-    if session.done or session.current is not None:
+    if session.phase != "awaiting_question":
         raise ServiceError("This session is not waiting for a new question.")
     profile = _require_profile(student_id)
     nxt = agents.next_question(

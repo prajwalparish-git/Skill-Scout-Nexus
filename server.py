@@ -10,6 +10,7 @@ Run: uvicorn server:app --port 8000   (the frontend reads NEXT_PUBLIC_API_URL)
 """
 
 import json
+import logging
 import os
 import queue
 import threading
@@ -21,11 +22,13 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from piq import db, formatter, graph, llm, question_bank, resume_builder, services, syllabus
 from piq.config import INSTANT_QUIZ_SIZE, QUIZ_MAX_PER_TOPIC
 from piq.services import InterviewSession, ServiceError
+
+log = logging.getLogger("server")
 
 
 @asynccontextmanager
@@ -278,11 +281,19 @@ def _stream(work: Callable[[Callable[[str], None]], dict]) -> Iterator[str]:
             events.put(("result", work(lambda msg: events.put(("step", msg)))))
         except ServiceError as e:
             events.put(("error", {"detail": str(e), "status": 400}))
+        except ValidationError:
+            events.put(
+                ("error", {"detail": "The interview state sent is not valid.", "status": 400})
+            )
         except llm.RateLimited as e:
             events.put(("error", {"detail": str(e), "status": 429}))
         except (llm.LLMError, graph.CriticRejected) as e:
             events.put(("error", {"detail": str(e), "status": 502}))
-        events.put(None)
+        except Exception:  # anything else still ends the stream, never leaves it hanging
+            log.exception("a streamed request failed")
+            events.put(("error", {"detail": "Something went wrong. Try again.", "status": 500}))
+        finally:
+            events.put(None)
 
     threading.Thread(target=run, daemon=True).start()
     while (item := events.get()) is not None:
