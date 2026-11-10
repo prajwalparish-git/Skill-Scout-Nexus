@@ -166,7 +166,7 @@ GEMINI_API_KEYS=AIza_your_key         # optional second provider, also comma-sep
 | `GROQ_API_KEYS` | The fastest cloud AI, and speech-to-text for spoken answers | Skipped |
 | `GEMINI_API_KEYS` | A second cloud AI | Skipped |
 | `OLLAMA_BASE_URL`, `OLLAMA_MODEL` | A local model that works without internet ([ollama.com](https://ollama.com), then `ollama pull llama3.2:3b`) | Skipped |
-| `ELEVENLABS_API_KEY` | A natural voice for interview questions | The browser reads them aloud |
+| `ELEVENLABS_API_KEY` | A natural voice for interview questions (optional: Gemini TTS, `gemini-3.8-flash-tts`, speaks with the Gemini key) | Gemini TTS, then the PC's own voice, then the browser's |
 | `SUPABASE_DB_URL` | A cloud copy of all records (organizations, students and their results), kept in step in the background | Records stay on this machine |
 | `SMTP_EMAIL`, `SMTP_APP_PASSWORD` | Emails the 9-digit codes and an organization's welcome emails (Gmail with an App Password) | Codes and credentials go to `data/.mail_outbox.log` on this machine |
 
@@ -245,7 +245,7 @@ flowchart LR
     end
     subgraph Routers["core/"]
         R["AI router<br/>Groq → Gemini → Ollama → built-in"]
-        SP["speech router<br/>ElevenLabs → browser"]
+        SP["speech router<br/>ElevenLabs → Gemini TTS → local voice → browser"]
         PL["preloader<br/>next steps in the background"]
     end
     subgraph Data["Storage"]
@@ -267,7 +267,7 @@ flowchart LR
 | Interface | Streamlit 1.66 with Altair charts; optional Next.js 14 over FastAPI |
 | Agents | LangGraph generate → verify → retry loop; every AI answer is a validated Pydantic model |
 | AI | Groq and Google Gemini (round-robin key pools), local Ollama, built-in answers |
-| Voice | ElevenLabs or the browser's Web Speech API; Whisper on Groq for transcription |
+| Voice | ElevenLabs, Gemini TTS, the PC's own voice or the browser's Web Speech API; Whisper on Groq, Gemini or faster-whisper (offline) for transcription. `python -m scripts.offline_setup` checks the no-internet setup |
 | Storage | SQLite for the app; telemetry on local SQLite with a background copy to Supabase PostgreSQL |
 
 <div align="center">

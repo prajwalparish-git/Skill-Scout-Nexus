@@ -2,7 +2,7 @@
 
 Responsibilities:
 - Converts interview questions into realistic spoken audio using ElevenLabs TTS API
-  (`ELEVENLABS_API_KEY`) via high-speed streaming/REST requests.
+  (`ELEVENLABS_API_KEY`) or Gemini TTS (`GEMINI_API_KEYS`), else a local or browser voice.
 - Provides fallback to browser SpeechSynthesis / data URI synthetic wavs if API key is not present.
 - Generates realistic role-specific behavioral, technical, and situational scenario questions
   tailored across student streams:
@@ -41,7 +41,9 @@ class VoiceInterviewQuestion(BaseModel):
     audio_base64: str | None = Field(
         default=None, description="MP3 audio base64 payload if synthesized"
     )
-    tts_source: str = Field(default="browser_fallback", description="elevenlabs | browser_fallback")
+    tts_source: str = Field(
+        default="browser_fallback", description="elevenlabs | gemini | pyttsx3 | browser_fallback"
+    )
 
 
 # --- Curated Domain Scenario Banks ---
@@ -232,13 +234,14 @@ def bank_stream(stream: str) -> str:
 
 
 def synthesize_speech_elevenlabs(text: str, api_key: str | None = None) -> tuple[bytes | None, str]:
-    """(MP3 bytes, "elevenlabs") or (None, "browser_fallback"). core/speech_router.py does the
-    work: ELEVENLABS_API_KEY from .env, a circuit breaker, and no exception ever escapes.
+    """(audio bytes, the voice that spoke: "elevenlabs" | "gemini" | "pyttsx3") or
+    (None, "browser_fallback"). core/speech_router.py does the work: ElevenLabs, Gemini TTS
+    or the local voice, with circuit breakers, and no exception ever escapes.
     `api_key=""` asks for the browser voice outright."""
     if api_key == "":
         return None, "browser_fallback"
     speech = speech_router.synthesize(text)
-    return (speech.audio, "elevenlabs") if speech.audio else (None, "browser_fallback")
+    return (speech.audio, speech.source) if speech.audio else (None, "browser_fallback")
 
 
 def get_stream_from_role_or_domain(role: str, domain_id: str = "") -> str:

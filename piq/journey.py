@@ -748,11 +748,10 @@ def engine_status() -> EngineStatus:
 
 def service_status() -> ServiceStatus:
     """Which provider answers now, which are paused or off: Layer 3 made visible."""
-    why = speech_router.elevenlabs_unavailable()
     return ServiceStatus(
         ai=ai_router.status(),
         active_ai=ai_router.active_provider(),
         voice=speech_router.active_voice(),
-        voice_detail=why or "Ready",
+        voice_detail=speech_router.voice_detail(),
         telemetry=telemetry_backend(),
     )

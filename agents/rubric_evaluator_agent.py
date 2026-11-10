@@ -15,14 +15,13 @@ Responsibilities:
 
 from __future__ import annotations
 
-import io
 import logging
-import os
 import re
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from core import transcribe_router
 from piq import llm
 from piq.config import settings
 
@@ -74,17 +73,15 @@ def transcribe_audio_with_whisper(
     filename: str = "response.wav",
     api_key: str | None = None,
 ) -> str:
-    """Transcribes audio using Groq Whisper API (distil-whisper or whisper-large-v3).
-
-    Gracefully falls back if offline, mock mode, or missing API key.
+    """Transcribes audio: Groq Whisper, then Gemini, then faster-whisper on this machine
+    (offline). Returns "" when none can (the student types instead). core/transcribe_router.py
+    holds the tiers; the name is kept for its callers.
     """
     cfg = settings()
-    key = api_key or cfg.groq_api_key or os.getenv("GROQ_API_KEY")
-
     if not audio_bytes:
         return ""
     if cfg.mock_mode:
-        log.info("Whisper transcription: mock mode returns a canned answer.")
+        log.info("Transcription: mock mode returns a canned answer.")
         return (
             "In our previous project, I led the migration of our monolithic checkout system "
             "to asynchronous message queues. When traffic surged, the database previously locked "
@@ -93,27 +90,10 @@ def transcribe_audio_with_whisper(
             "times "
             "under 120 milliseconds with zero dropped orders."
         )
-
-    if not key:
-        log.info("Whisper transcription needs GROQ_API_KEY; the student types instead.")
-        return ""
-    try:
-        from groq import Groq
-
-        client = Groq(api_key=key)
-        audio_file = io.BytesIO(audio_bytes)
-        audio_file.name = filename
-
-        transcription = client.audio.transcriptions.create(
-            file=(filename, audio_file.read()),
-            model="whisper-large-v3",
-            response_format="text",
-            temperature=0.0,
-        )
-        return str(transcription).strip()
-    except Exception as e:
-        log.warning("Whisper transcription failed; the student types instead: %s", e)
-        return ""
+    result = transcribe_router.transcribe(audio_bytes, filename, api_key=api_key)
+    if not result.text:
+        log.info("No transcriber answered (%s); the student types instead.", result.detail)
+    return result.text
 
 
 def _detect_suspicious_gaps(question: str, answer_text: str) -> SuspiciousGapFlags:

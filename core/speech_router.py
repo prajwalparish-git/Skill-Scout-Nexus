@@ -3,8 +3,9 @@
 Tiers:
 1. ElevenLabs (ELEVENLABS_API_KEY; ELEVENLABS_VOICE_ID and ELEVENLABS_MODEL optional, Timeout: 2.5s)
    Returns MP3 bytes.
-2. Gemini TTS (GEMINI_API_KEYS with load balancer / key pool, Timeout: 2.5s)
-   Generates speech via Google's Gemini audio modality (PCM/WAV or MP3).
+2. Gemini TTS (GEMINI_API_KEYS key pool; GEMINI_TTS_MODEL, then GEMINI_TTS_FALLBACK_MODEL,
+   both from .env). The ElevenLabs alternative: with no ElevenLabs key it is the first tier.
+   Returns 24 kHz PCM, wrapped as WAV.
 3. Local OS Voice (pyttsx3)
    Runs in background thread at 160wpm with clear system voice to produce a local .wav file.
 4. Browser Web Speech API
@@ -15,6 +16,9 @@ Automatic Caching:
 Cached clips are stored in AUDIO_CACHE_DIR (data/.audio_cache/<sha256>.mp3 or .wav).
 If a clip already exists for the text, it is returned immediately without contacting any API
 or invoking pyttsx3.
+
+Offline: core/connectivity.py is asked first; with no internet both cloud tiers are skipped at
+once and the local OS voice (pyttsx3) speaks, then the browser voice.
 
 Never crashes, never raises, and never asks for API keys in the UI.
 """
@@ -40,6 +44,7 @@ from typing import Literal
 
 import httpx
 
+from core import connectivity
 from core.ai_router import CircuitBreaker, _excerpt, _http, _retry_after, key_pool
 from core.key_pool import KeyPoolManager
 from piq.config import (
@@ -58,8 +63,9 @@ ELEVENLABS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice}"
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 ELEVENLABS_TIMEOUT_S = 2.5
-GEMINI_TTS_TIMEOUT_S = 2.5
 PYTTSX3_TIMEOUT_S = 3.0
+
+GEMINI_EXT = ".gemini.wav"  # Gemini clips are cached apart from pyttsx3's plain .wav
 
 Source = Literal["elevenlabs", "gemini", "pyttsx3", "browser"]
 
@@ -99,6 +105,8 @@ def elevenlabs_unavailable() -> str:
     """Why ElevenLabs cannot speak now ('' = it can)."""
     if not settings().elevenlabs_api_key:
         return "ELEVENLABS_API_KEY is not set"
+    if not connectivity.online():
+        return "no internet connection"
     if not _elevenlabs_breaker.allow():
         wait_s = _elevenlabs_breaker.retry_in()
         return f"ElevenLabs paused for {wait_s:.0f} s: {_elevenlabs_breaker.reason}"
@@ -107,8 +115,13 @@ def elevenlabs_unavailable() -> str:
 
 def gemini_tts_unavailable() -> str:
     """Why Gemini TTS cannot speak now ('' = it can)."""
-    if not settings().gemini_api_keys:
+    s = settings()
+    if not s.gemini_api_keys:
         return "GEMINI_API_KEYS is not set"
+    if not (s.gemini_tts_model or s.gemini_tts_fallback_model):
+        return "GEMINI_TTS_MODEL is not set"
+    if not connectivity.online():
+        return "no internet connection"
     if not _gemini_breaker.allow():
         wait_s = _gemini_breaker.retry_in()
         return f"Gemini TTS paused for {wait_s:.0f} s: {_gemini_breaker.reason}"
@@ -156,6 +169,7 @@ def get_cached_speech(text: str) -> Speech | None:
     candidates = [
         (_elevenlabs_audio_path(text), "elevenlabs", "audio/mpeg"),
         (audio_path(text, ".mp3"), "elevenlabs", "audio/mpeg"),
+        (audio_path(text, GEMINI_EXT), "gemini", "audio/wav"),
         (audio_path(text, ".wav"), "pyttsx3", "audio/wav"),
     ]
     for path, default_source, mime_type in candidates:
@@ -226,8 +240,20 @@ def _elevenlabs(text: str) -> bytes:
 # --- Tier 2: Gemini TTS -----------------------------------------------------------------------
 
 
+def _pcm_rate(mime: str) -> int:
+    """The sample rate in a mime type like 'audio/L16;codec=pcm;rate=24000' (default 24000)."""
+    for part in mime.replace(" ", "").split(";"):
+        if part.lower().startswith("rate="):
+            with contextlib.suppress(ValueError):
+                return int(part[5:])
+    return 24000
+
+
 def _gemini_tts(text: str) -> tuple[bytes, str]:
-    """Request speech synthesis from Gemini using audio modality."""
+    """Speech from Gemini's TTS models: the main one, then the lite one, over every live key.
+
+    A model Google does not serve (404) or that fails on every key hands over to the next
+    model; a rate-limited or refused key rests in the pool."""
     s = settings()
     pool = _gemini_pool()
     keys = pool.order()
@@ -235,65 +261,67 @@ def _gemini_tts(text: str) -> tuple[bytes, str]:
         _gemini_breaker.failure("no Gemini keys available or all resting")
         raise RuntimeError("No available Gemini keys in pool")
 
-    model = s.gemini_model or "gemini-3.8-flash"
-    url = GEMINI_URL.format(model=model)
+    models = [m for m in dict.fromkeys((s.gemini_tts_model, s.gemini_tts_fallback_model)) if m]
     body = {
-        "contents": [{"parts": [{"text": f"Read aloud verbatim with natural cadence:\n\n{text}"}]}],
+        "contents": [
+            {"parts": [{"text": f"Say in a clear, calm, professional interviewer voice: {text}"}]}
+        ],
         "generationConfig": {
             "responseModalities": ["AUDIO"],
-            "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": "Puck"}}},
+            "speechConfig": {
+                "voiceConfig": {"prebuiltVoiceConfig": {"voiceName": s.gemini_tts_voice}}
+            },
         },
     }
 
     last_err: Exception | None = None
-    for key in keys:
-        t0 = time.perf_counter()
-        try:
-            r = _http().post(
-                url,
-                json=body,
-                headers={"x-goog-api-key": key, "Content-Type": "application/json"},
-                timeout=GEMINI_TTS_TIMEOUT_S,
-            )
-        except httpx.TimeoutException as e:
-            last_err = e
-            continue
-        except httpx.HTTPError as e:
-            last_err = e
-            continue
-
-        if r.status_code == 429:
-            hint = _retry_after(r.headers)
-            pool.rate_limited(key, hint)
-            continue
-        if r.status_code in (401, 403):
-            pool.refused(key, f"refused by Gemini (HTTP {r.status_code})")
-            continue
-        if r.status_code >= 400:
-            last_err = RuntimeError(f"Gemini API error {r.status_code}: {_excerpt(r)}")
-            continue
-
-        try:
-            data = r.json()
-            candidates = data.get("candidates") or []
-            if not candidates:
+    for model in models:
+        url = GEMINI_URL.format(model=model)
+        for key in keys:
+            t0 = time.perf_counter()
+            try:
+                r = _http().post(
+                    url,
+                    json=body,
+                    headers={"x-goog-api-key": key, "Content-Type": "application/json"},
+                    timeout=s.gemini_tts_timeout_s,
+                )
+            except httpx.HTTPError as e:
+                last_err = e
                 continue
-            parts = candidates[0].get("content", {}).get("parts", [])
-            for p in parts:
-                inline = p.get("inlineData") or p.get("inline_data")
-                if inline and inline.get("data"):
-                    mime = inline.get("mimeType", "") or inline.get("mime_type", "")
-                    raw_b64 = inline["data"]
-                    audio_bytes = base64.b64decode(raw_b64)
-                    pool.success(key, time.perf_counter() - t0)
-                    _gemini_breaker.success()
-                    if "pcm" in mime.lower():
-                        return pcm_to_wav(audio_bytes), "audio/wav"
-                    mime_type = "audio/wav" if "wav" in mime.lower() else "audio/mpeg"
-                    return audio_bytes, mime_type
-        except Exception as e:
-            last_err = e
-            continue
+
+            if r.status_code == 429:
+                pool.rate_limited(key, _retry_after(r.headers))
+                last_err = RuntimeError(f"{model}: rate limit")
+                continue
+            if r.status_code in (401, 403):
+                pool.refused(key, f"refused by Gemini (HTTP {r.status_code})")
+                last_err = RuntimeError(f"{model}: refused (HTTP {r.status_code})")
+                continue
+            if r.status_code == 404:
+                last_err = RuntimeError(f"{model}: not served to this key")
+                break  # every key gets the same answer: next model
+            if r.status_code >= 400:
+                last_err = RuntimeError(f"{model}: HTTP {r.status_code}: {_excerpt(r)}")
+                continue
+
+            try:
+                candidates = r.json().get("candidates") or []
+                parts = candidates[0].get("content", {}).get("parts", []) if candidates else []
+                for p in parts:
+                    inline = p.get("inlineData") or p.get("inline_data")
+                    if inline and inline.get("data"):
+                        mime = inline.get("mimeType", "") or inline.get("mime_type", "")
+                        audio_bytes = base64.b64decode(inline["data"])
+                        pool.success(key, time.perf_counter() - t0)
+                        _gemini_breaker.success()
+                        if "pcm" in mime.lower() or "l16" in mime.lower():
+                            return pcm_to_wav(audio_bytes, _pcm_rate(mime)), "audio/wav"
+                        mime_type = "audio/wav" if "wav" in mime.lower() else "audio/mpeg"
+                        return audio_bytes, mime_type
+                last_err = RuntimeError(f"{model}: answered without audio")
+            except Exception as e:
+                last_err = e
 
     _gemini_breaker.failure(f"Gemini TTS failed: {last_err}")
     raise RuntimeError(f"Gemini TTS request failed: {last_err}")
@@ -352,14 +380,16 @@ def _pyttsx3_available() -> bool:
 
 
 def needs_synthesis(text: str) -> bool:
-    """Would synthesize(text) call ElevenLabs? (A key is set, it is not paused and the clip
-    is not cached yet.) The preloader warms only these."""
+    """Would synthesize(text) call a cloud voice? (ElevenLabs or Gemini is set up and not
+    paused, and the clip is not cached yet.) The preloader warms only these."""
     spoken = clip(text)
+    cloud = not elevenlabs_unavailable() or not gemini_tts_unavailable()
     return (
         bool(spoken)
-        and not elevenlabs_unavailable()
+        and cloud
         and not _elevenlabs_audio_path(spoken).is_file()
         and not audio_path(spoken, ".mp3").is_file()
+        and not audio_path(spoken, GEMINI_EXT).is_file()
     )
 
 
@@ -386,7 +416,14 @@ def synthesize(
     # Step 0: Check cache first
     cached = get_cached_speech(spoken)
     if cached is not None:
-        return cached
+        # A robotic local clip is not kept once a cloud voice can speak the line properly.
+        better_possible = (
+            network
+            and cached.source == "pyttsx3"
+            and (not elevenlabs_unavailable() or not gemini_tts_unavailable())
+        )
+        if not better_possible:
+            return cached
 
     if not network:
         return Speech(spoken, "browser", None, "the clip is still being prepared")
@@ -409,7 +446,7 @@ def synthesize(
     if enable_gemini and not gemini_tts_unavailable():
         try:
             audio, mime_type = _gemini_tts(spoken)
-            ext = ".wav" if mime_type == "audio/wav" else ".mp3"
+            ext = GEMINI_EXT if mime_type == "audio/wav" else ".mp3"
             _store(audio_path(spoken, ext), audio)
             return Speech(spoken, "gemini", audio, mime_type=mime_type)
         except Exception as e:
@@ -434,7 +471,7 @@ def synthesize(
                 tmp_wav.unlink(missing_ok=True)
 
     # Tier 4: Browser Web Speech API
-    detail = eleven_why or "Cloud and local speech tiers unavailable"
+    detail = eleven_why or gemini_tts_unavailable() or "Cloud and local speech tiers unavailable"
 
     return Speech(
         spoken,
@@ -450,8 +487,17 @@ def active_voice() -> str:
     if not elevenlabs_unavailable():
         return "ElevenLabs"
     if not gemini_tts_unavailable():
-        return "Gemini TTS"
+        return f"Gemini TTS ({settings().gemini_tts_model})"
+    if _pyttsx3_available():
+        return "Local voice (offline)"
     return "Browser voice"
+
+
+def voice_detail() -> str:
+    """Why the cloud voices are not speaking now, or 'Ready'."""
+    if not elevenlabs_unavailable() or not gemini_tts_unavailable():
+        return "Ready"
+    return gemini_tts_unavailable() or elevenlabs_unavailable()
 
 
 def _js_string(text: str) -> str:

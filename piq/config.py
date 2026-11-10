@@ -95,7 +95,11 @@ OLLAMA_NUM_PREDICT = 512
 AI_CACHE_AGENTS = frozenset({"planner", "critic", "evaluator"})
 AI_CACHE_MAX_ENTRIES = 500
 AI_CACHE_TTL_S = 7 * 24 * 3600
-TTS_TIMEOUT_S = 20  # seconds to wait for ElevenLabs before the browser voice takes over
+# Speech model IDs (GEMINI_TTS_MODEL, GEMINI_TTS_FALLBACK_MODEL, LOCAL_STT_MODEL) come only
+# from .env, like every model ID: blank turns that tier off.
+GEMINI_TTS_VOICE = "Kore"  # one of Gemini's prebuilt voices (GEMINI_TTS_VOICE overrides)
+GEMINI_TTS_TIMEOUT_S = 12.0  # speech takes longer to generate than text
+NET_PROBE_TTL_S = 15.0  # an online/offline verdict (core/connectivity.py) is reused this long
 TTS_MAX_CHARS = 2500  # text sent for synthesis; longer text is cut at the last full sentence
 # --- the six-step journey and the faculty dashboard (piq/journey.py, piq/cohort.py) ----------
 CRITIC_QUIZ_SIZES = (3, 5, 10)  # questions a critic-checked quiz can have
@@ -294,6 +298,13 @@ class Settings:
     elevenlabs_api_key: str = field(default="", repr=False)
     elevenlabs_voice_id: str = ""
     elevenlabs_model: str = ""
+    # Gemini speech (the ElevenLabs alternative); it reuses the Gemini key pool.
+    gemini_tts_model: str = ""  # "" = no Gemini voice
+    gemini_tts_fallback_model: str = ""
+    gemini_tts_voice: str = GEMINI_TTS_VOICE
+    gemini_tts_timeout_s: float = GEMINI_TTS_TIMEOUT_S
+    # core/transcribe_router.py: "" = no offline transcription (the student types instead).
+    local_stt_model: str = ""
     # core/preloader.py: false stops speculative generation (saves quota; pages work as before).
     preload: bool = True
     preload_cache_dir: Path = DATA_DIR / ".preload_cache"
@@ -380,6 +391,11 @@ def settings() -> Settings:
         elevenlabs_api_key=os.getenv("ELEVENLABS_API_KEY", "").strip(),
         elevenlabs_voice_id=os.getenv("ELEVENLABS_VOICE_ID", "").strip(),
         elevenlabs_model=os.getenv("ELEVENLABS_MODEL", "").strip(),
+        gemini_tts_model=os.getenv("GEMINI_TTS_MODEL", "").strip(),
+        gemini_tts_fallback_model=os.getenv("GEMINI_TTS_FALLBACK_MODEL", "").strip(),
+        gemini_tts_voice=os.getenv("GEMINI_TTS_VOICE", "").strip() or GEMINI_TTS_VOICE,
+        gemini_tts_timeout_s=_number("GEMINI_TTS_TIMEOUT_S", GEMINI_TTS_TIMEOUT_S),
+        local_stt_model=os.getenv("LOCAL_STT_MODEL", "").strip(),
         preload=_flag("PRELOAD", "true"),
         preload_cache_dir=Path(os.getenv("PRELOAD_CACHE_DIR", str(DATA_DIR / ".preload_cache"))),
         smtp_email=os.getenv("SMTP_EMAIL", "").strip(),

@@ -29,6 +29,7 @@ LAYERS = {
     "test_llm": ("Unit", "LLM gateway (fake Groq client) and the offline tier"),
     "test_ai_router": ("Unit", "Layer 3 AI router: breakers, failover, Gemini and Ollama"),
     "test_speech_router": ("Unit", "Layer 3 speech router: ElevenLabs and browser voice"),
+    "test_offline_voice": ("Unit", "Gemini TTS, offline voice and transcription tiers"),
     "test_load_balancer": ("Unit", "Layer 3 speed: key pool round robin, 429 failover, cache"),
     "test_offline": ("Unit", "Layer 3 offline tier: answers from data/"),
     "test_preloader": ("Integration", "Layer 3 preloading: concurrent tasks, served once, on disk"),

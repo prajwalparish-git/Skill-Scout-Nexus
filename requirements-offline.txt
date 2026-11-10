@@ -1,0 +1,7 @@
+# Optional: everything that lets the app work with no internet (voice and AI).
+#   pip install -r requirements-offline.txt
+#   python -m scripts.offline_setup      (downloads the speech model once, checks Ollama)
+# The AI half is Ollama (ollama.com), installed separately: ollama pull llama3.2:3b
+pyttsx3==2.99            # core/speech_router.py: the machine's own voice speaks questions
+faster-whisper==1.2.1    # core/transcribe_router.py: spoken answers transcribed on this machine
+av==16.1.0               # faster-whisper decodes audio with PyAV; av 17+ broke its av.open call
