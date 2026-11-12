@@ -1768,3 +1768,27 @@ def scorecard_table(card: object) -> pd.DataFrame:
         for p in card.parameters
     ]
     return pd.DataFrame(data).set_index("Parameter")
+
+
+# --- study library (plan page) ----------------------------------------------------------------
+
+
+def book_md(book: dict, fills: Sequence[str] = ()) -> str:
+    """One recommended book: title, author, edition, level, why, and its links."""
+    links = " · ".join(f"[{md_escape(link['label'])}]({link['url']})" for link in book["links"])
+    weak = f" · **fills weak topic: {md_escape(', '.join(fills))}**" if fills else ""
+    return (
+        f"**{md_escape(book['title'])}**, {md_escape(book['author'])}  \n"
+        f"{md_escape(book['edition'])} · {book['level']}{weak}  \n"
+        f"{md_escape(book['why'])}  \n"
+        f"{links}"
+    )
+
+
+def repo_md(repo: dict) -> str:
+    """One curated repository: name and link, level, estimated hours, why it helps."""
+    hours = f"about {repo['hours']:,} h" if repo["hours"] else "reference list"
+    return (
+        f"**[{repo['repo']}]({repo['url']})** · {repo['level']} · {hours}  \n"
+        f"{md_escape(repo['why'])}"
+    )

@@ -1,5 +1,5 @@
 name,email,main_domain,subdomain,target_role,phone,batch_year
-Asha Rao,asha.rao@example.com,Engineering,Computer Science,Software Engineer,+91 98450 00001,2027
-Rohan Mehta,rohan.mehta@example.com,Commerce,Taxation & Audit,,+91 98450 00002,2027
+Asha Rao,asha.rao@example.com,Engineering,Computer Science,Software Engineer,,2027
+Rohan Mehta,rohan.mehta@example.com,Commerce,Taxation & Audit,,,2027
 Meera Nair,meera.nair@example.com,Law,Corporate & Contract Law,,,2027
 Karan Shah,karan.shah@example.com,Management,Finance & Operations,Product Manager,,2027

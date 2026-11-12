@@ -9,7 +9,7 @@ from collections.abc import Callable
 import streamlit as st
 
 from piq import accounts, charts, formatter, journey, orgs, services
-from piq.config import ORG_TYPES
+from piq.config import CONSENT_TEXT, ORG_TYPES
 from piq.ui import (
     SUSPENDED_NOTICE,
     current_student,
@@ -89,7 +89,11 @@ def _sign_up_tab() -> None:
             "Repeat it", type="password", autocomplete="new-password", key="auth_su_pw2"
         )
         st.caption("At least 8 characters, with letters and digits.")
+        consent = st.checkbox(CONSENT_TEXT, value=False, key="auth_su_consent")
         go = st.form_submit_button("Create account", type="primary", icon=":material/person_add:")
+    if go and not consent:
+        st.error("Tick the consent box to create an account.", icon=":material/error:")
+        return
     if go:
         _start_code_step(
             lambda: accounts.sign_up(name, username, email, password, confirm, role or "")
@@ -425,10 +429,22 @@ def _form(profile: services.StudentProfile | None, key: str) -> None:
         sample = st.selectbox(
             "…or use a sample resume", ["—", *services.sample_resumes()], key="onboard_sample"
         )
+        consent = st.checkbox(
+            CONSENT_TEXT,
+            value=False,
+            key=f"onboard_consent_{key}",
+            help="Needed for your own file. A sample resume holds no personal data.",
+        )
         submitted = st.form_submit_button(
             "Analyse resume", type="primary", icon=":material/fact_check:"
         )
     if not submitted:
+        return
+    if upload and not consent:
+        st.error(
+            "Tick the consent box to analyse your own resume (a sample needs no consent).",
+            icon=":material/error:",
+        )
         return
     try:
         if upload:

@@ -25,7 +25,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, ValidationError
 
-from piq import db, formatter, graph, llm, question_bank, resume_builder, services, syllabus
+from piq import (
+    db,
+    formatter,
+    graph,
+    llm,
+    question_bank,
+    resume_builder,
+    services,
+    study_library,
+    syllabus,
+)
 from piq.config import INSTANT_QUIZ_SIZE, QUIZ_MAX_PER_TOPIC, ROOT
 from piq.services import InterviewSession, ServiceError
 
@@ -127,6 +137,12 @@ def catalog() -> dict:
         "degrees": [{"code": c, "name": services.degree_label(c)} for c in services.degree_codes()],
         "statuses": list(services.DEGREE_STATUSES),
     }
+
+
+@app.get("/api/library")
+def library() -> dict:
+    """Curated study books and GitHub repositories, with a role index to filter them by."""
+    return study_library.payload()
 
 
 PUBLIC_STUDENT = ("id", "name", "username", "target_role", "readiness_score")

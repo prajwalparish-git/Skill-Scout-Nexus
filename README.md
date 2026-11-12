@@ -330,6 +330,35 @@ Conventions: views call `piq` (never `agents`, `core` or `database` directly), a
 validated Pydantic model, and a new dependency needs a pinned version and a one-line reason in
 `requirements.txt`. Commits follow Conventional Commits (`feat(scope): ...`, `fix(scope): ...`).
 
+## Privacy and legal
+
+Skill Scout Nexus is a free, non-commercial, open-source academic college mini-project, provided
+as is for educational and career-readiness purposes. Whoever runs a copy holds its data. The web
+front end has a Privacy Policy, Terms of use and Cookies Policy (`/privacy`, `/terms`, `/cookies`),
+asks for consent before optional browser storage, and loads no third-party scripts, fonts or embeds.
+A student deletes their account and all of its history from the Onboard page (**Delete my
+account**).
+
+## Open Source Credits & Asset Licenses
+
+Only original project artwork, open-licensed fonts and icons, and open-source libraries are used.
+
+| Asset or library | Licence |
+|---|---|
+| Brand mark, wordmark (`static/brand/`) and README illustrations (`.github/assets/`) | Original artwork made for this project |
+| Bricolage Grotesque, Atkinson Hyperlegible Next, JetBrains Mono (`static/fonts/`, `frontend/app/fonts/`) | SIL Open Font License 1.1, `OFL.txt` beside each font |
+| Lucide icons (`lucide-react`) | ISC |
+| GitHub mark | Used only to link to the repository, per GitHub's logo guidelines |
+| Next.js, React, Motion, Lenis, Tailwind CSS, clsx, tailwind-merge | MIT |
+| Streamlit, Groq SDK | Apache-2.0 |
+| FastAPI, LangGraph, Pydantic, SQLAlchemy, python-docx | MIT |
+| pandas, Altair, pypdf, python-dotenv, httpx, Uvicorn | BSD-3-Clause |
+| fpdf2 | LGPL-3.0-or-later (used as an unmodified library) |
+| psycopg (optional PostgreSQL driver) | LGPL-3.0 (used as an unmodified library) |
+
+The study library on the plan page links to books and repositories that belong to their authors;
+nothing from them is copied into the app.
+
 <div align="center">
 <br>
 <sub>Built with Streamlit, LangGraph and Pydantic · runs offline in mock mode · <a href="https://github.com/prajwalparish-git/Skill-Scout-Nexus">github.com/prajwalparish-git/Skill-Scout-Nexus</a></sub>

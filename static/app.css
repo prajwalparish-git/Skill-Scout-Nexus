@@ -41,6 +41,28 @@
   border-radius: 0.5rem;
 }
 
+/* Every other control: one rule, so nothing a keyboard can reach is left without a visible
+   ring (WCAG 2.4.7). The explicit teal reads >= 3:1 on the page and on the sidebar in both
+   schemes (6.4:1 light, 9.2:1 dark). */
+[data-testid="stApp"] :is(a, button, input, textarea, select, summary, [role="tab"], [role="checkbox"], [role="radio"], [role="switch"], [tabindex="0"]):focus-visible {
+  outline: 2px solid light-dark(#0D6670, #6CCBC4);
+  outline-offset: 2px;
+}
+
+/* Controls Streamlit draws around a hidden native input: ring the visible wrapper. The resume
+   upload dropzone is one of them (its button takes the keyboard focus). */
+[data-testid="stFileUploaderDropzone"]:focus-within,
+[data-testid="stCheckbox"]:has(input:focus-visible),
+[data-testid="stToggle"]:has(input:focus-visible),
+[data-testid="stRadio"] label:has(input:focus-visible),
+[data-testid="stTextArea"]:has(textarea:focus-visible),
+[data-testid="stNumberInput"]:has(input:focus-visible),
+[data-testid="stSlider"]:has([role="slider"]:focus-visible) {
+  outline: 2px solid light-dark(#0D6670, #6CCBC4);
+  outline-offset: 3px;
+  border-radius: 0.5rem;
+}
+
 /* A selected pill or segment takes the primary as its text colour; the dark primary is
    tuned for white button labels (3.7:1 on the page), so use the lighter teal text token.
    Four attribute selectors outrank Streamlit's own rule for the selected state. */
@@ -84,7 +106,7 @@
 [data-testid="stHtml"] .piq-done { color: light-dark(#0D6670, #6CCBC4); font-weight: 700; }
 
 /* Interview feedback (formatter.criteria_html): criterion, a small bar, the score. The bar
-   is the primary teal (>= 3:1 in both schemes) on a hairline track. */
+   is the primary teal (>= 3:1 in both schemes) on a track tone. */
 [data-testid="stHtml"] .piq-criteria {
   display: grid;
   grid-template-columns: max-content minmax(4rem, 12rem) max-content;
@@ -96,7 +118,9 @@
 [data-testid="stHtml"] .piq-bar {
   height: 0.5rem;
   border-radius: 999px;
-  background: light-dark(#DCE1DE, #2C383B);
+  /* The dark track is the surface tone, so the teal bar stays >= 3:1 against it (2.6:1 on the
+     old hairline tone). */
+  background: light-dark(#DCE1DE, #1A2528);
 }
 
 [data-testid="stHtml"] .piq-bar > span {

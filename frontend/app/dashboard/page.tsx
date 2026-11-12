@@ -1,10 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
+import { ArrowRight, CalendarDays, CheckCircle2, Flame, ListChecks, MessagesSquare, Target } from "lucide-react";
 import { get, type DashboardPayload } from "@/lib/api";
 import { useCandidate } from "@/lib/candidate";
 import { BarList, LineChart } from "@/components/charts";
-import { Badge, Empty, ErrorNote, NeedsCandidate, PageHeader } from "@/components/ui";
+import { Badge, Empty, ErrorNote, Loading, NeedsCandidate, PageHeader, Ring, Stat } from "@/components/ui";
 
 const TREND: Record<string, "ok" | "warn" | "todo" | "info"> = {
   improving: "ok",
@@ -26,6 +28,12 @@ function readinessHeadline(scores: number[]): string {
   if (scores.length === 1) return `Readiness is ${last}/100 from your first profile`;
   if (last === first) return `Readiness held at ${last}/100 over ${scores.length} profiles`;
   return `Readiness ${last > first ? "rose" : "fell"} from ${first} to ${last} over ${scores.length} profiles`;
+}
+
+function tier(score: number): string {
+  if (score >= 80) return "Interview-ready: keep your edge with timed quizzes and a mock interview a week.";
+  if (score >= 60) return "Close: a few focused weeks on your weakest topics should take you over the line.";
+  return "Building up: follow the weekly plan and quiz the weak topics it puts first.";
 }
 
 export default function DashboardPage() {
@@ -50,7 +58,7 @@ export default function DashboardPage() {
   if (!candidate)
     return (
       <>
-        <PageHeader title="Dashboard" lead="Readiness, topic mastery and score trends." />
+        <PageHeader eyebrow="Dashboard" title="Your progress, in one place" lead="Readiness, topic mastery and score trends." />
         <NeedsCandidate />
       </>
     );
@@ -58,31 +66,69 @@ export default function DashboardPage() {
   const scores = d?.readiness.map((r) => r.readiness_score) ?? [];
   const mastery = [...(d?.mastery ?? [])].sort((a, b) => b.weakness - a.weakness);
   const accuracy = d && d.answered.total ? Math.round((100 * d.answered.correct) / d.answered.total) : null;
+  const first = candidate.name.split(/\s+/)[0];
 
   return (
     <>
-      <PageHeader title="Dashboard" lead="How your readiness, quiz scores and interviews are moving." />
+      <PageHeader
+        eyebrow="Dashboard"
+        title={`Hi ${first}, here is where you stand`}
+        lead="How your readiness, quiz scores and interviews are moving, and what to do next."
+        actions={
+          <>
+            <Link href="/plan" className="btn-ghost">
+              <CalendarDays size={16} aria-hidden /> Open study plan
+            </Link>
+            <Link href="/quiz" className="btn-primary">
+              <ListChecks size={16} aria-hidden /> Take a quiz
+            </Link>
+          </>
+        }
+      />
       <ErrorNote message={error} />
+      {!d && !error && <Loading label="Loading your dashboard…" />}
       {d && (
         <>
-          <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {[
-              ["Readiness", `${d.profile.readiness_score}/100`],
-              ["Quizzes taken", d.quizzes_taken],
-              ["Answered correctly", accuracy === null ? "–" : `${accuracy}%`],
-              ["Study streak", `${d.streak.current} day${d.streak.current === 1 ? "" : "s"}`],
-            ].map(([label, value]) => (
-              <div key={label} className="card py-4">
-                <p className="text-xs text-muted">{label}</p>
-                <p className="mt-1 text-2xl font-semibold tabular-nums">{value}</p>
+          <section aria-label="Readiness" className="grid gap-3 lg:grid-cols-[1.4fr_1fr_1fr]">
+            <div className="card flex items-center gap-5 lg:row-span-2">
+              <Ring value={d.profile.readiness_score} label="Readiness" size={112} suffix=" out of 100" />
+              <div className="min-w-0">
+                <p className="eyebrow">Readiness for</p>
+                <p className="mt-1 font-display text-xl font-semibold tracking-tight">{d.profile.target_role}</p>
+                <p className="mt-2 text-sm text-muted">{tier(d.profile.readiness_score)}</p>
               </div>
-            ))}
-          </div>
+            </div>
+            <Stat icon={ListChecks} label="Quizzes taken" value={d.quizzes_taken} />
+            <Stat icon={CheckCircle2} label="Answered correctly" value={accuracy === null ? "–" : `${accuracy}%`} hint={`${d.answered.correct} of ${d.answered.total}`} />
+            <Stat
+              icon={Flame}
+              label="Study streak"
+              value={`${d.streak.current} day${d.streak.current === 1 ? "" : "s"}`}
+              hint={`Longest: ${d.streak.longest} day${d.streak.longest === 1 ? "" : "s"}`}
+            />
+            <Stat icon={MessagesSquare} label="Mock interviews" value={d.sessions.length} hint={d.sessions[0] ? `Last: ${d.sessions[0].avg_overall?.toFixed(1)}/5` : undefined} />
+          </section>
 
-          <div className="grid gap-6 lg:grid-cols-2">
-            <section className="card">
-              <h2 className="font-semibold">{readinessHeadline(scores)}</h2>
-              <p className="mb-3 text-xs text-muted">Readiness out of 100 at each profile.</p>
+          {mastery[0] && (
+            <Link
+              href="/quiz"
+              className="card card-hover group mt-3 flex items-center gap-4 border-ink/15"
+            >
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-ink text-bg" aria-hidden>
+                <Target size={18} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold">Next best step: practise {mastery[0].topic}</span>
+                <span className="block text-sm text-muted">It is your weakest topic right now; a quiz moves your plan too.</span>
+              </span>
+              <ArrowRight size={18} className="shrink-0 transition-transform group-hover:translate-x-0.5" aria-hidden />
+            </Link>
+          )}
+
+          <div className="mt-6 grid gap-6 lg:grid-cols-2">
+            <section className="card" aria-labelledby="dash-readiness">
+              <h2 id="dash-readiness" className="h2">{readinessHeadline(scores)}</h2>
+              <p className="mb-4 mt-1 text-xs text-muted">Readiness out of 100 at each profile.</p>
               <LineChart
                 ariaLabel={`Readiness by profile: ${scores.join(", ")} of 100`}
                 points={d.readiness.map((r) => ({ label: day(r.created_at), value: r.readiness_score }))}
@@ -90,11 +136,11 @@ export default function DashboardPage() {
               />
             </section>
 
-            <section className="card">
-              <h2 className="font-semibold">
+            <section className="card" aria-labelledby="dash-mastery">
+              <h2 id="dash-mastery" className="h2">
                 {mastery[0] ? `${mastery[0].topic} needs the most work` : "Topic mastery"}
               </h2>
-              <p className="mb-3 text-xs text-muted">Weakness per topic, 0 strong to 100 weak; hover for recent scores.</p>
+              <p className="mb-4 mt-1 text-xs text-muted">Weakness per topic, 0 strong to 100 weak; hover for recent scores.</p>
               <BarList
                 ariaLabel="Weakness by topic"
                 max={100}
@@ -107,56 +153,95 @@ export default function DashboardPage() {
             </section>
           </div>
 
-          <section className="card mt-6 overflow-x-auto">
-            <h2 className="mb-3 font-semibold">Topics and their trend</h2>
-            <table className="w-full text-sm">
+          <section className="card mt-6 overflow-x-auto" aria-labelledby="dash-topics">
+            <h2 id="dash-topics" className="h2 mb-4">Topics and their trend</h2>
+            <table className="w-full min-w-[520px] text-sm">
               <thead>
                 <tr className="text-left text-xs text-muted">
-                  <th className="pb-2 font-medium">Topic</th>
-                  <th className="pb-2 text-right font-medium">Quizzes</th>
-                  <th className="pb-2 text-right font-medium">Latest</th>
-                  <th className="pb-2 font-medium">Trend</th>
+                  <th scope="col" className="pb-2 font-medium">Topic</th>
+                  <th scope="col" className="pb-2 text-right font-medium">Quizzes</th>
+                  <th scope="col" className="w-40 pb-2 pl-4 font-medium">Latest score</th>
+                  <th scope="col" className="pb-2 font-medium">Trend</th>
                 </tr>
               </thead>
               <tbody>
-                {mastery.map((m) => (
-                  <tr key={m.topic} className="border-t border-hair">
-                    <td className="py-2">{m.topic}</td>
-                    <td className="py-2 text-right tabular-nums">{m.scores.length}</td>
-                    <td className="py-2 text-right tabular-nums">
-                      {m.scores.length ? `${Math.round(m.scores[m.scores.length - 1])}%` : "–"}
-                    </td>
-                    <td className="py-2">
-                      <Badge state={TREND[m.trend] ?? "todo"}>{m.trend}</Badge>
-                    </td>
-                  </tr>
-                ))}
+                {mastery.map((m) => {
+                  const latest = m.scores.length ? Math.round(m.scores[m.scores.length - 1]) : null;
+                  return (
+                    <tr key={m.topic} className="border-t border-hair">
+                      <td className="py-3 font-medium">{m.topic}</td>
+                      <td className="py-3 text-right font-mono tabular-nums">{m.scores.length}</td>
+                      <td className="py-3 pl-4">
+                        {latest === null ? (
+                          <span className="text-muted">–</span>
+                        ) : (
+                          <span className="flex items-center gap-2">
+                            <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-hair" aria-hidden>
+                              <span className="block h-full rounded-full bg-ink" style={{ width: `${latest}%` }} />
+                            </span>
+                            <span className="w-10 text-right font-mono text-xs tabular-nums">{latest}%</span>
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3">
+                        <Badge state={TREND[m.trend] ?? "todo"}>{m.trend}</Badge>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </section>
 
           <div className="mt-6 grid gap-6 lg:grid-cols-2">
-            <section className="card">
-              <h2 className="mb-3 font-semibold">Skills on the resume</h2>
-              <div className="flex flex-wrap gap-1">
-                {d.profile.matched_skills.map((s) => (<Badge key={s} state="ok">{s}</Badge>))}
-                {d.profile.missing_skills.map((s) => (<Badge key={s} state="todo">{s}</Badge>))}
+            <section className="card" aria-labelledby="dash-skills">
+              <h2 id="dash-skills" className="h2 mb-4">Skills on the resume</h2>
+              <div className="flex flex-wrap gap-1.5">
+                {d.profile.matched_skills.map((s) => (
+                  <Badge key={s} state="ok">
+                    {s}
+                  </Badge>
+                ))}
+                {d.profile.missing_skills.map((s) => (
+                  <Badge key={s} state="todo">
+                    {s}
+                  </Badge>
+                ))}
               </div>
-              <p className="mt-2 text-xs text-muted">A filled check is on the resume; an empty circle is missing for {d.profile.target_role}.</p>
+              <p className="mt-3 text-xs text-muted">
+                A filled check is on the resume; an empty circle is missing for {d.profile.target_role}.
+              </p>
+              {d.profile.resume_feedback.length > 0 && (
+                <ul className="mt-4 space-y-1.5 border-t border-hair pt-4 text-sm">
+                  {d.profile.resume_feedback.slice(0, 3).map((f) => (
+                    <li key={f} className="flex gap-2">
+                      <ArrowRight size={14} className="mt-1 shrink-0 text-muted" aria-hidden /> {f}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </section>
-            <section className="card">
-              <h2 className="mb-3 font-semibold">Recent interviews</h2>
+            <section className="card" aria-labelledby="dash-interviews">
+              <div className="mb-4 flex items-center justify-between gap-2">
+                <h2 id="dash-interviews" className="h2">Recent interviews</h2>
+                <Link href="/interview" className="text-sm font-medium text-primary-ink underline-offset-2 hover:underline">
+                  Start one
+                </Link>
+              </div>
               {d.sessions.length ? (
-                <ul className="space-y-1 text-sm">
+                <ul className="divide-y divide-hair text-sm">
                   {d.sessions.slice(0, 6).map((s, i) => (
-                    <li key={i} className="flex justify-between gap-2">
-                      <span>{day(s.started)} · {s.interview_type}</span>
-                      <span className="tabular-nums text-muted">{s.avg_overall?.toFixed(1)}/5</span>
+                    <li key={i} className="flex items-center justify-between gap-3 py-2.5">
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium">{s.interview_type}</span>
+                        <span className="block text-xs text-muted">{day(s.started)}</span>
+                      </span>
+                      <span className="font-mono text-sm font-semibold tabular-nums">{s.avg_overall?.toFixed(1)}/5</span>
                     </li>
                   ))}
                 </ul>
               ) : (
-                <Empty>No interviews yet.</Empty>
+                <Empty icon={MessagesSquare}>No interviews yet. A mock interview is five questions, each scored on a rubric.</Empty>
               )}
             </section>
           </div>

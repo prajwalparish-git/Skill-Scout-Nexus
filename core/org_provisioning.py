@@ -46,7 +46,6 @@ from piq.config import (
     EMAIL_MAX,
     EMAIL_RE,
     ORG_WELCOME_CODE_TTL_S,
-    PHONE_RE,
     TEMP_PASSWORD_LEN,
     settings,
 )
@@ -203,21 +202,20 @@ def build_row(
     phone: object = "",
     batch_year: object = "",
 ) -> ParsedRow:
-    """Clean and check one student (a CSV line, or the portal's quick-add form)."""
-    raw_phone = str(phone or "").strip()
+    """Clean and check one student (a CSV line, or the portal's quick-add form).
+
+    Data minimisation: a phone number is never stored. The `phone` column is still read, so
+    older files import, and the preview says the number was left out."""
     name, email = sanitize(name), sanitize(email).lower()
     main_domain, subdomain = sanitize(main_domain), sanitize(subdomain)
-    role, phone, batch = sanitize(target_role), sanitize(raw_phone), sanitize(batch_year)
+    role, batch = sanitize(target_role), sanitize(batch_year)
     notes: list[str] = []
-    if raw_phone.startswith("+") and phone[:1].isdigit():
-        phone = "+" + phone  # a leading + is how a phone number starts, not a formula
-    if phone and not PHONE_RE.match(phone):
-        notes.append("phone ignored: not a phone number")
-        phone = ""
+    if str(phone or "").strip():
+        notes.append("phone not stored (not needed)")
     if batch and not BATCH_RE.match(batch):
         notes.append("batch year ignored")
         batch = ""
-    row = ParsedRow(line, name[:120], email, main_domain, subdomain, role, phone, batch)
+    row = ParsedRow(line, name[:120], email, main_domain, subdomain, role, "", batch)
 
     missing = [
         label

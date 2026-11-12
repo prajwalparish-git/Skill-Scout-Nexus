@@ -72,6 +72,7 @@ LAYERS = {
     "test_degrees": ("Unit", "Degrees and the roles they qualify for"),
     "test_question_bank": ("Integration", "Local question bank and its share of quizzes"),
     "test_server": ("Integration", "HTTP API for the Next.js frontend"),
+    "test_study_library": ("Integration", "Study books and curated repositories"),
     "test_all_domains": ("Integration", "Every role and domain, resume to interview"),
     "test_agents_layer2": ("Integration", "Layer 2 agents: resume parser, planner, critic quiz"),
     "test_voice_interview_step5": ("Integration", "Voice interview and rubric evaluator agents"),

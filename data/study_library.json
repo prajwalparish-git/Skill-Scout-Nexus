@@ -1,0 +1,5295 @@
+{
+ "_comment": "Study books and GitHub repositories shown on the plan page (piq/library.py, GET /api/library). Every book lists at least one link; every domain and topic in career_catalog.json has at least one book (a test enforces this). Hours are rough planning estimates. Links were checked on the date below.",
+ "checked": "2026-11-12",
+ "levels": [
+  "Beginner",
+  "Intermediate",
+  "Advanced"
+ ],
+ "books": [
+  {
+   "id": "apt-aggarwal-quant",
+   "title": "Quantitative Aptitude for Competitive Examinations",
+   "author": "R. S. Aggarwal",
+   "edition": "S. Chand, revised regularly",
+   "format": "Textbook",
+   "level": "Beginner",
+   "domains": [
+    "cs",
+    "ece",
+    "mech",
+    "civil",
+    "eee",
+    "biotech",
+    "health",
+    "commerce",
+    "law",
+    "corp",
+    "govt_central",
+    "govt_state"
+   ],
+   "topics": [
+    "Aptitude",
+    "Data Interpretation"
+   ],
+   "why": "Chapter-wise methods and graded exercises for percentages, ratios, time and work and number series: the usual first aptitude book for campus drives and government exams.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL20914388W"
+    }
+   ]
+  },
+  {
+   "id": "apt-openstax-prealgebra",
+   "title": "Prealgebra 2e",
+   "author": "Lynn Marecek, MaryAnne Anthony-Smith, Andrea Honeycutt Mathis",
+   "edition": "OpenStax, 2nd ed.",
+   "format": "Open textbook",
+   "level": "Beginner",
+   "domains": [
+    "cs",
+    "ece",
+    "mech",
+    "civil",
+    "eee",
+    "biotech",
+    "health",
+    "commerce",
+    "law",
+    "corp",
+    "govt_central",
+    "govt_state"
+   ],
+   "topics": [
+    "Aptitude"
+   ],
+   "why": "A free, careful refresher on fractions, percentages, ratios and word problems for when school maths has gone rusty.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free on OpenStax",
+     "url": "https://openstax.org/details/books/prealgebra-2e"
+    }
+   ]
+  },
+  {
+   "id": "apt-aggarwal-reasoning",
+   "title": "A Modern Approach to Verbal & Non-Verbal Reasoning",
+   "author": "R. S. Aggarwal",
+   "edition": "S. Chand, revised regularly",
+   "format": "Textbook",
+   "level": "Beginner",
+   "domains": [
+    "cs",
+    "ece",
+    "mech",
+    "civil",
+    "eee",
+    "biotech",
+    "health",
+    "commerce",
+    "law",
+    "corp",
+    "govt_central",
+    "govt_state"
+   ],
+   "topics": [
+    "Aptitude",
+    "Reasoning"
+   ],
+   "why": "Series, coding-decoding, seating arrangements, syllogisms and figure puzzles with solved examples at every level.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL20122675W"
+    }
+   ]
+  },
+  {
+   "id": "eng-wren-martin",
+   "title": "High School English Grammar and Composition",
+   "author": "P. C. Wren, H. Martin",
+   "edition": "S. Chand, revised regularly",
+   "format": "Textbook",
+   "level": "Beginner",
+   "domains": [
+    "law",
+    "govt_central",
+    "govt_state",
+    "corp",
+    "commerce"
+   ],
+   "topics": [
+    "English",
+    "Business Communication"
+   ],
+   "why": "The standard grammar reference behind most English papers in Indian recruitment tests; do the exercises, not just the rules.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL21173722W"
+    }
+   ]
+  },
+  {
+   "id": "eng-elements-of-style",
+   "title": "The Elements of Style",
+   "author": "William Strunk Jr.",
+   "edition": "1920 edition (public domain)",
+   "format": "Textbook",
+   "level": "Beginner",
+   "domains": [
+    "law",
+    "govt_central",
+    "commerce",
+    "corp"
+   ],
+   "topics": [
+    "English",
+    "Business Communication"
+   ],
+   "why": "Short rules for clear, direct writing; the 1920 text is in the public domain, so it is free to read in full.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free on Project Gutenberg",
+     "url": "https://www.gutenberg.org/ebooks/37134"
+    }
+   ]
+  },
+  {
+   "id": "eng-bcs-umn",
+   "title": "Business Communication for Success",
+   "author": "Scott McLean (University of Minnesota Libraries edition)",
+   "edition": "Open textbook",
+   "format": "Open textbook",
+   "level": "Beginner",
+   "domains": [
+    "commerce",
+    "law",
+    "corp"
+   ],
+   "topics": [
+    "Business Communication"
+   ],
+   "why": "Free open textbook on emails, reports, presentations and workplace tone, with short exercises.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free online",
+     "url": "https://open.lib.umn.edu/businesscommunication/"
+    }
+   ]
+  },
+  {
+   "id": "cs-ostep",
+   "title": "Operating Systems: Three Easy Pieces",
+   "author": "Remzi H. Arpaci-Dusseau, Andrea C. Arpaci-Dusseau",
+   "edition": "Free online book, by chapter",
+   "format": "Open textbook",
+   "level": "Intermediate",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "OS"
+   ],
+   "why": "Virtualisation, concurrency and persistence explained with small runnable ideas; the clearest route to scheduling, paging and locking questions.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free chapters",
+     "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/"
+    }
+   ]
+  },
+  {
+   "id": "cs-db-concepts",
+   "title": "Database System Concepts",
+   "author": "Abraham Silberschatz, Henry F. Korth, S. Sudarshan",
+   "edition": "7th ed. (2019)",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "DBMS"
+   ],
+   "why": "The university standard: relational model, SQL, normalisation, indexing, transactions and recovery in one place.",
+   "links": [
+    {
+     "kind": "publisher",
+     "label": "Official book site (slides and appendices)",
+     "url": "https://www.db-book.com/"
+    },
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL1854539W"
+    }
+   ]
+  },
+  {
+   "id": "cs-learning-sql",
+   "title": "Learning SQL",
+   "author": "Alan Beaulieu",
+   "edition": "3rd ed. (2020)",
+   "format": "Textbook",
+   "level": "Beginner",
+   "domains": [
+    "cs",
+    "commerce",
+    "corp"
+   ],
+   "topics": [
+    "DBMS",
+    "Excel & SQL"
+   ],
+   "why": "Builds queries from SELECT to joins, subqueries and views with exercises; a fast way to be interview-ready in SQL.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free interactive SQL lessons (SQLBolt)",
+     "url": "https://sqlbolt.com/"
+    },
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL19882532W"
+    }
+   ]
+  },
+  {
+   "id": "cs-systems-approach",
+   "title": "Computer Networks: A Systems Approach",
+   "author": "Larry L. Peterson, Bruce S. Davie",
+   "edition": "Free online edition",
+   "format": "Open textbook",
+   "level": "Intermediate",
+   "domains": [
+    "cs",
+    "ece"
+   ],
+   "topics": [
+    "CN",
+    "Communication Protocols"
+   ],
+   "why": "Explains why each protocol is shaped the way it is, from links and routing to transport and applications.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free online",
+     "url": "https://book.systemsapproach.org/"
+    }
+   ]
+  },
+  {
+   "id": "cs-kurose",
+   "title": "Computer Networking: A Top-Down Approach",
+   "author": "James F. Kurose, Keith W. Ross",
+   "edition": "8th ed.",
+   "format": "Textbook",
+   "level": "Beginner",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "CN"
+   ],
+   "why": "Starts at the application layer (HTTP, DNS) and works down, which is easier to follow for a first networks course.",
+   "links": [
+    {
+     "kind": "publisher",
+     "label": "Authors' companion site",
+     "url": "https://gaia.cs.umass.edu/kurose_ross/index.php"
+    },
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL56272W"
+    }
+   ]
+  },
+  {
+   "id": "cs-erickson",
+   "title": "Algorithms",
+   "author": "Jeff Erickson",
+   "edition": "Free online book",
+   "format": "Open textbook",
+   "level": "Advanced",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "DSA"
+   ],
+   "why": "Recursion, dynamic programming, graphs and NP-hardness argued from first principles; read it for the proof ideas interviewers probe.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free from the author",
+     "url": "https://jeffe.cs.illinois.edu/teaching/algorithms/"
+    }
+   ]
+  },
+  {
+   "id": "cs-ods",
+   "title": "Open Data Structures",
+   "author": "Pat Morin",
+   "edition": "Free online book",
+   "format": "Open textbook",
+   "level": "Beginner",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "DSA"
+   ],
+   "why": "Implementations and running-time analysis of lists, hash tables, trees and heaps; good before you start timed practice.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free online",
+     "url": "https://opendatastructures.org/"
+    }
+   ]
+  },
+  {
+   "id": "cs-clrs",
+   "title": "Introduction to Algorithms",
+   "author": "Thomas H. Cormen, Charles E. Leiserson, Ronald L. Rivest, Clifford Stein",
+   "edition": "4th ed. (2022)",
+   "format": "Textbook",
+   "level": "Advanced",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "DSA"
+   ],
+   "why": "The reference text for algorithm analysis; dip in for a specific topic rather than reading it cover to cover.",
+   "links": [
+    {
+     "kind": "publisher",
+     "label": "MIT Press",
+     "url": "https://mitpress.mit.edu/9780262046305/introduction-to-algorithms/"
+    },
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL4781294W"
+    }
+   ]
+  },
+  {
+   "id": "cs-ctci",
+   "title": "Cracking the Coding Interview",
+   "author": "Gayle Laakmann McDowell",
+   "edition": "6th ed.",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "DSA",
+    "OOP"
+   ],
+   "why": "How a coding interview runs, plus 189 questions with worked solutions arranged by topic.",
+   "links": [
+    {
+     "kind": "publisher",
+     "label": "Author's site",
+     "url": "https://www.crackingthecodinginterview.com/"
+    },
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL16816263W"
+    }
+   ]
+  },
+  {
+   "id": "cs-think-java",
+   "title": "Think Java",
+   "author": "Allen B. Downey, Chris Mayfield",
+   "edition": "2nd ed., free online",
+   "format": "Open textbook",
+   "level": "Beginner",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "OOP"
+   ],
+   "why": "Learn Java and object-oriented thinking together: classes, objects, inheritance and interfaces in small steps.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free online (Green Tea Press)",
+     "url": "https://greenteapress.com/wp/think-java-2e/"
+    }
+   ]
+  },
+  {
+   "id": "cs-clean-code",
+   "title": "Clean Code",
+   "author": "Robert C. Martin",
+   "edition": "2008",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "OOP"
+   ],
+   "why": "Naming, small functions and tests: the habits a code-review round looks for.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL17618370W"
+    }
+   ]
+  },
+  {
+   "id": "cs-gof",
+   "title": "Design Patterns: Elements of Reusable Object-Oriented Software",
+   "author": "Erich Gamma, Richard Helm, Ralph Johnson, John Vlissides",
+   "edition": "1994 · 23 classic patterns",
+   "format": "Textbook",
+   "level": "Advanced",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "OOP",
+    "System Design"
+   ],
+   "why": "The original catalogue of creational, structural and behavioural patterns; read the patterns you meet in real frameworks.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL6030812W"
+    }
+   ]
+  },
+  {
+   "id": "cs-pragmatic",
+   "title": "The Pragmatic Programmer",
+   "author": "David Thomas, Andrew Hunt",
+   "edition": "20th Anniversary ed. (2019)",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "OOP",
+    "System Design"
+   ],
+   "why": "Short, practical advice on debugging, design and working with a team, useful for behavioural rounds too.",
+   "links": [
+    {
+     "kind": "publisher",
+     "label": "Pragmatic Bookshelf",
+     "url": "https://pragprog.com/titles/tpp20/the-pragmatic-programmer-20th-anniversary-edition/"
+    },
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL5748544W"
+    }
+   ]
+  },
+  {
+   "id": "cs-ddia",
+   "title": "Designing Data-Intensive Applications",
+   "author": "Martin Kleppmann",
+   "edition": "Focus: replication, partitioning, transactions, streams",
+   "format": "Textbook",
+   "level": "Advanced",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "System Design",
+    "DBMS"
+   ],
+   "why": "Why databases and queues behave as they do under failure; the best single book for system design rounds.",
+   "links": [
+    {
+     "kind": "publisher",
+     "label": "Author's book page",
+     "url": "https://dataintensive.net/"
+    },
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL19293745W"
+    }
+   ]
+  },
+  {
+   "id": "cs-swe-google",
+   "title": "Software Engineering at Google",
+   "author": "Titus Winters, Tom Manshreck, Hyrum Wright",
+   "edition": "2020, free online",
+   "format": "Open textbook",
+   "level": "Intermediate",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "System Design",
+    "DevOps & Cloud"
+   ],
+   "why": "How a large engineering team handles testing, code review, build systems and change over years.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free online",
+     "url": "https://abseil.io/resources/swe-book"
+    }
+   ]
+  },
+  {
+   "id": "cs-sre-book",
+   "title": "Site Reliability Engineering",
+   "author": "Betsy Beyer, Chris Jones, Jennifer Petoff, Niall Richard Murphy",
+   "edition": "Google, 2016, free online",
+   "format": "Open textbook",
+   "level": "Intermediate",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "DevOps & Cloud",
+    "System Design"
+   ],
+   "why": "Service-level objectives, monitoring, incident response and postmortems, straight from the team that named the role.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free online (Google)",
+     "url": "https://sre.google/sre-book/table-of-contents/"
+    }
+   ]
+  },
+  {
+   "id": "cs-sre-workbook",
+   "title": "The Site Reliability Workbook",
+   "author": "Betsy Beyer, Niall Richard Murphy, David K. Rensin, Kent Kawahara, Stephen Thorne",
+   "edition": "Google, 2018, free online",
+   "format": "Open textbook",
+   "level": "Advanced",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "DevOps & Cloud"
+   ],
+   "why": "Worked examples for the SRE book: setting SLOs, alerting rules and on-call practice.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free online (Google)",
+     "url": "https://sre.google/workbook/table-of-contents/"
+    }
+   ]
+  },
+  {
+   "id": "cs-aws-waf",
+   "title": "AWS Well-Architected Framework",
+   "author": "Amazon Web Services",
+   "edition": "Official guide, kept current online",
+   "format": "Official guide",
+   "level": "Intermediate",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "DevOps & Cloud",
+    "System Design"
+   ],
+   "why": "Six pillars (reliability, security, cost and more) used as a checklist for cloud design questions.",
+   "links": [
+    {
+     "kind": "publisher",
+     "label": "AWS documentation",
+     "url": "https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html"
+    }
+   ]
+  },
+  {
+   "id": "cs-terraform",
+   "title": "Terraform: Up & Running",
+   "author": "Yevgeniy Brikman",
+   "edition": "3rd ed. (2022)",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "DevOps & Cloud"
+   ],
+   "why": "Infrastructure as code from a first server to modules, state and team workflows.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL20847686W"
+    }
+   ]
+  },
+  {
+   "id": "cs-eloquent-js",
+   "title": "Eloquent JavaScript",
+   "author": "Marijn Haverbeke",
+   "edition": "4th ed., free online",
+   "format": "Open textbook",
+   "level": "Beginner",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "Web Development"
+   ],
+   "why": "The language itself, then the browser and Node: closures, async code and the DOM with projects.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free online",
+     "url": "https://eloquentjavascript.net/"
+    }
+   ]
+  },
+  {
+   "id": "cs-ydkjs",
+   "title": "You Don't Know JS Yet",
+   "author": "Kyle Simpson",
+   "edition": "2nd ed., free on GitHub",
+   "format": "Open textbook",
+   "level": "Intermediate",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "Web Development"
+   ],
+   "why": "Scope, closures, `this` and types explained in depth; read it when interview answers need more than 'it just works'.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free on GitHub",
+     "url": "https://github.com/getify/You-Dont-Know-JS"
+    }
+   ]
+  },
+  {
+   "id": "cs-hpbn",
+   "title": "High Performance Browser Networking",
+   "author": "Ilya Grigorik",
+   "edition": "Free online",
+   "format": "Open textbook",
+   "level": "Advanced",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "Web Development",
+    "CN"
+   ],
+   "why": "How TCP, TLS, HTTP/2 and WebSocket affect page speed; a strong answer to 'what happens when you type a URL'.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free online",
+     "url": "https://hpbn.co/"
+    }
+   ]
+  },
+  {
+   "id": "cs-security-eng",
+   "title": "Security Engineering",
+   "author": "Ross Anderson",
+   "edition": "3rd ed. (2020), chapters free from the author",
+   "format": "Textbook",
+   "level": "Advanced",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "CN",
+    "OS"
+   ],
+   "why": "Why systems fail under attack: cryptography, access control, networks and human factors.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free chapters from the author",
+     "url": "https://www.cl.cam.ac.uk/~rja14/book.html"
+    },
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL8229364W"
+    }
+   ]
+  },
+  {
+   "id": "cs-progit",
+   "title": "Pro Git",
+   "author": "Scott Chacon, Ben Straub",
+   "edition": "2nd ed., free online",
+   "format": "Open textbook",
+   "level": "Beginner",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "DevOps & Cloud",
+    "OOP"
+   ],
+   "why": "Branching, merging, rebasing and fixing mistakes; every engineering role expects this.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free online",
+     "url": "https://git-scm.com/book/en/v2"
+    }
+   ]
+  },
+  {
+   "id": "cs-tlcl",
+   "title": "The Linux Command Line",
+   "author": "William Shotts",
+   "edition": "Free online book",
+   "format": "Open textbook",
+   "level": "Beginner",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "OS",
+    "DevOps & Cloud"
+   ],
+   "why": "Shell basics, files, processes and scripting; the working knowledge behind Linux interview questions.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free from the author",
+     "url": "https://linuxcommand.org/tlcl.php"
+    }
+   ]
+  },
+  {
+   "id": "cs-islp",
+   "title": "An Introduction to Statistical Learning",
+   "author": "Gareth James, Daniela Witten, Trevor Hastie, Robert Tibshirani",
+   "edition": "2nd ed. (R, 2021); Python edition (2023)",
+   "format": "Open textbook",
+   "level": "Intermediate",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "ML & Data Science"
+   ],
+   "why": "Regression, classification, trees and resampling explained with code; the friendliest rigorous ML text.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free PDF from the authors",
+     "url": "https://www.statlearning.com/"
+    },
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL19859252W"
+    }
+   ]
+  },
+  {
+   "id": "cs-mml",
+   "title": "Mathematics for Machine Learning",
+   "author": "Marc Peter Deisenroth, A. Aldo Faisal, Cheng Soon Ong",
+   "edition": "Free PDF",
+   "format": "Open textbook",
+   "level": "Intermediate",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "ML & Data Science",
+    "Aptitude"
+   ],
+   "why": "The linear algebra, calculus and probability you need before models make sense.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free PDF",
+     "url": "https://mml-book.github.io/"
+    },
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL20914440W"
+    }
+   ]
+  },
+  {
+   "id": "cs-pdsh",
+   "title": "Python Data Science Handbook",
+   "author": "Jake VanderPlas",
+   "edition": "Free online",
+   "format": "Open textbook",
+   "level": "Beginner",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "ML & Data Science"
+   ],
+   "why": "NumPy, pandas, Matplotlib and scikit-learn in notebooks you can run; ideal for data analyst roles.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free online",
+     "url": "https://jakevdp.github.io/PythonDataScienceHandbook/"
+    },
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL19545956W"
+    }
+   ]
+  },
+  {
+   "id": "cs-handson-ml",
+   "title": "Hands-On Machine Learning with Scikit-Learn, Keras & TensorFlow",
+   "author": "Aurélien Géron",
+   "edition": "3rd ed. (2022)",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "ML & Data Science"
+   ],
+   "why": "End-to-end projects from data cleaning to neural networks; strong material for ML project discussions.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL20709638W"
+    }
+   ]
+  },
+  {
+   "id": "cs-d2l",
+   "title": "Dive into Deep Learning",
+   "author": "Aston Zhang, Zachary C. Lipton, Mu Li, Alexander J. Smola",
+   "edition": "Free online, runnable code",
+   "format": "Open textbook",
+   "level": "Advanced",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "ML & Data Science"
+   ],
+   "why": "Deep learning with maths and code side by side, in several frameworks.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free online",
+     "url": "https://d2l.ai/"
+    }
+   ]
+  },
+  {
+   "id": "ece-dspguide",
+   "title": "The Scientist and Engineer's Guide to Digital Signal Processing",
+   "author": "Steven W. Smith",
+   "edition": "Free online book",
+   "format": "Open textbook",
+   "level": "Intermediate",
+   "domains": [
+    "ece"
+   ],
+   "topics": [
+    "Signals & Systems"
+   ],
+   "why": "Sampling, convolution, filters and the FFT explained without heavy notation.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free from the author",
+     "url": "https://www.dspguide.com/"
+    },
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL2776270W"
+    }
+   ]
+  },
+  {
+   "id": "ece-oppenheim",
+   "title": "Signals and Systems",
+   "author": "Alan V. Oppenheim, Alan S. Willsky, S. Hamid Nawab",
+   "edition": "2nd ed. · video lectures free",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "ece",
+    "eee"
+   ],
+   "topics": [
+    "Signals & Systems"
+   ],
+   "why": "The classic text on LTI systems, Fourier and Laplace transforms; pair it with the free MIT lecture series.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free video lectures (MIT OCW)",
+     "url": "https://ocw.mit.edu/courses/res-6-007-signals-and-systems-spring-2011/"
+    },
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL3270906W"
+    }
+   ]
+  },
+  {
+   "id": "ece-ddca",
+   "title": "Digital Design and Computer Architecture",
+   "author": "Sarah L. Harris, David Harris",
+   "edition": "RISC-V edition (2021)",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "ece",
+    "cs"
+   ],
+   "topics": [
+    "Digital Electronics",
+    "VLSI & Verilog"
+   ],
+   "why": "Logic gates to a working processor, with Verilog examples throughout.",
+   "links": [
+    {
+     "kind": "publisher",
+     "label": "Authors' companion site",
+     "url": "https://pages.hmc.edu/harris/ddca/"
+    },
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL20834231W"
+    }
+   ]
+  },
+  {
+   "id": "ece-cmos-vlsi",
+   "title": "CMOS VLSI Design: A Circuits and Systems Perspective",
+   "author": "Neil H. E. Weste, David Money Harris",
+   "edition": "4th ed. (2010)",
+   "format": "Textbook",
+   "level": "Advanced",
+   "domains": [
+    "ece"
+   ],
+   "topics": [
+    "VLSI & Verilog",
+    "Analog Electronics"
+   ],
+   "why": "Transistor-level behaviour, delay, power and layout; the book behind most VLSI interview questions.",
+   "links": [
+    {
+     "kind": "publisher",
+     "label": "Authors' companion site",
+     "url": "https://pages.hmc.edu/harris/cmosvlsi/"
+    },
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL4289403W"
+    }
+   ]
+  },
+  {
+   "id": "ece-art-of-electronics",
+   "title": "The Art of Electronics",
+   "author": "Paul Horowitz, Winfield Hill",
+   "edition": "3rd ed. (2015)",
+   "format": "Textbook",
+   "level": "Advanced",
+   "domains": [
+    "ece",
+    "eee"
+   ],
+   "topics": [
+    "Analog Electronics",
+    "Digital Electronics"
+   ],
+   "why": "Practical circuit design with opamps, transistors and converters; read it for intuition, not derivations.",
+   "links": [
+    {
+     "kind": "publisher",
+     "label": "Official companion site",
+     "url": "https://artofelectronics.net/"
+    },
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL4770496W"
+    }
+   ]
+  },
+  {
+   "id": "ece-aac",
+   "title": "Lessons in Electric Circuits",
+   "author": "Tony R. Kuphaldt",
+   "edition": "Free online textbook (All About Circuits)",
+   "format": "Open textbook",
+   "level": "Beginner",
+   "domains": [
+    "ece",
+    "eee"
+   ],
+   "topics": [
+    "Analog Electronics",
+    "Digital Electronics"
+   ],
+   "why": "Gentle volumes on DC, AC, semiconductors and digital logic; a fine start if circuit theory is shaky.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free online",
+     "url": "https://www.allaboutcircuits.com/textbook/"
+    }
+   ]
+  },
+  {
+   "id": "ece-valvano",
+   "title": "Embedded Systems: Introduction to ARM Cortex-M Microcontrollers",
+   "author": "Jonathan W. Valvano",
+   "edition": "Author's course books, free resources",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "ece"
+   ],
+   "topics": [
+    "Microcontrollers",
+    "Embedded C"
+   ],
+   "why": "Builds interrupts, timers, ADCs and UART from the register level on a Cortex-M board.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Author's resources",
+     "url": "https://users.ece.utexas.edu/~valvano/"
+    },
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL24699843W"
+    }
+   ]
+  },
+  {
+   "id": "ece-barr-c",
+   "title": "Embedded C Coding Standard",
+   "author": "Michael Barr (Barr Group)",
+   "edition": "Free book",
+   "format": "Handbook",
+   "level": "Intermediate",
+   "domains": [
+    "ece"
+   ],
+   "topics": [
+    "Embedded C"
+   ],
+   "why": "Short, enforceable rules that prevent the bugs firmware reviewers look for.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free from Barr Group",
+     "url": "https://barrgroup.com/embedded-systems/books/embedded-c-coding-standard"
+    }
+   ]
+  },
+  {
+   "id": "ece-freertos-book",
+   "title": "Mastering the FreeRTOS Real Time Kernel",
+   "author": "Richard Barry",
+   "edition": "Free PDF",
+   "format": "Open textbook",
+   "level": "Intermediate",
+   "domains": [
+    "ece"
+   ],
+   "topics": [
+    "RTOS"
+   ],
+   "why": "Tasks, queues, semaphores and timers with the scheduling rules explained.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free from FreeRTOS",
+     "url": "https://www.freertos.org/Documentation/02-Kernel/07-Books-and-manual/01-RTOS_book"
+    }
+   ]
+  },
+  {
+   "id": "ece-tse",
+   "title": "Fundamentals of Wireless Communication",
+   "author": "David Tse, Pramod Viswanath",
+   "edition": "Free PDF from the authors",
+   "format": "Open textbook",
+   "level": "Advanced",
+   "domains": [
+    "ece"
+   ],
+   "topics": [
+    "RF & Communication"
+   ],
+   "why": "Fading, MIMO and multiuser capacity with careful intuition; for telecom and RF roles.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free from the authors",
+     "url": "https://web.stanford.edu/~dntse/wireless_book.html"
+    },
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL16975962W"
+    }
+   ]
+  },
+  {
+   "id": "mech-cengel-thermo",
+   "title": "Thermodynamics: An Engineering Approach",
+   "author": "Yunus A. Çengel, Michael A. Boles",
+   "edition": "McGraw Hill, revised regularly",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "mech",
+    "eee"
+   ],
+   "topics": [
+    "Thermodynamics"
+   ],
+   "why": "Laws of thermodynamics, cycles and property tables with many worked problems.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL5857188W"
+    }
+   ]
+  },
+  {
+   "id": "mech-mit-thermo",
+   "title": "Thermodynamics and Propulsion",
+   "author": "Zoltan Spakovszky (MIT)",
+   "edition": "Free lecture notes",
+   "format": "Open textbook",
+   "level": "Intermediate",
+   "domains": [
+    "mech"
+   ],
+   "topics": [
+    "Thermodynamics",
+    "Heat Transfer & HVAC"
+   ],
+   "why": "Free notes on the laws, cycles and engine performance, written for engineers.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free notes (MIT)",
+     "url": "https://web.mit.edu/16.unified/www/FALL/thermodynamics/notes/notes.html"
+    }
+   ]
+  },
+  {
+   "id": "mech-incropera",
+   "title": "Fundamentals of Heat and Mass Transfer",
+   "author": "Theodore L. Bergman, Adrienne S. Lavine, Frank P. Incropera, David P. DeWitt",
+   "edition": "Wiley, revised regularly",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "mech"
+   ],
+   "topics": [
+    "Heat Transfer & HVAC"
+   ],
+   "why": "Conduction, convection and radiation with design-style examples; the standard heat transfer text.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL16343552W"
+    }
+   ]
+  },
+  {
+   "id": "mech-ashrae",
+   "title": "ASHRAE Handbook",
+   "author": "ASHRAE",
+   "edition": "Official handbook, four volumes",
+   "format": "Handbook",
+   "level": "Advanced",
+   "domains": [
+    "mech"
+   ],
+   "topics": [
+    "Heat Transfer & HVAC"
+   ],
+   "why": "The working reference for HVAC load calculation and system design; know what each volume covers.",
+   "links": [
+    {
+     "kind": "publisher",
+     "label": "ASHRAE (official)",
+     "url": "https://www.ashrae.org/technical-resources/ashrae-handbook"
+    }
+   ]
+  },
+  {
+   "id": "mech-beer-johnston",
+   "title": "Mechanics of Materials",
+   "author": "Ferdinand P. Beer, E. Russell Johnston Jr., John T. DeWolf, David F. Mazurek",
+   "edition": "McGraw Hill, revised regularly",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "mech",
+    "civil"
+   ],
+   "topics": [
+    "Strength of Materials",
+    "Structural Analysis"
+   ],
+   "why": "Stress, strain, torsion, bending and deflection, built up with clear diagrams and many problems.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL284163W"
+    }
+   ]
+  },
+  {
+   "id": "mech-bansal-som",
+   "title": "A Textbook of Strength of Materials",
+   "author": "R. K. Bansal",
+   "edition": "Laxmi Publications",
+   "format": "Textbook",
+   "level": "Beginner",
+   "domains": [
+    "mech",
+    "civil"
+   ],
+   "topics": [
+    "Strength of Materials"
+   ],
+   "why": "Widely used in Indian engineering courses; graded numericals suit university and GATE-style practice.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL10141840W"
+    }
+   ]
+  },
+  {
+   "id": "mech-khurmi-tom",
+   "title": "Theory of Machines",
+   "author": "R. S. Khurmi, J. K. Gupta",
+   "edition": "S. Chand",
+   "format": "Textbook",
+   "level": "Beginner",
+   "domains": [
+    "mech"
+   ],
+   "topics": [
+    "Theory of Machines"
+   ],
+   "why": "Mechanisms, gears, cams, balancing and vibrations with solved numericals.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL27687000W"
+    }
+   ]
+  },
+  {
+   "id": "mech-kalpakjian",
+   "title": "Manufacturing Engineering and Technology",
+   "author": "Serope Kalpakjian, Steven R. Schmid",
+   "edition": "Pearson, revised regularly",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "mech"
+   ],
+   "topics": [
+    "Manufacturing Processes"
+   ],
+   "why": "Casting, forming, machining and joining, with materials and process selection.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL3289918W"
+    }
+   ]
+  },
+  {
+   "id": "mech-groover",
+   "title": "Fundamentals of Modern Manufacturing",
+   "author": "Mikell P. Groover",
+   "edition": "Wiley, revised regularly",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "mech"
+   ],
+   "topics": [
+    "Manufacturing Processes"
+   ],
+   "why": "Processes, materials and production systems in one clear volume.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL3752130W"
+    }
+   ]
+  },
+  {
+   "id": "mech-bhatt-drawing",
+   "title": "Engineering Drawing",
+   "author": "N. D. Bhatt",
+   "edition": "Charotar Publishing",
+   "format": "Textbook",
+   "level": "Beginner",
+   "domains": [
+    "mech",
+    "civil"
+   ],
+   "topics": [
+    "CAD & Engineering Drawing",
+    "Civil CAD Tools"
+   ],
+   "why": "Projections, sections and dimensioning, the drawing rules a CAD interview checks first.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL24487835W"
+    }
+   ]
+  },
+  {
+   "id": "mech-fusion-docs",
+   "title": "Autodesk Fusion Help",
+   "author": "Autodesk",
+   "edition": "Official documentation",
+   "format": "Official guide",
+   "level": "Beginner",
+   "domains": [
+    "mech"
+   ],
+   "topics": [
+    "CAD & Engineering Drawing"
+   ],
+   "why": "Official tutorials for sketching, parametric modelling and assemblies.",
+   "links": [
+    {
+     "kind": "publisher",
+     "label": "Autodesk (official)",
+     "url": "https://help.autodesk.com/view/fusion360/ENU/"
+    }
+   ]
+  },
+  {
+   "id": "mech-white-fluids",
+   "title": "Fluid Mechanics",
+   "author": "Frank M. White",
+   "edition": "McGraw Hill, revised regularly",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "mech",
+    "civil"
+   ],
+   "topics": [
+    "Fluid Mechanics",
+    "Water Resources & Environment"
+   ],
+   "why": "Fluid statics, Bernoulli, pipe flow and boundary layers with practical examples.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL1911850W"
+    }
+   ]
+  },
+  {
+   "id": "mech-bansal-fluids",
+   "title": "A Textbook of Fluid Mechanics and Hydraulic Machines",
+   "author": "R. K. Bansal",
+   "edition": "Laxmi Publications",
+   "format": "Textbook",
+   "level": "Beginner",
+   "domains": [
+    "mech",
+    "civil"
+   ],
+   "topics": [
+    "Fluid Mechanics",
+    "Water Resources & Environment"
+   ],
+   "why": "Indian-syllabus coverage of fluid properties, flow measurement and turbines/pumps.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL10141838W"
+    }
+   ]
+  },
+  {
+   "id": "mech-larminie-ev",
+   "title": "Electric Vehicle Technology Explained",
+   "author": "James Larminie, John Lowry",
+   "edition": "2nd ed. (2012)",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "mech",
+    "eee"
+   ],
+   "topics": [
+    "EV & Battery Systems",
+    "Electric Vehicles"
+   ],
+   "why": "Batteries, motors, controllers and charging in one accessible volume.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL16559903W"
+    }
+   ]
+  },
+  {
+   "id": "mech-battery-university",
+   "title": "Battery University",
+   "author": "Cadex Electronics",
+   "edition": "Free online guide",
+   "format": "Official guide",
+   "level": "Beginner",
+   "domains": [
+    "mech",
+    "eee"
+   ],
+   "topics": [
+    "EV & Battery Systems",
+    "Electric Vehicles"
+   ],
+   "why": "Plain-language pages on battery chemistries, charging and ageing; good for first-round EV questions.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free online",
+     "url": "https://batteryuniversity.com/"
+    }
+   ]
+  },
+  {
+   "id": "mech-modern-robotics",
+   "title": "Modern Robotics: Mechanics, Planning, and Control",
+   "author": "Kevin M. Lynch, Frank C. Park",
+   "edition": "Free PDF from the authors",
+   "format": "Open textbook",
+   "level": "Advanced",
+   "domains": [
+    "mech",
+    "ece"
+   ],
+   "topics": [
+    "Robotics & Mechatronics",
+    "Signals & Systems"
+   ],
+   "why": "Kinematics, dynamics and control for robot arms, with free videos and software.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free from the authors",
+     "url": "https://modernrobotics.northwestern.edu/"
+    },
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL21154447W"
+    }
+   ]
+  },
+  {
+   "id": "mech-alciatore",
+   "title": "Introduction to Mechatronics and Measurement Systems",
+   "author": "David G. Alciatore, Michael B. Histand",
+   "edition": "McGraw Hill",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "mech"
+   ],
+   "topics": [
+    "Robotics & Mechatronics"
+   ],
+   "why": "Sensors, actuators, microcontrollers and signal conditioning for mechatronic projects.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL5831555W"
+    }
+   ]
+  },
+  {
+   "id": "civil-hibbeler-sa",
+   "title": "Structural Analysis",
+   "author": "Russell C. Hibbeler",
+   "edition": "Pearson, revised regularly",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "civil"
+   ],
+   "topics": [
+    "Structural Analysis"
+   ],
+   "why": "Determinate and indeterminate structures, influence lines and matrix methods with solved problems.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL1865036W"
+    }
+   ]
+  },
+  {
+   "id": "civil-reddy-sa",
+   "title": "Basic Structural Analysis",
+   "author": "C. S. Reddy",
+   "edition": "McGraw Hill",
+   "format": "Textbook",
+   "level": "Beginner",
+   "domains": [
+    "civil"
+   ],
+   "topics": [
+    "Structural Analysis"
+   ],
+   "why": "Indian-syllabus text with plenty of numericals on beams, frames and trusses.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL9306309W"
+    }
+   ]
+  },
+  {
+   "id": "civil-varghese-rcc",
+   "title": "Limit State Design of Reinforced Concrete",
+   "author": "P. C. Varghese",
+   "edition": "PHI Learning",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "civil"
+   ],
+   "topics": [
+    "RCC Design"
+   ],
+   "why": "Design of beams, slabs, columns and footings by the limit state method used in Indian practice.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL9081478W"
+    }
+   ]
+  },
+  {
+   "id": "civil-pillai-rcc",
+   "title": "Reinforced Concrete Design",
+   "author": "S. Unnikrishna Pillai, Devdas Menon",
+   "edition": "McGraw Hill, revised regularly",
+   "format": "Textbook",
+   "level": "Advanced",
+   "domains": [
+    "civil"
+   ],
+   "topics": [
+    "RCC Design"
+   ],
+   "why": "Detailed treatment of design to Indian Standard IS 456, including detailing and serviceability.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL13560255W"
+    }
+   ]
+  },
+  {
+   "id": "civil-bis",
+   "title": "Indian Standards (IS codes)",
+   "author": "Bureau of Indian Standards",
+   "edition": "Official standards body",
+   "format": "Official guide",
+   "level": "Advanced",
+   "domains": [
+    "civil",
+    "eee",
+    "govt_state"
+   ],
+   "topics": [
+    "RCC Design",
+    "Steel Design",
+    "Electrical Safety & Standards"
+   ],
+   "why": "Design work cites the codes (for example IS 456, IS 800), so learn which clause answers which question.",
+   "links": [
+    {
+     "kind": "publisher",
+     "label": "BIS (official)",
+     "url": "https://www.bis.gov.in/"
+    }
+   ]
+  },
+  {
+   "id": "civil-subramanian-steel",
+   "title": "Design of Steel Structures",
+   "author": "N. Subramanian",
+   "edition": "Oxford University Press",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "civil"
+   ],
+   "topics": [
+    "Steel Design"
+   ],
+   "why": "Member and connection design to Indian codes with worked examples.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL17507060W"
+    }
+   ]
+  },
+  {
+   "id": "civil-duggal-steel",
+   "title": "Limit State Design of Steel Structures",
+   "author": "S. K. Duggal",
+   "edition": "McGraw Hill",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "civil"
+   ],
+   "topics": [
+    "Steel Design"
+   ],
+   "why": "Step-by-step limit state design of tension, compression and flexural members.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL37475984W"
+    }
+   ]
+  },
+  {
+   "id": "civil-das-foundation",
+   "title": "Principles of Foundation Engineering",
+   "author": "Braja M. Das",
+   "edition": "Cengage, revised regularly",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "civil"
+   ],
+   "topics": [
+    "Geotechnical Engineering"
+   ],
+   "why": "Soil behaviour, bearing capacity, settlement and retaining structures.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL50684W"
+    }
+   ]
+  },
+  {
+   "id": "civil-arora-soil",
+   "title": "Soil Mechanics and Foundation Engineering",
+   "author": "K. R. Arora",
+   "edition": "Standard Publishers",
+   "format": "Textbook",
+   "level": "Beginner",
+   "domains": [
+    "civil"
+   ],
+   "topics": [
+    "Geotechnical Engineering"
+   ],
+   "why": "Indian-syllabus text covering soil classification, compaction, consolidation and shear strength.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL10245577W"
+    }
+   ]
+  },
+  {
+   "id": "civil-punmia-surveying",
+   "title": "Surveying (Vol. 1)",
+   "author": "B. C. Punmia, Ashok Kumar Jain, Arun Kumar Jain",
+   "edition": "Laxmi Publications",
+   "format": "Textbook",
+   "level": "Beginner",
+   "domains": [
+    "civil",
+    "govt_state"
+   ],
+   "topics": [
+    "Surveying"
+   ],
+   "why": "Chain, compass, levelling and theodolite surveying with numericals; the usual exam text.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL15015541W"
+    }
+   ]
+  },
+  {
+   "id": "civil-chitkara-cm",
+   "title": "Construction Project Management",
+   "author": "K. K. Chitkara",
+   "edition": "McGraw Hill",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "civil"
+   ],
+   "topics": [
+    "Construction Management"
+   ],
+   "why": "Planning, scheduling (CPM/PERT), contracts and cost control for building projects.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL37490326W"
+    }
+   ]
+  },
+  {
+   "id": "civil-pmbok",
+   "title": "A Guide to the Project Management Body of Knowledge (PMBOK Guide)",
+   "author": "Project Management Institute",
+   "edition": "Official guide",
+   "format": "Official guide",
+   "level": "Intermediate",
+   "domains": [
+    "civil",
+    "corp"
+   ],
+   "topics": [
+    "Construction Management",
+    "Operations & Supply Chain"
+   ],
+   "why": "Shared vocabulary for scope, schedule, cost and risk that project interviews assume.",
+   "links": [
+    {
+     "kind": "publisher",
+     "label": "PMI (official)",
+     "url": "https://www.pmi.org/standards/pmbok"
+    }
+   ]
+  },
+  {
+   "id": "civil-bim-handbook",
+   "title": "BIM Handbook",
+   "author": "Chuck Eastman, Paul Teicholz, Rafael Sacks, Kathleen Liston",
+   "edition": "3rd ed. (2018)",
+   "format": "Handbook",
+   "level": "Intermediate",
+   "domains": [
+    "civil"
+   ],
+   "topics": [
+    "Civil CAD Tools",
+    "Construction Management"
+   ],
+   "why": "What building information modelling is, why firms adopt it and how models carry design data.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL16008607W"
+    }
+   ]
+  },
+  {
+   "id": "civil-autodesk-civil3d",
+   "title": "Autodesk Civil 3D Help",
+   "author": "Autodesk",
+   "edition": "Official documentation",
+   "format": "Official guide",
+   "level": "Beginner",
+   "domains": [
+    "civil"
+   ],
+   "topics": [
+    "Civil CAD Tools"
+   ],
+   "why": "Official tutorials for surfaces, alignments, corridors and grading.",
+   "links": [
+    {
+     "kind": "publisher",
+     "label": "Autodesk (official)",
+     "url": "https://help.autodesk.com/view/CIV3D/2026/ENU/"
+    }
+   ]
+  },
+  {
+   "id": "civil-khanna-highway",
+   "title": "Highway Engineering",
+   "author": "S. K. Khanna, C. E. G. Justo, A. Veeraragavan",
+   "edition": "Nem Chand & Bros",
+   "format": "Textbook",
+   "level": "Beginner",
+   "domains": [
+    "civil",
+    "govt_state"
+   ],
+   "topics": [
+    "Transportation Engineering"
+   ],
+   "why": "Geometric design, pavement design and traffic engineering to Indian practice.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL37488311W"
+    }
+   ]
+  },
+  {
+   "id": "civil-peavy-env",
+   "title": "Environmental Engineering",
+   "author": "Howard S. Peavy, Donald R. Rowe, George Tchobanoglous",
+   "edition": "McGraw Hill",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "civil"
+   ],
+   "topics": [
+    "Water Resources & Environment"
+   ],
+   "why": "Water treatment, wastewater and air pollution fundamentals with design calculations.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL5354560W"
+    }
+   ]
+  },
+  {
+   "id": "eee-chapman",
+   "title": "Electric Machinery Fundamentals",
+   "author": "Stephen J. Chapman",
+   "edition": "McGraw Hill, revised regularly",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "eee"
+   ],
+   "topics": [
+    "Electrical Machines"
+   ],
+   "why": "Transformers, DC machines, induction and synchronous machines with clear worked examples.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL119815W"
+    }
+   ]
+  },
+  {
+   "id": "eee-nagrath-machines",
+   "title": "Electric Machines",
+   "author": "I. J. Nagrath, D. P. Kothari",
+   "edition": "McGraw Hill",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "eee"
+   ],
+   "topics": [
+    "Electrical Machines"
+   ],
+   "why": "Indian-syllabus treatment of machine theory and performance calculations.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL22786784W"
+    }
+   ]
+  },
+  {
+   "id": "eee-glover",
+   "title": "Power System Analysis and Design",
+   "author": "J. Duncan Glover, Mulukutla S. Sarma, Thomas J. Overbye",
+   "edition": "Cengage, revised regularly",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "eee"
+   ],
+   "topics": [
+    "Power Systems"
+   ],
+   "why": "Per-unit analysis, load flow, faults and stability with design projects.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL15017024W"
+    }
+   ]
+  },
+  {
+   "id": "eee-saadat",
+   "title": "Power System Analysis",
+   "author": "Hadi Saadat",
+   "edition": "McGraw Hill",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "eee"
+   ],
+   "topics": [
+    "Power Systems"
+   ],
+   "why": "Clear introduction to network matrices, load flow and fault analysis with MATLAB examples.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL1889422W"
+    }
+   ]
+  },
+  {
+   "id": "eee-astrom-murray",
+   "title": "Feedback Systems: An Introduction for Scientists and Engineers",
+   "author": "Karl Johan Åström, Richard M. Murray",
+   "edition": "2nd ed. (2021), free from the authors",
+   "format": "Open textbook",
+   "level": "Intermediate",
+   "domains": [
+    "eee",
+    "ece",
+    "mech"
+   ],
+   "topics": [
+    "Control Systems",
+    "Signals & Systems",
+    "Robotics & Mechatronics"
+   ],
+   "why": "Feedback, stability and PID design with modern examples; free from the authors.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free from the authors (feedback systems wiki)",
+     "url": "https://fbswiki.org/wiki/index.php/Main_Page"
+    },
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL17801284W"
+    }
+   ]
+  },
+  {
+   "id": "eee-ctms",
+   "title": "Control Tutorials for MATLAB and Simulink",
+   "author": "University of Michigan, Carnegie Mellon and others",
+   "edition": "Free online tutorials",
+   "format": "Official guide",
+   "level": "Beginner",
+   "domains": [
+    "eee",
+    "ece",
+    "mech"
+   ],
+   "topics": [
+    "Control Systems",
+    "Signals & Systems"
+   ],
+   "why": "Hands-on PID, root locus and state-space design in MATLAB; useful for project discussions.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free online",
+     "url": "https://ctms.engin.umich.edu/"
+    }
+   ]
+  },
+  {
+   "id": "eee-petruzella-plc",
+   "title": "Programmable Logic Controllers",
+   "author": "Frank D. Petruzella",
+   "edition": "McGraw Hill, revised regularly",
+   "format": "Textbook",
+   "level": "Beginner",
+   "domains": [
+    "eee"
+   ],
+   "topics": [
+    "PLC & SCADA"
+   ],
+   "why": "Ladder logic, timers, counters and PLC wiring explained step by step.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL15473317W"
+    }
+   ]
+  },
+  {
+   "id": "eee-bailey-scada",
+   "title": "Practical SCADA for Industry",
+   "author": "David Bailey, Edwin Wright",
+   "edition": "Newnes",
+   "format": "Handbook",
+   "level": "Intermediate",
+   "domains": [
+    "eee"
+   ],
+   "topics": [
+    "PLC & SCADA"
+   ],
+   "why": "How SCADA systems, RTUs and communications fit together in real plants.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL15055416W"
+    }
+   ]
+  },
+  {
+   "id": "eee-mohan-pe",
+   "title": "Power Electronics: Converters, Applications, and Design",
+   "author": "Ned Mohan, Tore M. Undeland, William P. Robbins",
+   "edition": "Wiley, 3rd ed.",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "eee"
+   ],
+   "topics": [
+    "Power Electronics",
+    "Electric Vehicles"
+   ],
+   "why": "Rectifiers, DC-DC converters and inverters with design-oriented examples.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL3487147W"
+    }
+   ]
+  },
+  {
+   "id": "eee-cea",
+   "title": "Central Electricity Authority Regulations",
+   "author": "Central Electricity Authority (CEA)",
+   "edition": "Official regulations",
+   "format": "Official guide",
+   "level": "Advanced",
+   "domains": [
+    "eee",
+    "govt_state"
+   ],
+   "topics": [
+    "Electrical Safety & Standards"
+   ],
+   "why": "Safety, installation and grid-connection rules Indian utilities follow; know what the regulations require.",
+   "links": [
+    {
+     "kind": "publisher",
+     "label": "CEA (official)",
+     "url": "https://cea.nic.in/"
+    }
+   ]
+  },
+  {
+   "id": "eee-nfpa70e",
+   "title": "NFPA 70E: Standard for Electrical Safety in the Workplace",
+   "author": "National Fire Protection Association",
+   "edition": "Official standard",
+   "format": "Official guide",
+   "level": "Advanced",
+   "domains": [
+    "eee"
+   ],
+   "topics": [
+    "Electrical Safety & Standards"
+   ],
+   "why": "International reference on arc-flash and shock protection; frequently cited in safety interviews.",
+   "links": [
+    {
+     "kind": "publisher",
+     "label": "NFPA (official)",
+     "url": "https://www.nfpa.org/codes-and-standards/nfpa-70e-standard-development/70e"
+    }
+   ]
+  },
+  {
+   "id": "eee-mackay",
+   "title": "Sustainable Energy – without the hot air",
+   "author": "David J. C. MacKay",
+   "edition": "Free online book (2008)",
+   "format": "Open textbook",
+   "level": "Beginner",
+   "domains": [
+    "eee"
+   ],
+   "topics": [
+    "Renewable Energy"
+   ],
+   "why": "Puts numbers on every energy source so you can reason about renewables like an engineer.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free online",
+     "url": "https://www.withouthotair.com/"
+    },
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL16797804W"
+    }
+   ]
+  },
+  {
+   "id": "eee-pveducation",
+   "title": "PVEducation",
+   "author": "Christiana Honsberg, Stuart Bowden",
+   "edition": "Free online textbook",
+   "format": "Open textbook",
+   "level": "Intermediate",
+   "domains": [
+    "eee"
+   ],
+   "topics": [
+    "Renewable Energy"
+   ],
+   "why": "Solar cell physics, module design and system sizing with free calculators.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free online",
+     "url": "https://www.pveducation.org/"
+    }
+   ]
+  },
+  {
+   "id": "bio-alberts",
+   "title": "Molecular Biology of the Cell",
+   "author": "Bruce Alberts and others",
+   "edition": "4th ed., free on NCBI Bookshelf",
+   "format": "Open textbook",
+   "level": "Intermediate",
+   "domains": [
+    "biotech"
+   ],
+   "topics": [
+    "Molecular Biology",
+    "Lab Techniques"
+   ],
+   "why": "The classic cell and molecular biology text, with the 4th edition free to read online.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free on NCBI Bookshelf",
+     "url": "https://www.ncbi.nlm.nih.gov/books/NBK21054/"
+    }
+   ]
+  },
+  {
+   "id": "bio-openstax-biology",
+   "title": "Biology 2e",
+   "author": "Mary Ann Clark, Jung Choi, Matthew Douglas",
+   "edition": "OpenStax, 2nd ed.",
+   "format": "Open textbook",
+   "level": "Beginner",
+   "domains": [
+    "biotech",
+    "health"
+   ],
+   "topics": [
+    "Molecular Biology"
+   ],
+   "why": "A free, well-illustrated first text on genetics, cells and evolution.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free on OpenStax",
+     "url": "https://openstax.org/details/books/biology-2e"
+    }
+   ]
+  },
+  {
+   "id": "bio-genomes",
+   "title": "Genomes",
+   "author": "T. A. Brown",
+   "edition": "2nd ed., free on NCBI Bookshelf",
+   "format": "Open textbook",
+   "level": "Intermediate",
+   "domains": [
+    "biotech"
+   ],
+   "topics": [
+    "Genomics"
+   ],
+   "why": "How genomes are structured, sequenced and expressed, from bacteria to humans.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free on NCBI Bookshelf",
+     "url": "https://www.ncbi.nlm.nih.gov/books/NBK21128/"
+    }
+   ]
+  },
+  {
+   "id": "bio-compeau",
+   "title": "Bioinformatics Algorithms: An Active Learning Approach",
+   "author": "Phillip Compeau, Pavel Pevzner",
+   "edition": "3rd ed.",
+   "format": "Textbook",
+   "level": "Advanced",
+   "domains": [
+    "biotech"
+   ],
+   "topics": [
+    "Bioinformatics Algorithms"
+   ],
+   "why": "Learn sequence alignment, motif finding and assembly by solving the problems yourself.",
+   "links": [
+    {
+     "kind": "publisher",
+     "label": "Official site",
+     "url": "https://www.bioinformaticsalgorithms.org/"
+    },
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL22310466W"
+    }
+   ]
+  },
+  {
+   "id": "bio-openintro",
+   "title": "OpenIntro Statistics",
+   "author": "David Diez, Mine Çetinkaya-Rundel, Christopher D. Barr",
+   "edition": "4th ed., free",
+   "format": "Open textbook",
+   "level": "Beginner",
+   "domains": [
+    "biotech",
+    "health",
+    "commerce"
+   ],
+   "topics": [
+    "Biostatistics"
+   ],
+   "why": "Hypothesis tests, regression and study design explained from the ground up; free PDF.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free PDF",
+     "url": "https://www.openintro.org/book/os/"
+    }
+   ]
+  },
+  {
+   "id": "bio-biopython",
+   "title": "Biopython Tutorial and Cookbook",
+   "author": "Biopython contributors",
+   "edition": "Free online",
+   "format": "Official guide",
+   "level": "Beginner",
+   "domains": [
+    "biotech"
+   ],
+   "topics": [
+    "Python for Biology",
+    "Bioinformatics Algorithms"
+   ],
+   "why": "Reading sequences, BLAST results and structures in Python: the practical start for bioinformatics scripting.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free online",
+     "url": "https://biopython.org/DIST/docs/tutorial/Tutorial.html"
+    }
+   ]
+  },
+  {
+   "id": "bio-think-python",
+   "title": "Think Python",
+   "author": "Allen B. Downey",
+   "edition": "3rd ed., free online",
+   "format": "Open textbook",
+   "level": "Beginner",
+   "domains": [
+    "biotech",
+    "cs"
+   ],
+   "topics": [
+    "Python for Biology"
+   ],
+   "why": "Learn Python from nothing, with exercises; the quickest way into scripting for biologists.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free online",
+     "url": "https://allendowney.github.io/ThinkPython/"
+    }
+   ]
+  },
+  {
+   "id": "bio-molecular-cloning",
+   "title": "Molecular Cloning: A Laboratory Manual",
+   "author": "Michael R. Green, Joseph Sambrook",
+   "edition": "4th ed. (2012)",
+   "format": "Handbook",
+   "level": "Advanced",
+   "domains": [
+    "biotech"
+   ],
+   "topics": [
+    "Lab Techniques",
+    "Molecular Biology"
+   ],
+   "why": "The standard bench manual for cloning, PCR and electrophoresis protocols.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL16490238W"
+    }
+   ]
+  },
+  {
+   "id": "bio-khandpur",
+   "title": "Handbook of Biomedical Instrumentation",
+   "author": "R. S. Khandpur",
+   "edition": "McGraw Hill",
+   "format": "Handbook",
+   "level": "Intermediate",
+   "domains": [
+    "biotech"
+   ],
+   "topics": [
+    "Biomedical Instrumentation"
+   ],
+   "why": "ECG, EEG, ventilators, imaging and patient monitoring devices, written for Indian syllabi.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL6442172W"
+    }
+   ]
+  },
+  {
+   "id": "bio-webster",
+   "title": "Medical Instrumentation: Application and Design",
+   "author": "John G. Webster (ed.)",
+   "edition": "Wiley, 4th ed.",
+   "format": "Textbook",
+   "level": "Advanced",
+   "domains": [
+    "biotech"
+   ],
+   "topics": [
+    "Biomedical Instrumentation"
+   ],
+   "why": "Sensors, amplifiers and safety for clinical measurement systems.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL7963296W"
+    }
+   ]
+  },
+  {
+   "id": "bio-doran",
+   "title": "Bioprocess Engineering Principles",
+   "author": "Pauline M. Doran",
+   "edition": "2nd ed. (2013)",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "biotech"
+   ],
+   "topics": [
+    "Bioprocess Engineering"
+   ],
+   "why": "Mass and energy balances, kinetics and bioreactor design for fermentation roles.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL7939547W"
+    }
+   ]
+  },
+  {
+   "id": "bio-shuler",
+   "title": "Bioprocess Engineering: Basic Concepts",
+   "author": "Michael L. Shuler, Fikret Kargi",
+   "edition": "Pearson, 2nd ed.",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "biotech"
+   ],
+   "topics": [
+    "Bioprocess Engineering"
+   ],
+   "why": "Enzyme kinetics, cell growth and reactor scale-up with worked problems.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL4105727W"
+    }
+   ]
+  },
+  {
+   "id": "bio-ich-gcp",
+   "title": "ICH Good Clinical Practice (E6) Guideline",
+   "author": "International Council for Harmonisation",
+   "edition": "Official guideline",
+   "format": "Official guide",
+   "level": "Intermediate",
+   "domains": [
+    "biotech",
+    "health"
+   ],
+   "topics": [
+    "Clinical Research",
+    "Medical Ethics & Law"
+   ],
+   "why": "The international standard for conducting and documenting clinical trials; expected knowledge for CRA interviews.",
+   "links": [
+    {
+     "kind": "publisher",
+     "label": "ICH (official)",
+     "url": "https://www.ich.org/page/efficacy-guidelines"
+    }
+   ]
+  },
+  {
+   "id": "bio-icmr",
+   "title": "National Ethical Guidelines for Biomedical and Health Research Involving Human Participants",
+   "author": "Indian Council of Medical Research",
+   "edition": "Official guidelines (2017)",
+   "format": "Official guide",
+   "level": "Intermediate",
+   "domains": [
+    "biotech",
+    "health"
+   ],
+   "topics": [
+    "Clinical Research",
+    "Medical Ethics & Law"
+   ],
+   "why": "India's ethics framework for research with people: consent, ethics committees and vulnerable groups.",
+   "links": [
+    {
+     "kind": "publisher",
+     "label": "ICMR (official)",
+     "url": "https://www.icmr.gov.in/"
+    }
+   ]
+  },
+  {
+   "id": "bio-friedman",
+   "title": "Fundamentals of Clinical Trials",
+   "author": "Lawrence M. Friedman, Curt D. Furberg, David L. DeMets, David M. Reboussin, Christopher B. Granger",
+   "edition": "5th ed.",
+   "format": "Textbook",
+   "level": "Advanced",
+   "domains": [
+    "biotech",
+    "health"
+   ],
+   "topics": [
+    "Clinical Research",
+    "Biostatistics"
+   ],
+   "why": "Trial design, randomisation, sample size and monitoring explained for research professionals.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL1911016W"
+    }
+   ]
+  },
+  {
+   "id": "health-shortell",
+   "title": "Shortell and Kaluzny's Health Care Management",
+   "author": "Lawton R. Burns and others",
+   "edition": "Cengage, revised regularly",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "health"
+   ],
+   "topics": [
+    "Hospital Administration",
+    "Healthcare Quality"
+   ],
+   "why": "How hospitals are organised, led and measured, with cases for administrators.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL16116451W"
+    }
+   ]
+  },
+  {
+   "id": "health-goyal",
+   "title": "Hospital Administration and Human Resource Management",
+   "author": "R. C. Goyal",
+   "edition": "PHI Learning",
+   "format": "Textbook",
+   "level": "Beginner",
+   "domains": [
+    "health"
+   ],
+   "topics": [
+    "Hospital Administration"
+   ],
+   "why": "Indian-context text on hospital departments, staffing and operations.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL26496540W"
+    }
+   ]
+  },
+  {
+   "id": "health-nabh",
+   "title": "NABH Accreditation Standards",
+   "author": "National Accreditation Board for Hospitals & Healthcare Providers",
+   "edition": "Official standards",
+   "format": "Official guide",
+   "level": "Intermediate",
+   "domains": [
+    "health"
+   ],
+   "topics": [
+    "Healthcare Quality",
+    "Hospital Administration"
+   ],
+   "why": "The accreditation standards Indian hospitals are audited against; know their chapters.",
+   "links": [
+    {
+     "kind": "publisher",
+     "label": "NABH (official)",
+     "url": "https://nabh.co/"
+    }
+   ]
+  },
+  {
+   "id": "health-ransom",
+   "title": "The Healthcare Quality Book",
+   "author": "Elizabeth R. Ransom, Maulik S. Joshi, David B. Nash, Scott B. Ransom",
+   "edition": "Health Administration Press",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "health"
+   ],
+   "topics": [
+    "Healthcare Quality"
+   ],
+   "why": "Quality measurement, safety and improvement methods applied to health services.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL16971162W"
+    }
+   ]
+  },
+  {
+   "id": "health-ihi",
+   "title": "How to Improve: the Model for Improvement",
+   "author": "Institute for Healthcare Improvement",
+   "edition": "Free guide",
+   "format": "Official guide",
+   "level": "Beginner",
+   "domains": [
+    "health"
+   ],
+   "topics": [
+    "Healthcare Quality"
+   ],
+   "why": "A short, practical method for testing changes in care; free from IHI.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free from IHI",
+     "url": "https://www.ihi.org/resources/how-to-improve"
+    }
+   ]
+  },
+  {
+   "id": "health-beauchamp",
+   "title": "Principles of Biomedical Ethics",
+   "author": "Tom L. Beauchamp, James F. Childress",
+   "edition": "8th ed. (2019)",
+   "format": "Textbook",
+   "level": "Advanced",
+   "domains": [
+    "health"
+   ],
+   "topics": [
+    "Medical Ethics & Law"
+   ],
+   "why": "Autonomy, beneficence, non-maleficence and justice: the framework behind most medical-ethics answers.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL3930967W"
+    }
+   ]
+  },
+  {
+   "id": "health-helsinki",
+   "title": "WMA Declaration of Helsinki",
+   "author": "World Medical Association",
+   "edition": "Official statement",
+   "format": "Official guide",
+   "level": "Intermediate",
+   "domains": [
+    "health",
+    "biotech"
+   ],
+   "topics": [
+    "Medical Ethics & Law",
+    "Clinical Research"
+   ],
+   "why": "Short, foundational statement of ethical principles for medical research.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "WMA (official)",
+     "url": "https://www.wma.net/policies-post/wma-declaration-of-helsinki/"
+    }
+   ]
+  },
+  {
+   "id": "health-fhir",
+   "title": "HL7 FHIR Specification",
+   "author": "HL7 International",
+   "edition": "Official, free online",
+   "format": "Official guide",
+   "level": "Advanced",
+   "domains": [
+    "health",
+    "cs"
+   ],
+   "topics": [
+    "Health Informatics"
+   ],
+   "why": "The standard for exchanging health records between systems; read the overview and resources pages first.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "HL7 (official)",
+     "url": "https://hl7.org/fhir/"
+    }
+   ]
+  },
+  {
+   "id": "health-shortliffe",
+   "title": "Biomedical Informatics: Computer Applications in Health Care and Biomedicine",
+   "author": "Edward H. Shortliffe, James J. Cimino (eds.)",
+   "edition": "Springer",
+   "format": "Textbook",
+   "level": "Advanced",
+   "domains": [
+    "health"
+   ],
+   "topics": [
+    "Health Informatics"
+   ],
+   "why": "Electronic records, decision support and data standards in clinical practice.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL20697969W"
+    }
+   ]
+  },
+  {
+   "id": "health-silverman",
+   "title": "Skills for Communicating with Patients",
+   "author": "Jonathan Silverman, Suzanne Kurtz, Juliet Draper",
+   "edition": "3rd ed. (2013)",
+   "format": "Textbook",
+   "level": "Beginner",
+   "domains": [
+    "health"
+   ],
+   "topics": [
+    "Patient Communication"
+   ],
+   "why": "A structured way to open consultations, gather information and explain plans clearly.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL21270926W"
+    }
+   ]
+  },
+  {
+   "id": "health-umn-comm",
+   "title": "Communication in the Real World",
+   "author": "University of Minnesota Libraries edition",
+   "edition": "Open textbook",
+   "format": "Open textbook",
+   "level": "Beginner",
+   "domains": [
+    "health",
+    "corp",
+    "law"
+   ],
+   "topics": [
+    "Patient Communication",
+    "Business Communication"
+   ],
+   "why": "Free textbook on listening, feedback and difficult conversations that transfers to patient work.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free online",
+     "url": "https://open.lib.umn.edu/communication/"
+    }
+   ]
+  },
+  {
+   "id": "health-gapenski",
+   "title": "Healthcare Finance: An Introduction to Accounting and Financial Management",
+   "author": "Louis C. Gapenski, George H. Pink",
+   "edition": "7th ed. (2019)",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "health"
+   ],
+   "topics": [
+    "Healthcare Finance"
+   ],
+   "why": "Budgeting, costing and financial statements for hospitals and clinics.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL1832275W"
+    }
+   ]
+  },
+  {
+   "id": "health-davidson",
+   "title": "Davidson's Principles and Practice of Medicine",
+   "author": "Stuart H. Ralston, Ian D. Penman, Mark W. J. Strachan, Richard P. Hobson (eds.)",
+   "edition": "Elsevier, revised regularly",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "health"
+   ],
+   "topics": [
+    "Clinical Medicine & Diagnostics"
+   ],
+   "why": "A readable whole-medicine text: presentations, investigations and management.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL22540677W"
+    }
+   ]
+  },
+  {
+   "id": "health-tripathi",
+   "title": "Essentials of Medical Pharmacology",
+   "author": "K. D. Tripathi",
+   "edition": "Jaypee, revised regularly",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "health"
+   ],
+   "topics": [
+    "Pharmacology"
+   ],
+   "why": "Concise drug classes, mechanisms and uses; the standard Indian pharmacology text.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL16961257W"
+    }
+   ]
+  },
+  {
+   "id": "health-katzung",
+   "title": "Basic & Clinical Pharmacology",
+   "author": "Bertram G. Katzung (ed.)",
+   "edition": "McGraw Hill, revised regularly",
+   "format": "Textbook",
+   "level": "Advanced",
+   "domains": [
+    "health"
+   ],
+   "topics": [
+    "Pharmacology"
+   ],
+   "why": "Mechanisms, kinetics and clinical use of drugs, with review questions.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL5123584W"
+    }
+   ]
+  },
+  {
+   "id": "health-park",
+   "title": "Park's Textbook of Preventive and Social Medicine",
+   "author": "K. Park",
+   "edition": "Banarsidas Bhanot, revised regularly",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "health",
+    "govt_state"
+   ],
+   "topics": [
+    "Public Health"
+   ],
+   "why": "India's standard text on epidemiology, national programmes and health statistics.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL29233498W"
+    }
+   ]
+  },
+  {
+   "id": "health-nhm",
+   "title": "National Health Mission",
+   "author": "Ministry of Health and Family Welfare",
+   "edition": "Official programme portal",
+   "format": "Official guide",
+   "level": "Beginner",
+   "domains": [
+    "health",
+    "govt_state"
+   ],
+   "topics": [
+    "Public Health"
+   ],
+   "why": "Programme guidelines and reports behind India's public health system.",
+   "links": [
+    {
+     "kind": "publisher",
+     "label": "NHM (official)",
+     "url": "https://nhm.gov.in/"
+    }
+   ]
+  },
+  {
+   "id": "com-openstax-accounting",
+   "title": "Principles of Accounting, Volume 1: Financial Accounting",
+   "author": "Mitchell Franklin, Patty Graybeal, Dixon Cooper",
+   "edition": "OpenStax",
+   "format": "Open textbook",
+   "level": "Beginner",
+   "domains": [
+    "commerce",
+    "corp"
+   ],
+   "topics": [
+    "Accounting"
+   ],
+   "why": "Free, clear coverage of the accounting cycle, statements and ratios.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free on OpenStax",
+     "url": "https://openstax.org/details/books/principles-financial-accounting"
+    }
+   ]
+  },
+  {
+   "id": "com-ncert-accounts",
+   "title": "NCERT Accountancy (Classes 11 and 12)",
+   "author": "NCERT",
+   "edition": "Official school textbooks, free",
+   "format": "Open textbook",
+   "level": "Beginner",
+   "domains": [
+    "commerce"
+   ],
+   "topics": [
+    "Accounting"
+   ],
+   "why": "The official school-level accountancy textbooks; free to read and a clean base before college texts.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free from NCERT",
+     "url": "https://ncert.nic.in/textbook.php"
+    }
+   ]
+  },
+  {
+   "id": "com-incometax-portal",
+   "title": "Income Tax Department of India",
+   "author": "Government of India",
+   "edition": "Official portal",
+   "format": "Official guide",
+   "level": "Beginner",
+   "domains": [
+    "commerce"
+   ],
+   "topics": [
+    "Income Tax"
+   ],
+   "why": "Official Acts, rules, forms and circulars; check here for the law currently in force.",
+   "links": [
+    {
+     "kind": "publisher",
+     "label": "Income Tax Department (official)",
+     "url": "https://incometaxindia.gov.in/"
+    }
+   ]
+  },
+  {
+   "id": "com-cbic-gst",
+   "title": "CBIC GST Resources",
+   "author": "Central Board of Indirect Taxes and Customs",
+   "edition": "Official portal",
+   "format": "Official guide",
+   "level": "Intermediate",
+   "domains": [
+    "commerce"
+   ],
+   "topics": [
+    "GST"
+   ],
+   "why": "Official Acts, rules, notifications and FAQs; the final word on GST questions.",
+   "links": [
+    {
+     "kind": "publisher",
+     "label": "CBIC (official)",
+     "url": "https://cbic-gst.gov.in/"
+    }
+   ]
+  },
+  {
+   "id": "com-icai",
+   "title": "ICAI Study Material and Standards on Auditing",
+   "author": "Institute of Chartered Accountants of India",
+   "edition": "Official study material, free",
+   "format": "Official guide",
+   "level": "Intermediate",
+   "domains": [
+    "commerce"
+   ],
+   "topics": [
+    "Auditing",
+    "Accounting"
+   ],
+   "why": "The professional body's own study material and auditing standards, free to read.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "ICAI (official)",
+     "url": "https://www.icai.org/"
+    }
+   ]
+  },
+  {
+   "id": "com-gupta-audit",
+   "title": "Contemporary Auditing",
+   "author": "Kamal Gupta",
+   "edition": "McGraw Hill",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "commerce"
+   ],
+   "topics": [
+    "Auditing"
+   ],
+   "why": "Audit planning, evidence, vouching and reporting, with Indian standards.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL10248514W"
+    }
+   ]
+  },
+  {
+   "id": "com-benninga",
+   "title": "Financial Modeling",
+   "author": "Simon Benninga",
+   "edition": "Focus: valuation, portfolio and option models in Excel",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "commerce",
+    "corp"
+   ],
+   "topics": [
+    "Financial Modelling",
+    "Excel & SQL"
+   ],
+   "why": "Build valuation, portfolio and option models in Excel from blank sheets.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL2680375W"
+    }
+   ]
+  },
+  {
+   "id": "com-damodaran",
+   "title": "Damodaran Online",
+   "author": "Aswath Damodaran (NYU Stern)",
+   "edition": "Free lectures, books and datasets",
+   "format": "Official guide",
+   "level": "Intermediate",
+   "domains": [
+    "commerce",
+    "corp"
+   ],
+   "topics": [
+    "Financial Modelling",
+    "Economics"
+   ],
+   "why": "Free valuation courses, spreadsheets and industry datasets from a leading valuation teacher.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free from the author",
+     "url": "https://pages.stern.nyu.edu/~adamodar/"
+    }
+   ]
+  },
+  {
+   "id": "com-winston-excel",
+   "title": "Microsoft Excel Data Analysis and Business Modeling",
+   "author": "Wayne L. Winston",
+   "edition": "6th ed. (2019)",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "commerce",
+    "corp"
+   ],
+   "topics": [
+    "Excel & SQL"
+   ],
+   "why": "Formulas, PivotTables and what-if analysis for business questions; a practical Excel test prep.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL19546211W"
+    }
+   ]
+  },
+  {
+   "id": "com-openstax-econ",
+   "title": "Principles of Economics 3e",
+   "author": "Steven A. Greenlaw, David Shapiro, Daniel MacDonald",
+   "edition": "OpenStax, 3rd ed.",
+   "format": "Open textbook",
+   "level": "Beginner",
+   "domains": [
+    "commerce",
+    "corp",
+    "govt_central",
+    "govt_state"
+   ],
+   "topics": [
+    "Economics",
+    "Economy"
+   ],
+   "why": "Free, readable micro and macroeconomics with current examples.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free on OpenStax",
+     "url": "https://openstax.org/details/books/principles-economics-3e"
+    }
+   ]
+  },
+  {
+   "id": "law-ken-adams",
+   "title": "A Manual of Style for Contract Drafting",
+   "author": "Kenneth A. Adams",
+   "edition": "4th ed. (2018)",
+   "format": "Handbook",
+   "level": "Intermediate",
+   "domains": [
+    "law"
+   ],
+   "topics": [
+    "Contract Drafting"
+   ],
+   "why": "Clear drafting conventions, and the common contract words that cause disputes.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL8887972W"
+    }
+   ]
+  },
+  {
+   "id": "law-avtar-contract",
+   "title": "Law of Contract",
+   "author": "Avtar Singh",
+   "edition": "Eastern Book Company, revised regularly",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "law"
+   ],
+   "topics": [
+    "Contract Drafting"
+   ],
+   "why": "The standard Indian text on offer, acceptance, consideration, breach and remedies.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL4261261W"
+    }
+   ]
+  },
+  {
+   "id": "law-indiacode",
+   "title": "India Code",
+   "author": "Government of India (Legislative Department)",
+   "edition": "Official database of central Acts",
+   "format": "Official guide",
+   "level": "Beginner",
+   "domains": [
+    "law",
+    "govt_central",
+    "govt_state"
+   ],
+   "topics": [
+    "Contract Drafting",
+    "Corporate Law",
+    "Constitutional Law",
+    "Legal Research",
+    "Law & Police Administration"
+   ],
+   "why": "The official, free source for current Acts; always cite the in-force text, not a guide.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "India Code (official)",
+     "url": "https://www.indiacode.nic.in/"
+    }
+   ]
+  },
+  {
+   "id": "law-avtar-company",
+   "title": "Company Law",
+   "author": "Avtar Singh",
+   "edition": "Eastern Book Company",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "law"
+   ],
+   "topics": [
+    "Corporate Law"
+   ],
+   "why": "Companies Act concepts: incorporation, directors, meetings and winding up.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL4042311W"
+    }
+   ]
+  },
+  {
+   "id": "law-mca",
+   "title": "Ministry of Corporate Affairs",
+   "author": "Government of India",
+   "edition": "Official portal",
+   "format": "Official guide",
+   "level": "Intermediate",
+   "domains": [
+    "law",
+    "commerce"
+   ],
+   "topics": [
+    "Corporate Law"
+   ],
+   "why": "Official Companies Act text, rules, forms and notifications.",
+   "links": [
+    {
+     "kind": "publisher",
+     "label": "MCA (official)",
+     "url": "https://www.mca.gov.in/"
+    }
+   ]
+  },
+  {
+   "id": "law-pandey-const",
+   "title": "Constitutional Law of India",
+   "author": "J. N. Pandey",
+   "edition": "Central Law Agency",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "law"
+   ],
+   "topics": [
+    "Constitutional Law"
+   ],
+   "why": "Fundamental rights, federalism and the judiciary, with leading cases.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL2923461W"
+    }
+   ]
+  },
+  {
+   "id": "law-basu",
+   "title": "Introduction to the Constitution of India",
+   "author": "Durga Das Basu",
+   "edition": "LexisNexis",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "law",
+    "govt_central",
+    "govt_state"
+   ],
+   "topics": [
+    "Constitutional Law",
+    "Indian Polity"
+   ],
+   "why": "A compact commentary on the Constitution's structure and provisions.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL96569W"
+    }
+   ]
+  },
+  {
+   "id": "law-constitution-text",
+   "title": "The Constitution of India (official text)",
+   "author": "Legislative Department, Government of India",
+   "edition": "Official text",
+   "format": "Official guide",
+   "level": "Beginner",
+   "domains": [
+    "law",
+    "govt_central",
+    "govt_state"
+   ],
+   "topics": [
+    "Constitutional Law",
+    "Indian Polity"
+   ],
+   "why": "The authoritative, free text; read the Preamble, Part III and Part IV first.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Official text",
+     "url": "https://www.legislative.gov.in/constitution-of-india"
+    }
+   ]
+  },
+  {
+   "id": "law-kothari",
+   "title": "Research Methodology: Methods and Techniques",
+   "author": "C. R. Kothari, Gaurav Garg",
+   "edition": "New Age International",
+   "format": "Textbook",
+   "level": "Beginner",
+   "domains": [
+    "law"
+   ],
+   "topics": [
+    "Legal Research"
+   ],
+   "why": "Research design, sampling and writing up, which legal research papers also rely on.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL16940989W"
+    }
+   ]
+  },
+  {
+   "id": "law-indiankanoon",
+   "title": "Indian Kanoon",
+   "author": "Indian Kanoon (search engine)",
+   "edition": "Free legal search",
+   "format": "Official guide",
+   "level": "Beginner",
+   "domains": [
+    "law",
+    "govt_central"
+   ],
+   "topics": [
+    "Legal Research"
+   ],
+   "why": "Free search across Indian judgments and Acts; practise finding a case and its citations.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free online",
+     "url": "https://indiankanoon.org/"
+    }
+   ]
+  },
+  {
+   "id": "corp-kotler",
+   "title": "Marketing Management",
+   "author": "Philip Kotler, Kevin Lane Keller, Alexander Chernev",
+   "edition": "16th ed.",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "corp"
+   ],
+   "topics": [
+    "Marketing & Product"
+   ],
+   "why": "Segmentation, positioning, pricing and brand strategy; the standard management text.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL1807518W"
+    }
+   ]
+  },
+  {
+   "id": "corp-openstax-marketing",
+   "title": "Principles of Marketing",
+   "author": "OpenStax",
+   "edition": "Free open textbook",
+   "format": "Open textbook",
+   "level": "Beginner",
+   "domains": [
+    "corp"
+   ],
+   "topics": [
+    "Marketing & Product"
+   ],
+   "why": "A free, plain-language introduction to the marketing mix and consumer behaviour.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free on OpenStax",
+     "url": "https://openstax.org/details/books/principles-marketing"
+    }
+   ]
+  },
+  {
+   "id": "corp-cagan",
+   "title": "Inspired: How to Create Tech Products Customers Love",
+   "author": "Marty Cagan",
+   "edition": "2nd ed. (2018)",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "corp"
+   ],
+   "topics": [
+    "Marketing & Product"
+   ],
+   "why": "How strong product teams discover what to build; excellent for product manager interviews.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL16803591W"
+    }
+   ]
+  },
+  {
+   "id": "corp-aswathappa",
+   "title": "Human Resource Management",
+   "author": "K. Aswathappa",
+   "edition": "McGraw Hill",
+   "format": "Textbook",
+   "level": "Beginner",
+   "domains": [
+    "corp"
+   ],
+   "topics": [
+    "Human Resources"
+   ],
+   "why": "Recruitment, training, appraisal and industrial relations with Indian cases.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL37481193W"
+    }
+   ]
+  },
+  {
+   "id": "corp-openstax-ob",
+   "title": "Organizational Behavior",
+   "author": "Tomasz Hunter and others (OpenStax)",
+   "edition": "Free open textbook",
+   "format": "Open textbook",
+   "level": "Beginner",
+   "domains": [
+    "corp"
+   ],
+   "topics": [
+    "Human Resources"
+   ],
+   "why": "Motivation, teams and leadership in plain language; free.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free on OpenStax",
+     "url": "https://openstax.org/details/books/organizational-behavior"
+    }
+   ]
+  },
+  {
+   "id": "corp-chopra",
+   "title": "Supply Chain Management: Strategy, Planning, and Operation",
+   "author": "Sunil Chopra, Peter Meindl",
+   "edition": "7th ed.",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "corp"
+   ],
+   "topics": [
+    "Operations & Supply Chain"
+   ],
+   "why": "Network design, inventory, sourcing and logistics with quantified examples.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL11630665W"
+    }
+   ]
+  },
+  {
+   "id": "corp-goal",
+   "title": "The Goal",
+   "author": "Eliyahu M. Goldratt, Jeff Cox",
+   "edition": "North River Press",
+   "format": "Textbook",
+   "level": "Beginner",
+   "domains": [
+    "corp"
+   ],
+   "topics": [
+    "Operations & Supply Chain"
+   ],
+   "why": "A novel that teaches bottlenecks and throughput; widely used in operations interviews.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL2463051W"
+    }
+   ]
+  },
+  {
+   "id": "gov-laxmikanth",
+   "title": "Indian Polity",
+   "author": "M. Laxmikanth",
+   "edition": "McGraw Hill, revised regularly",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "govt_central",
+    "govt_state"
+   ],
+   "topics": [
+    "Indian Polity"
+   ],
+   "why": "The standard UPSC and state-exam text on the Constitution, institutions and governance.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL28943229W"
+    }
+   ]
+  },
+  {
+   "id": "gov-chandra-struggle",
+   "title": "India's Struggle for Independence",
+   "author": "Bipan Chandra, Mridula Mukherjee, Aditya Mukherjee, Sucheta Mahajan, K. N. Panikkar",
+   "edition": "Penguin",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "govt_central",
+    "govt_state"
+   ],
+   "topics": [
+    "History"
+   ],
+   "why": "A connected account of the freedom movement; the usual base for modern history preparation.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL42914W"
+    }
+   ]
+  },
+  {
+   "id": "gov-rs-sharma",
+   "title": "India's Ancient Past",
+   "author": "R. S. Sharma",
+   "edition": "Oxford University Press",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "govt_central",
+    "govt_state"
+   ],
+   "topics": [
+    "History"
+   ],
+   "why": "A concise survey from prehistory to the early medieval period.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL8007135W"
+    }
+   ]
+  },
+  {
+   "id": "gov-ncert",
+   "title": "NCERT Textbooks (History, Geography, Polity, Economics)",
+   "author": "NCERT",
+   "edition": "Official school textbooks, free",
+   "format": "Open textbook",
+   "level": "Beginner",
+   "domains": [
+    "govt_central",
+    "govt_state"
+   ],
+   "topics": [
+    "History",
+    "Geography",
+    "Indian Polity",
+    "Economy"
+   ],
+   "why": "The recommended starting point for civil services preparation, free from NCERT.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "Free from NCERT",
+     "url": "https://ncert.nic.in/textbook.php"
+    }
+   ]
+  },
+  {
+   "id": "gov-goh-geography",
+   "title": "Certificate Physical and Human Geography",
+   "author": "Goh Cheng Leong",
+   "edition": "Oxford University Press",
+   "format": "Textbook",
+   "level": "Beginner",
+   "domains": [
+    "govt_central",
+    "govt_state"
+   ],
+   "topics": [
+    "Geography"
+   ],
+   "why": "Clear maps and diagrams for physical and human geography; a commonly recommended reference.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL6355615W"
+    }
+   ]
+  },
+  {
+   "id": "gov-ramesh-economy",
+   "title": "Indian Economy",
+   "author": "Ramesh Singh",
+   "edition": "McGraw Hill, revised regularly",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "govt_central",
+    "govt_state"
+   ],
+   "topics": [
+    "Economy"
+   ],
+   "why": "Indian economic structure, planning, banking and policy, aligned to exam syllabi.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL26420546W"
+    }
+   ]
+  },
+  {
+   "id": "gov-economic-survey",
+   "title": "Economic Survey and Union Budget",
+   "author": "Government of India",
+   "edition": "Official yearly documents, free",
+   "format": "Official guide",
+   "level": "Intermediate",
+   "domains": [
+    "govt_central",
+    "govt_state",
+    "commerce"
+   ],
+   "topics": [
+    "Economy",
+    "Current Affairs",
+    "Banking Awareness"
+   ],
+   "why": "The government's own yearly account of the economy; read the highlights and data chapters.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "India Budget (official)",
+     "url": "https://www.indiabudget.gov.in/economicsurvey/"
+    }
+   ]
+  },
+  {
+   "id": "gov-india-year-book",
+   "title": "India Year Book",
+   "author": "Publications Division, Government of India",
+   "edition": "Official yearly reference",
+   "format": "Handbook",
+   "level": "Beginner",
+   "domains": [
+    "govt_central",
+    "govt_state"
+   ],
+   "topics": [
+    "Current Affairs"
+   ],
+   "why": "A yearly official summary of government schemes, institutions and statistics.",
+   "links": [
+    {
+     "kind": "publisher",
+     "label": "Publications Division (official)",
+     "url": "https://www.publicationsdivision.nic.in/"
+    }
+   ]
+  },
+  {
+   "id": "gov-pib",
+   "title": "Press Information Bureau",
+   "author": "Government of India",
+   "edition": "Official daily press releases",
+   "format": "Official guide",
+   "level": "Beginner",
+   "domains": [
+    "govt_central",
+    "govt_state"
+   ],
+   "topics": [
+    "Current Affairs"
+   ],
+   "why": "Primary source for scheme launches and policy decisions; follow it alongside a newspaper.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "PIB (official)",
+     "url": "https://www.pib.gov.in/"
+    }
+   ]
+  },
+  {
+   "id": "gov-pathak-fin",
+   "title": "Indian Financial System",
+   "author": "Bharati V. Pathak",
+   "edition": "Pearson",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "govt_central",
+    "commerce"
+   ],
+   "topics": [
+    "Banking Awareness",
+    "Economy"
+   ],
+   "why": "Banks, markets, RBI and financial regulation, the core of banking exam awareness papers.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL24486420W"
+    }
+   ]
+  },
+  {
+   "id": "gov-rbi",
+   "title": "Reserve Bank of India publications",
+   "author": "Reserve Bank of India",
+   "edition": "Official, free",
+   "format": "Official guide",
+   "level": "Intermediate",
+   "domains": [
+    "govt_central",
+    "commerce"
+   ],
+   "topics": [
+    "Banking Awareness",
+    "Economy"
+   ],
+   "why": "Monetary policy statements, annual report and statistics handbook from the central bank.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "RBI (official)",
+     "url": "https://www.rbi.org.in/"
+    }
+   ]
+  },
+  {
+   "id": "gov-laxmikanth-governance",
+   "title": "Governance in India",
+   "author": "M. Laxmikanth",
+   "edition": "McGraw Hill",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "govt_central",
+    "govt_state"
+   ],
+   "topics": [
+    "State Administration"
+   ],
+   "why": "Accountability, e-governance and civil service reforms.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL29278365W"
+    }
+   ]
+  },
+  {
+   "id": "gov-arc",
+   "title": "Second Administrative Reforms Commission Reports",
+   "author": "Department of Administrative Reforms and Public Grievances",
+   "edition": "Official reports, free",
+   "format": "Official guide",
+   "level": "Advanced",
+   "domains": [
+    "govt_central",
+    "govt_state"
+   ],
+   "topics": [
+    "State Administration"
+   ],
+   "why": "Policy-level reading on governance reforms; use the summaries for essay and interview preparation.",
+   "links": [
+    {
+     "kind": "publisher",
+     "label": "DARPG (official)",
+     "url": "https://www.darpg.gov.in/"
+    }
+   ]
+  },
+  {
+   "id": "gov-katar-singh",
+   "title": "Rural Development: Principles, Policies, and Management",
+   "author": "Katar Singh",
+   "edition": "SAGE",
+   "format": "Textbook",
+   "level": "Intermediate",
+   "domains": [
+    "govt_state"
+   ],
+   "topics": [
+    "Rural Development"
+   ],
+   "why": "Rural development theory and programmes in India.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL1934253W"
+    }
+   ]
+  },
+  {
+   "id": "gov-rural-ministry",
+   "title": "Ministry of Rural Development",
+   "author": "Government of India",
+   "edition": "Official portal",
+   "format": "Official guide",
+   "level": "Beginner",
+   "domains": [
+    "govt_state"
+   ],
+   "topics": [
+    "Rural Development"
+   ],
+   "why": "Programme guidelines (for example MGNREGA, PMAY-G) straight from the ministry.",
+   "links": [
+    {
+     "kind": "publisher",
+     "label": "MoRD (official)",
+     "url": "https://rural.gov.in/"
+    }
+   ]
+  },
+  {
+   "id": "gov-panchayat",
+   "title": "Ministry of Panchayati Raj",
+   "author": "Government of India",
+   "edition": "Official portal",
+   "format": "Official guide",
+   "level": "Beginner",
+   "domains": [
+    "govt_state"
+   ],
+   "topics": [
+    "Rural Development",
+    "State Administration"
+   ],
+   "why": "Official material on panchayati raj institutions and the 73rd Amendment.",
+   "links": [
+    {
+     "kind": "publisher",
+     "label": "MoPR (official)",
+     "url": "https://panchayat.gov.in/"
+    }
+   ]
+  },
+  {
+   "id": "gov-dolr",
+   "title": "Department of Land Resources",
+   "author": "Government of India",
+   "edition": "Official portal",
+   "format": "Official guide",
+   "level": "Beginner",
+   "domains": [
+    "govt_state"
+   ],
+   "topics": [
+    "Revenue, Tax & Land Records"
+   ],
+   "why": "Official information on land records modernisation and land policy.",
+   "links": [
+    {
+     "kind": "publisher",
+     "label": "DoLR (official)",
+     "url": "https://www.dolr.gov.in/"
+    }
+   ]
+  },
+  {
+   "id": "gov-bns-note",
+   "title": "Bharatiya Nyaya Sanhita, Bharatiya Nagarik Suraksha Sanhita and Bharatiya Sakshya Adhiniyam",
+   "author": "Government of India",
+   "edition": "Official Acts, in force from July 2024",
+   "format": "Official guide",
+   "level": "Intermediate",
+   "domains": [
+    "govt_state",
+    "law"
+   ],
+   "topics": [
+    "Law & Police Administration",
+    "Legal Research"
+   ],
+   "why": "The new criminal codes replaced the IPC, CrPC and Evidence Act; older books may still use the old section numbers.",
+   "links": [
+    {
+     "kind": "open",
+     "label": "India Code (official)",
+     "url": "https://www.indiacode.nic.in/"
+    }
+   ]
+  },
+  {
+   "id": "eee-kalsi",
+   "title": "Electronic Instrumentation",
+   "author": "H. S. Kalsi",
+   "edition": "McGraw Hill",
+   "format": "Textbook",
+   "level": "Beginner",
+   "domains": [
+    "eee",
+    "biotech"
+   ],
+   "topics": [
+    "Sensors & Instrumentation",
+    "Biomedical Instrumentation"
+   ],
+   "why": "Transducers, bridges, signal conditioning and measuring instruments, in the Indian-syllabus style.",
+   "links": [
+    {
+     "kind": "archive",
+     "label": "Borrow or preview on Open Library",
+     "url": "https://openlibrary.org/works/OL9308559W"
+    }
+   ]
+  }
+ ],
+ "repo_categories": [
+  {
+   "id": "system-design",
+   "name": "System Design & Architecture",
+   "blurb": "Design large systems and reason about trade-offs, the way system design rounds ask."
+  },
+  {
+   "id": "interview-dsa",
+   "name": "Coding Interview & DSA Mastery",
+   "blurb": "Study plans, problem sets and handbooks for data structures, algorithms and interviews."
+  },
+  {
+   "id": "roadmaps",
+   "name": "Full-Stack & Developer Roadmaps",
+   "blurb": "Roadmaps and degree-style curricula that show what to learn and in what order."
+  },
+  {
+   "id": "books-projects",
+   "name": "Free Programming Books & Project-Based Learning",
+   "blurb": "Free books, courses and build-it-yourself projects to turn reading into practice."
+  },
+  {
+   "id": "specialisations",
+   "name": "Track Specialisations",
+   "blurb": "Data and ML, security, DevOps, mobile, embedded, robotics, chip design and bioinformatics."
+  }
+ ],
+ "repos": [
+  {
+   "id": "donnemartin--system-design-primer",
+   "repo": "donnemartin/system-design-primer",
+   "url": "https://github.com/donnemartin/system-design-primer",
+   "category": "system-design",
+   "level": "Intermediate",
+   "hours": 30,
+   "why": "Walks through scalability, caching, databases and load balancing, with worked designs and flashcards for interview practice.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "System Design",
+    "DBMS",
+    "CN"
+   ],
+   "skills": [
+    "System Design",
+    "Microservices",
+    "Distributed Systems",
+    "Database Design",
+    "App Architecture"
+   ]
+  },
+  {
+   "id": "ByteByteGoHq--system-design-101",
+   "repo": "ByteByteGoHq/system-design-101",
+   "url": "https://github.com/ByteByteGoHq/system-design-101",
+   "category": "system-design",
+   "level": "Beginner",
+   "hours": 8,
+   "why": "Short visual explainers of APIs, protocols, databases and architecture patterns; a quick first pass before deeper study.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "System Design",
+    "CN"
+   ],
+   "skills": [
+    "System Design",
+    "REST APIs",
+    "HTTP",
+    "Microservices"
+   ]
+  },
+  {
+   "id": "karanpratapsingh--system-design",
+   "repo": "karanpratapsingh/system-design",
+   "url": "https://github.com/karanpratapsingh/system-design",
+   "category": "system-design",
+   "level": "Intermediate",
+   "hours": 20,
+   "why": "A structured course from networking basics to real designs, with case studies you can sketch yourself.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "System Design",
+    "CN",
+    "DBMS"
+   ],
+   "skills": [
+    "System Design",
+    "Distributed Systems",
+    "Computer Networks"
+   ]
+  },
+  {
+   "id": "iluwatar--java-design-patterns",
+   "repo": "iluwatar/java-design-patterns",
+   "url": "https://github.com/iluwatar/java-design-patterns",
+   "category": "system-design",
+   "level": "Intermediate",
+   "hours": 25,
+   "why": "Design patterns implemented in Java with the problem each one solves; good for object-oriented design questions.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "OOP",
+    "System Design"
+   ],
+   "skills": [
+    "Object-Oriented Programming",
+    "Java",
+    "App Architecture"
+   ]
+  },
+  {
+   "id": "faif--python-patterns",
+   "repo": "faif/python-patterns",
+   "url": "https://github.com/faif/python-patterns",
+   "category": "system-design",
+   "level": "Intermediate",
+   "hours": 10,
+   "why": "Compact Python examples of classic patterns, useful to see how patterns look in a dynamic language.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "OOP",
+    "System Design"
+   ],
+   "skills": [
+    "Python",
+    "Object-Oriented Programming"
+   ]
+  },
+  {
+   "id": "nilbuild--design-patterns-for-humans",
+   "repo": "nilbuild/design-patterns-for-humans",
+   "url": "https://github.com/nilbuild/design-patterns-for-humans",
+   "category": "system-design",
+   "level": "Beginner",
+   "hours": 5,
+   "why": "Plain-English explanations of the main design patterns with everyday analogies.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "OOP",
+    "System Design"
+   ],
+   "skills": [
+    "Object-Oriented Programming",
+    "App Architecture"
+   ]
+  },
+  {
+   "id": "chiphuyen--machine-learning-systems-design",
+   "repo": "chiphuyen/machine-learning-systems-design",
+   "url": "https://github.com/chiphuyen/machine-learning-systems-design",
+   "category": "system-design",
+   "level": "Advanced",
+   "hours": 10,
+   "why": "A guide to designing machine learning systems in production: data, training, deployment and monitoring.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "ML & Data Science",
+    "System Design"
+   ],
+   "skills": [
+    "Machine Learning",
+    "System Design"
+   ]
+  },
+  {
+   "id": "jwasham--coding-interview-university",
+   "repo": "jwasham/coding-interview-university",
+   "url": "https://github.com/jwasham/coding-interview-university",
+   "category": "interview-dsa",
+   "level": "Intermediate",
+   "hours": 250,
+   "why": "A long, ordered study plan across data structures, algorithms and core CS, with video and reading links; pick sections to fit your time.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "DSA",
+    "OS",
+    "CN",
+    "DBMS",
+    "OOP"
+   ],
+   "skills": [
+    "Data Structures",
+    "Algorithms",
+    "Operating Systems",
+    "Computer Networks"
+   ]
+  },
+  {
+   "id": "yangshun--tech-interview-handbook",
+   "repo": "yangshun/tech-interview-handbook",
+   "url": "https://github.com/yangshun/tech-interview-handbook",
+   "category": "interview-dsa",
+   "level": "Intermediate",
+   "hours": 30,
+   "why": "Interview preparation from resume and behavioural answers to algorithm cheat sheets and a suggested study schedule.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "DSA",
+    "Aptitude"
+   ],
+   "skills": [
+    "Data Structures",
+    "Algorithms",
+    "Logical Reasoning"
+   ]
+  },
+  {
+   "id": "trekhleb--javascript-algorithms",
+   "repo": "trekhleb/javascript-algorithms",
+   "url": "https://github.com/trekhleb/javascript-algorithms",
+   "category": "interview-dsa",
+   "level": "Beginner",
+   "hours": 60,
+   "why": "Readable JavaScript implementations of core data structures and algorithms, each with an explanation and links.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "DSA"
+   ],
+   "skills": [
+    "Data Structures",
+    "Algorithms",
+    "JavaScript"
+   ]
+  },
+  {
+   "id": "TheAlgorithms--Python",
+   "repo": "TheAlgorithms/Python",
+   "url": "https://github.com/TheAlgorithms/Python",
+   "category": "interview-dsa",
+   "level": "Beginner",
+   "hours": 50,
+   "why": "A large library of algorithms in Python, handy for reading a clean implementation next to a textbook description.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "DSA"
+   ],
+   "skills": [
+    "Data Structures",
+    "Algorithms",
+    "Python"
+   ]
+  },
+  {
+   "id": "TheAlgorithms--Java",
+   "repo": "TheAlgorithms/Java",
+   "url": "https://github.com/TheAlgorithms/Java",
+   "category": "interview-dsa",
+   "level": "Beginner",
+   "hours": 50,
+   "why": "The same idea in Java: algorithms and data structures grouped by topic.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "DSA",
+    "OOP"
+   ],
+   "skills": [
+    "Data Structures",
+    "Algorithms",
+    "Java"
+   ]
+  },
+  {
+   "id": "donnemartin--interactive-coding-challenges",
+   "repo": "donnemartin/interactive-coding-challenges",
+   "url": "https://github.com/donnemartin/interactive-coding-challenges",
+   "category": "interview-dsa",
+   "level": "Intermediate",
+   "hours": 40,
+   "why": "Notebooks of interview-style problems with solutions and unit tests, to practise and then check your reasoning.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "DSA"
+   ],
+   "skills": [
+    "Data Structures",
+    "Algorithms",
+    "Python"
+   ]
+  },
+  {
+   "id": "kdn251--interviews",
+   "repo": "kdn251/interviews",
+   "url": "https://github.com/kdn251/interviews",
+   "category": "interview-dsa",
+   "level": "Intermediate",
+   "hours": 20,
+   "why": "A topic-by-topic reference of problems and complexity tables for interview revision.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "DSA"
+   ],
+   "skills": [
+    "Data Structures",
+    "Algorithms"
+   ]
+  },
+  {
+   "id": "neetcode-gh--leetcode",
+   "repo": "neetcode-gh/leetcode",
+   "url": "https://github.com/neetcode-gh/leetcode",
+   "category": "interview-dsa",
+   "level": "Intermediate",
+   "hours": 60,
+   "why": "Worked solutions in several languages for a curated list of problems; use after you have tried a problem yourself.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "DSA"
+   ],
+   "skills": [
+    "Data Structures",
+    "Algorithms"
+   ]
+  },
+  {
+   "id": "nilbuild--developer-roadmap",
+   "repo": "nilbuild/developer-roadmap",
+   "url": "https://github.com/nilbuild/developer-roadmap",
+   "category": "roadmaps",
+   "level": "Beginner",
+   "hours": 20,
+   "why": "Visual roadmaps for frontend, backend, DevOps, data and more; use one to choose your next three skills.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "Web Development",
+    "DevOps & Cloud",
+    "System Design"
+   ],
+   "skills": [
+    "JavaScript",
+    "React",
+    "Node.js",
+    "Docker",
+    "Git",
+    "SQL"
+   ]
+  },
+  {
+   "id": "ossu--computer-science",
+   "repo": "ossu/computer-science",
+   "url": "https://github.com/ossu/computer-science",
+   "category": "roadmaps",
+   "level": "Beginner",
+   "hours": 1800,
+   "why": "A free, complete computer science degree path built from university courses; follow the parts your gaps point to.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "DSA",
+    "OS",
+    "CN",
+    "DBMS",
+    "OOP",
+    "System Design"
+   ],
+   "skills": [
+    "Data Structures",
+    "Algorithms",
+    "Operating Systems",
+    "Computer Networks"
+   ]
+  },
+  {
+   "id": "codecrafters-io--build-your-own-x",
+   "repo": "codecrafters-io/build-your-own-x",
+   "url": "https://github.com/codecrafters-io/build-your-own-x",
+   "category": "roadmaps",
+   "level": "Intermediate",
+   "hours": 40,
+   "why": "Guides to rebuilding a database, shell, Git, web server or game from scratch, so you learn how tools work inside.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "OS",
+    "DBMS",
+    "CN",
+    "System Design"
+   ],
+   "skills": [
+    "Operating Systems",
+    "Database Design",
+    "Computer Networks",
+    "Git"
+   ]
+  },
+  {
+   "id": "microsoft--Web-Dev-For-Beginners",
+   "repo": "microsoft/Web-Dev-For-Beginners",
+   "url": "https://github.com/microsoft/Web-Dev-For-Beginners",
+   "category": "roadmaps",
+   "level": "Beginner",
+   "hours": 60,
+   "why": "A 12-week web curriculum with lessons, quizzes and projects in HTML, CSS and JavaScript.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "Web Development"
+   ],
+   "skills": [
+    "HTML",
+    "HTML5",
+    "CSS",
+    "CSS3",
+    "JavaScript"
+   ]
+  },
+  {
+   "id": "freeCodeCamp--freeCodeCamp",
+   "repo": "freeCodeCamp/freeCodeCamp",
+   "url": "https://github.com/freeCodeCamp/freeCodeCamp",
+   "category": "roadmaps",
+   "level": "Beginner",
+   "hours": 300,
+   "why": "A free full-stack curriculum with certifications, built around coding in the browser.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "Web Development",
+    "DBMS"
+   ],
+   "skills": [
+    "HTML",
+    "CSS",
+    "JavaScript",
+    "React",
+    "Node.js",
+    "SQL"
+   ]
+  },
+  {
+   "id": "bradtraversy--50projects50days",
+   "repo": "bradtraversy/50projects50days",
+   "url": "https://github.com/bradtraversy/50projects50days",
+   "category": "roadmaps",
+   "level": "Beginner",
+   "hours": 25,
+   "why": "Fifty small front-end projects in HTML, CSS and JavaScript; good for a portfolio start.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "Web Development"
+   ],
+   "skills": [
+    "HTML",
+    "HTML5",
+    "CSS",
+    "CSS3",
+    "JavaScript"
+   ]
+  },
+  {
+   "id": "h5bp--Front-end-Developer-Interview-Questions",
+   "repo": "h5bp/Front-end-Developer-Interview-Questions",
+   "url": "https://github.com/h5bp/Front-end-Developer-Interview-Questions",
+   "category": "roadmaps",
+   "level": "Intermediate",
+   "hours": 10,
+   "why": "A question bank for front-end interviews across HTML, CSS and JavaScript, to test yourself.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "Web Development"
+   ],
+   "skills": [
+    "JavaScript",
+    "HTML5",
+    "CSS3",
+    "React",
+    "Web Performance"
+   ]
+  },
+  {
+   "id": "getify--You-Dont-Know-JS",
+   "repo": "getify/You-Dont-Know-JS",
+   "url": "https://github.com/getify/You-Dont-Know-JS",
+   "category": "roadmaps",
+   "level": "Intermediate",
+   "hours": 40,
+   "why": "A free book series that goes deep on JavaScript's scope, closures and types.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "Web Development"
+   ],
+   "skills": [
+    "JavaScript",
+    "TypeScript"
+   ]
+  },
+  {
+   "id": "ryanmcdermott--clean-code-javascript",
+   "repo": "ryanmcdermott/clean-code-javascript",
+   "url": "https://github.com/ryanmcdermott/clean-code-javascript",
+   "category": "roadmaps",
+   "level": "Beginner",
+   "hours": 3,
+   "why": "Clean-code principles shown as JavaScript before-and-after examples.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "Web Development",
+    "OOP"
+   ],
+   "skills": [
+    "JavaScript",
+    "Object-Oriented Programming"
+   ]
+  },
+  {
+   "id": "goldbergyoni--nodebestpractices",
+   "repo": "goldbergyoni/nodebestpractices",
+   "url": "https://github.com/goldbergyoni/nodebestpractices",
+   "category": "roadmaps",
+   "level": "Intermediate",
+   "hours": 15,
+   "why": "Checklist of practices for building Node.js services: structure, error handling, testing, security.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "Web Development",
+    "System Design"
+   ],
+   "skills": [
+    "Node.js",
+    "REST APIs",
+    "App Architecture"
+   ]
+  },
+  {
+   "id": "jlevy--the-art-of-command-line",
+   "repo": "jlevy/the-art-of-command-line",
+   "url": "https://github.com/jlevy/the-art-of-command-line",
+   "category": "roadmaps",
+   "level": "Beginner",
+   "hours": 3,
+   "why": "A one-page tour of the shell and everyday command-line tools for Linux and macOS.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "OS",
+    "DevOps & Cloud"
+   ],
+   "skills": [
+    "Linux",
+    "Shell Scripting",
+    "Git"
+   ]
+  },
+  {
+   "id": "public-apis--public-apis",
+   "repo": "public-apis/public-apis",
+   "url": "https://github.com/public-apis/public-apis",
+   "category": "roadmaps",
+   "level": "Beginner",
+   "hours": 5,
+   "why": "A list of free public APIs to practise calling REST services in small projects.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "Web Development",
+    "CN"
+   ],
+   "skills": [
+    "REST APIs",
+    "API Testing"
+   ]
+  },
+  {
+   "id": "EbookFoundation--free-programming-books",
+   "repo": "EbookFoundation/free-programming-books",
+   "url": "https://github.com/EbookFoundation/free-programming-books",
+   "category": "books-projects",
+   "level": "Beginner",
+   "hours": null,
+   "why": "A very large, community-maintained index of free books and courses by language and subject; use it as a library.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "DSA",
+    "OOP",
+    "Web Development",
+    "OS",
+    "DBMS",
+    "CN"
+   ],
+   "skills": [
+    "Java",
+    "Python",
+    "C++",
+    "JavaScript",
+    "SQL",
+    "Linux"
+   ]
+  },
+  {
+   "id": "practical-tutorials--project-based-learning",
+   "repo": "practical-tutorials/project-based-learning",
+   "url": "https://github.com/practical-tutorials/project-based-learning",
+   "category": "books-projects",
+   "level": "Intermediate",
+   "hours": 40,
+   "why": "Project tutorials grouped by language, each one a complete build to follow.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "OOP",
+    "Web Development",
+    "DSA"
+   ],
+   "skills": [
+    "Java",
+    "Python",
+    "C++",
+    "JavaScript",
+    "Kotlin"
+   ]
+  },
+  {
+   "id": "EbookFoundation--free-science-books",
+   "repo": "EbookFoundation/free-science-books",
+   "url": "https://github.com/EbookFoundation/free-science-books",
+   "category": "books-projects",
+   "level": "Beginner",
+   "hours": null,
+   "why": "The science and engineering counterpart: free textbooks in electronics, mechanics, biology, chemistry and mathematics.",
+   "domains": [
+    "ece",
+    "mech",
+    "civil",
+    "eee",
+    "biotech",
+    "health"
+   ],
+   "topics": [
+    "Analog Electronics",
+    "Thermodynamics",
+    "Strength of Materials",
+    "Molecular Biology",
+    "Aptitude"
+   ],
+   "skills": [
+    "MATLAB"
+   ]
+  },
+  {
+   "id": "Developer-Y--cs-video-courses",
+   "repo": "Developer-Y/cs-video-courses",
+   "url": "https://github.com/Developer-Y/cs-video-courses",
+   "category": "books-projects",
+   "level": "Beginner",
+   "hours": null,
+   "why": "A list of full university computer science video courses by subject.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "DSA",
+    "OS",
+    "CN",
+    "DBMS",
+    "ML & Data Science",
+    "System Design"
+   ],
+   "skills": [
+    "Algorithms",
+    "Operating Systems",
+    "Machine Learning"
+   ]
+  },
+  {
+   "id": "karan--Projects",
+   "repo": "karan/Projects",
+   "url": "https://github.com/karan/Projects",
+   "category": "books-projects",
+   "level": "Beginner",
+   "hours": 20,
+   "why": "A catalogue of project ideas by difficulty, for when you need something to build for your resume.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "OOP",
+    "DSA",
+    "Web Development"
+   ],
+   "skills": [
+    "Python",
+    "Java",
+    "JavaScript"
+   ]
+  },
+  {
+   "id": "ossu--data-science",
+   "repo": "ossu/data-science",
+   "url": "https://github.com/ossu/data-science",
+   "category": "specialisations",
+   "level": "Intermediate",
+   "hours": 600,
+   "why": "A free self-study curriculum for data science from statistics to machine learning.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "ML & Data Science",
+    "Aptitude"
+   ],
+   "skills": [
+    "Statistics",
+    "Probability",
+    "Machine Learning",
+    "Python",
+    "Data Visualization",
+    "SQL"
+   ]
+  },
+  {
+   "id": "microsoft--ML-For-Beginners",
+   "repo": "microsoft/ML-For-Beginners",
+   "url": "https://github.com/microsoft/ML-For-Beginners",
+   "category": "specialisations",
+   "level": "Beginner",
+   "hours": 48,
+   "why": "A 12-week, 26-lesson machine learning course using Scikit-learn, with quizzes and projects.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "ML & Data Science"
+   ],
+   "skills": [
+    "Machine Learning",
+    "Python",
+    "Statistics"
+   ]
+  },
+  {
+   "id": "microsoft--Data-Science-For-Beginners",
+   "repo": "microsoft/Data-Science-For-Beginners",
+   "url": "https://github.com/microsoft/Data-Science-For-Beginners",
+   "category": "specialisations",
+   "level": "Beginner",
+   "hours": 30,
+   "why": "A 10-week introduction covering data, visualisation and the data science lifecycle.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "ML & Data Science"
+   ],
+   "skills": [
+    "Statistics",
+    "Data Visualization",
+    "Python",
+    "Power BI"
+   ]
+  },
+  {
+   "id": "microsoft--generative-ai-for-beginners",
+   "repo": "microsoft/generative-ai-for-beginners",
+   "url": "https://github.com/microsoft/generative-ai-for-beginners",
+   "category": "specialisations",
+   "level": "Beginner",
+   "hours": 30,
+   "why": "Lessons on building applications with generative AI models, with code in Python and TypeScript.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "ML & Data Science"
+   ],
+   "skills": [
+    "Machine Learning",
+    "Python"
+   ]
+  },
+  {
+   "id": "jakevdp--PythonDataScienceHandbook",
+   "repo": "jakevdp/PythonDataScienceHandbook",
+   "url": "https://github.com/jakevdp/PythonDataScienceHandbook",
+   "category": "specialisations",
+   "level": "Beginner",
+   "hours": 30,
+   "why": "The notebooks of the Python Data Science Handbook: NumPy, pandas, Matplotlib and scikit-learn.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "ML & Data Science"
+   ],
+   "skills": [
+    "Python",
+    "Data Visualization",
+    "Statistics"
+   ]
+  },
+  {
+   "id": "ageron--handson-ml3",
+   "repo": "ageron/handson-ml3",
+   "url": "https://github.com/ageron/handson-ml3",
+   "category": "specialisations",
+   "level": "Intermediate",
+   "hours": 60,
+   "why": "Jupyter notebooks for the book Hands-On Machine Learning, 3rd edition, with runnable examples.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "ML & Data Science"
+   ],
+   "skills": [
+    "Machine Learning",
+    "Deep Learning",
+    "Python",
+    "PyTorch"
+   ]
+  },
+  {
+   "id": "d2l-ai--d2l-en",
+   "repo": "d2l-ai/d2l-en",
+   "url": "https://github.com/d2l-ai/d2l-en",
+   "category": "specialisations",
+   "level": "Advanced",
+   "hours": 100,
+   "why": "The source of Dive into Deep Learning, with notebooks that run in several frameworks.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "ML & Data Science"
+   ],
+   "skills": [
+    "Deep Learning",
+    "Machine Learning",
+    "PyTorch",
+    "Mathematics"
+   ]
+  },
+  {
+   "id": "karpathy--nn-zero-to-hero",
+   "repo": "karpathy/nn-zero-to-hero",
+   "url": "https://github.com/karpathy/nn-zero-to-hero",
+   "category": "specialisations",
+   "level": "Intermediate",
+   "hours": 20,
+   "why": "A video course that builds neural networks from scratch in code, step by step.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "ML & Data Science"
+   ],
+   "skills": [
+    "Deep Learning",
+    "PyTorch",
+    "Python"
+   ]
+  },
+  {
+   "id": "OWASP--CheatSheetSeries",
+   "repo": "OWASP/CheatSheetSeries",
+   "url": "https://github.com/OWASP/CheatSheetSeries",
+   "category": "specialisations",
+   "level": "Intermediate",
+   "hours": 15,
+   "why": "Short, actionable guides on secure coding topics such as authentication, injection and cryptographic storage.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "Web Development",
+    "CN"
+   ],
+   "skills": [
+    "Web Security",
+    "Cryptography",
+    "Network Security",
+    "Vulnerability Assessment"
+   ]
+  },
+  {
+   "id": "OWASP--wstg",
+   "repo": "OWASP/wstg",
+   "url": "https://github.com/OWASP/wstg",
+   "category": "specialisations",
+   "level": "Intermediate",
+   "hours": 25,
+   "why": "The OWASP Web Security Testing Guide: a methodical checklist for assessing web applications.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "Web Development",
+    "CN"
+   ],
+   "skills": [
+    "Web Security",
+    "Penetration Testing",
+    "Vulnerability Assessment"
+   ]
+  },
+  {
+   "id": "bregman-arie--devops-exercises",
+   "repo": "bregman-arie/devops-exercises",
+   "url": "https://github.com/bregman-arie/devops-exercises",
+   "category": "specialisations",
+   "level": "Intermediate",
+   "hours": 60,
+   "why": "Hundreds of DevOps, Linux, containers, Kubernetes and cloud questions and exercises for practice.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "DevOps & Cloud",
+    "OS"
+   ],
+   "skills": [
+    "Docker",
+    "Kubernetes",
+    "CI/CD",
+    "Linux",
+    "Terraform",
+    "AWS",
+    "Monitoring"
+   ]
+  },
+  {
+   "id": "kelseyhightower--kubernetes-the-hard-way",
+   "repo": "kelseyhightower/kubernetes-the-hard-way",
+   "url": "https://github.com/kelseyhightower/kubernetes-the-hard-way",
+   "category": "specialisations",
+   "level": "Advanced",
+   "hours": 12,
+   "why": "Set up a Kubernetes cluster by hand to understand each component rather than relying on a managed tool.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "DevOps & Cloud",
+    "CN"
+   ],
+   "skills": [
+    "Kubernetes",
+    "Cloud Computing",
+    "Linux"
+   ]
+  },
+  {
+   "id": "cmu-db--bustub",
+   "repo": "cmu-db/bustub",
+   "url": "https://github.com/cmu-db/bustub",
+   "category": "specialisations",
+   "level": "Advanced",
+   "hours": 60,
+   "why": "The teaching database used in CMU's database systems course; building its components teaches indexing and transactions.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "DBMS",
+    "DSA"
+   ],
+   "skills": [
+    "Indexing",
+    "Transactions",
+    "Query Optimization",
+    "Database Design"
+   ]
+  },
+  {
+   "id": "android--nowinandroid",
+   "repo": "android/nowinandroid",
+   "url": "https://github.com/android/nowinandroid",
+   "category": "specialisations",
+   "level": "Intermediate",
+   "hours": 20,
+   "why": "A fully functional Android app by the Android team that shows current architecture and Kotlin practice.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "OOP",
+    "System Design"
+   ],
+   "skills": [
+    "Kotlin",
+    "Android SDK",
+    "App Architecture"
+   ]
+  },
+  {
+   "id": "flutter--samples",
+   "repo": "flutter/samples",
+   "url": "https://github.com/flutter/samples",
+   "category": "specialisations",
+   "level": "Beginner",
+   "hours": 15,
+   "why": "Sample Flutter apps from the Flutter team, to read and modify.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "OOP"
+   ],
+   "skills": [
+    "Flutter",
+    "App Architecture"
+   ]
+  },
+  {
+   "id": "goldbergyoni--javascript-testing-best-practices",
+   "repo": "goldbergyoni/javascript-testing-best-practices",
+   "url": "https://github.com/goldbergyoni/javascript-testing-best-practices",
+   "category": "specialisations",
+   "level": "Intermediate",
+   "hours": 8,
+   "why": "Practical guidance on writing reliable tests for JavaScript and Node.js applications.",
+   "domains": [
+    "cs"
+   ],
+   "topics": [
+    "Web Development",
+    "DevOps & Cloud"
+   ],
+   "skills": [
+    "Jest",
+    "Test Cases",
+    "API Testing",
+    "Selenium"
+   ]
+  },
+  {
+   "id": "microsoft--IoT-For-Beginners",
+   "repo": "microsoft/IoT-For-Beginners",
+   "url": "https://github.com/microsoft/IoT-For-Beginners",
+   "category": "specialisations",
+   "level": "Beginner",
+   "hours": 30,
+   "why": "A 12-week course on sensors, devices and cloud connectivity for IoT projects.",
+   "domains": [
+    "ece",
+    "cs"
+   ],
+   "topics": [
+    "Microcontrollers",
+    "Communication Protocols",
+    "Analog Electronics"
+   ],
+   "skills": [
+    "Microcontrollers",
+    "MQTT",
+    "ESP32",
+    "Sensor Interfacing",
+    "Sensors"
+   ]
+  },
+  {
+   "id": "AtsushiSakai--PythonRobotics",
+   "repo": "AtsushiSakai/PythonRobotics",
+   "url": "https://github.com/AtsushiSakai/PythonRobotics",
+   "category": "specialisations",
+   "level": "Intermediate",
+   "hours": 40,
+   "why": "Python code and animations for robotics algorithms: localisation, path planning and control.",
+   "domains": [
+    "ece",
+    "mech",
+    "eee"
+   ],
+   "topics": [
+    "Signals & Systems",
+    "Robotics & Mechatronics",
+    "Control Systems"
+   ],
+   "skills": [
+    "Control Systems",
+    "PID Control",
+    "Motor Control",
+    "ROS",
+    "MATLAB"
+   ]
+  },
+  {
+   "id": "FreeRTOS--FreeRTOS",
+   "repo": "FreeRTOS/FreeRTOS",
+   "url": "https://github.com/FreeRTOS/FreeRTOS",
+   "category": "specialisations",
+   "level": "Advanced",
+   "hours": 30,
+   "why": "Source and demos of the FreeRTOS kernel; reading it shows how scheduling and queues work.",
+   "domains": [
+    "ece"
+   ],
+   "topics": [
+    "RTOS",
+    "Embedded C",
+    "Microcontrollers"
+   ],
+   "skills": [
+    "RTOS",
+    "Embedded C",
+    "Device Drivers"
+   ]
+  },
+  {
+   "id": "zephyrproject-rtos--zephyr",
+   "repo": "zephyrproject-rtos/zephyr",
+   "url": "https://github.com/zephyrproject-rtos/zephyr",
+   "category": "specialisations",
+   "level": "Advanced",
+   "hours": 40,
+   "why": "A widely used open-source RTOS for embedded and IoT devices, with samples and documentation.",
+   "domains": [
+    "ece"
+   ],
+   "topics": [
+    "RTOS",
+    "Embedded C",
+    "Communication Protocols"
+   ],
+   "skills": [
+    "RTOS",
+    "Embedded C",
+    "BLE",
+    "Device Drivers"
+   ]
+  },
+  {
+   "id": "YosysHQ--yosys",
+   "repo": "YosysHQ/yosys",
+   "url": "https://github.com/YosysHQ/yosys",
+   "category": "specialisations",
+   "level": "Advanced",
+   "hours": 20,
+   "why": "The open-source Verilog synthesis suite; run a small design through it to see what synthesis does.",
+   "domains": [
+    "ece"
+   ],
+   "topics": [
+    "VLSI & Verilog",
+    "Digital Electronics"
+   ],
+   "skills": [
+    "Verilog",
+    "FPGA",
+    "Digital Electronics"
+   ]
+  },
+  {
+   "id": "The-OpenROAD-Project--OpenROAD",
+   "repo": "The-OpenROAD-Project/OpenROAD",
+   "url": "https://github.com/The-OpenROAD-Project/OpenROAD",
+   "category": "specialisations",
+   "level": "Advanced",
+   "hours": 40,
+   "why": "An open-source physical design toolchain from RTL to layout, with timing analysis, for learning the chip design flow.",
+   "domains": [
+    "ece"
+   ],
+   "topics": [
+    "VLSI & Verilog"
+   ],
+   "skills": [
+    "Static Timing Analysis",
+    "Verilog",
+    "CMOS"
+   ]
+  },
+  {
+   "id": "galaxyproject--training-material",
+   "repo": "galaxyproject/training-material",
+   "url": "https://github.com/galaxyproject/training-material",
+   "category": "specialisations",
+   "level": "Beginner",
+   "hours": 40,
+   "why": "Hands-on tutorials from the Galaxy Training Network covering genomics and bioinformatics analyses.",
+   "domains": [
+    "biotech"
+   ],
+   "topics": [
+    "Genomics",
+    "Bioinformatics Algorithms",
+    "Python for Biology"
+   ],
+   "skills": [
+    "Genomics",
+    "Bioinformatics",
+    "Python"
+   ]
+  },
+  {
+   "id": "biopython--biopython",
+   "repo": "biopython/biopython",
+   "url": "https://github.com/biopython/biopython",
+   "category": "specialisations",
+   "level": "Intermediate",
+   "hours": 20,
+   "why": "The Biopython library: read its tutorial and examples for sequence, structure and BLAST handling in Python.",
+   "domains": [
+    "biotech"
+   ],
+   "topics": [
+    "Python for Biology",
+    "Bioinformatics Algorithms"
+   ],
+   "skills": [
+    "Python",
+    "Genomics"
+   ]
+  }
+ ]
+}

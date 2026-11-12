@@ -77,6 +77,16 @@ def datasets() -> None:
     unknown = sorted({t for t in question_bank.topic_map().values() if t and t not in topics})
     check(not unknown, f"bank topics map to syllabus topics{unknown[:3] or ''}")
 
+    from piq import study_library
+
+    gaps = [
+        f"{d.id}/{t}"
+        for d in syllabus.domains()
+        for t in d.topics
+        if not study_library.books_for(d.id, t)
+    ]
+    check(not gaps, f"every domain topic has a study book{gaps[:3] or ''}")
+
 
 def pages() -> None:
     print("Pages (headless, mock mode)")

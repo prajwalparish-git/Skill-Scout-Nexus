@@ -5,7 +5,7 @@ import type { Config } from "tailwindcss";
 const v = (name: string) => `rgb(var(--${name}) / <alpha-value>)`;
 
 const config: Config = {
-  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
+  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./lib/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
@@ -17,12 +17,19 @@ const config: Config = {
         hair: v("hair"),
         primary: v("primary"),
         "primary-ink": v("primary-ink"),
+        focus: v("focus"),
         ok: v("ok"),
         warn: v("warn"),
         bad: v("bad"),
         info: v("info"),
       },
       borderRadius: { card: "0.75rem" },
+      // Faces come from next/font/local in app/layout.tsx.
+      fontFamily: {
+        sans: ["var(--font-body)", "ui-sans-serif", "system-ui", "Segoe UI", "sans-serif"],
+        display: ["var(--font-display)", "ui-sans-serif", "system-ui", "sans-serif"],
+        mono: ["var(--font-mono)", "ui-monospace", "SFMono-Regular", "Consolas", "monospace"],
+      },
     },
   },
   plugins: [],

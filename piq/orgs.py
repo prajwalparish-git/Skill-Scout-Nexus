@@ -468,13 +468,12 @@ def quick_add(
     main_domain: str,
     subdomain: str,
     target_role: str = "",
-    phone: str = "",
     batch_year: str = "",
 ) -> prov.ProvisionResult:
     """One student through the same checks and the same account creation as the CSV."""
     org = organization(org_id)
     row = prov.check_database(
-        [prov.build_row(1, name, email, main_domain, subdomain, target_role, phone, batch_year)]
+        [prov.build_row(1, name, email, main_domain, subdomain, target_role, "", batch_year)]
     )[0]
     if not row.ready:
         raise ServiceError(f"{row.status}: {row.note}.")

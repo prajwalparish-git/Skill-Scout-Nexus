@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="t">
+<title id="t">Skill Scout Nexus</title>
+<rect width="64" height="64" rx="15" fill="#278C93"/>
+<g fill="none" stroke="#FFFFFF" stroke-width="7" stroke-linecap="round">
+<path d="M16 19V45"/>
+<circle cx="37" cy="30" r="11" stroke-opacity="0.4"/>
+<path d="M37.00 19.00A11 11 0 1 1 26.00 30.00"/>
+<path d="M39 41H51"/>
+</g>
+</svg>

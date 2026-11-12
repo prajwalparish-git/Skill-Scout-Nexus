@@ -1,17 +1,37 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Mic, Send, ShieldCheck } from "lucide-react";
-import { get, postStream, type Track, type TurnResult } from "@/lib/api";
+import { Award, Check, Loader2, Mic, Send, ShieldCheck, TrendingDown } from "lucide-react";
+import { get, postStream, type Evaluation, type Track, type TurnResult } from "@/lib/api";
 import { useCandidate } from "@/lib/candidate";
-import { Badge, ErrorNote, NeedsCandidate, PageHeader } from "@/components/ui";
+import { Badge, ErrorNote, Loading, NeedsCandidate, PageHeader } from "@/components/ui";
 
 const CRITERIA = ["relevance", "depth", "structure", "clarity"] as const;
 const MAX_ANSWER = 3000;
+const TOTAL = 5;
+
+/** The four rubric scores (out of 5) as labelled bars; the numbers carry the meaning. */
+function Rubric({ evaluation }: { evaluation: Evaluation }) {
+  return (
+    <dl className="grid gap-x-6 gap-y-2.5 sm:grid-cols-2">
+      {CRITERIA.map((c) => (
+        <div key={c}>
+          <div className="flex justify-between text-xs">
+            <dt className="capitalize text-muted">{c}</dt>
+            <dd className="font-mono font-semibold tabular-nums">{evaluation[c]}/5</dd>
+          </div>
+          <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-hair" aria-hidden>
+            <div className="h-full rounded-full bg-ink" style={{ width: `${(evaluation[c] / 5) * 100}%` }} />
+          </div>
+        </div>
+      ))}
+    </dl>
+  );
+}
 
 export default function InterviewPage() {
   const { candidate } = useCandidate();
-  const [tracks, setTracks] = useState<Track[]>([]);
+  const [tracks, setTracks] = useState<Track[] | null>(null);
   const [track, setTrack] = useState("");
   const [result, setResult] = useState<TurnResult | null>(null);
   const [steps, setSteps] = useState<string[]>([]);
@@ -22,7 +42,7 @@ export default function InterviewPage() {
 
   useEffect(() => {
     setResult(null);
-    setTracks([]);
+    setTracks(null);
     setError(null);
     if (!candidate) return;
     let current = true; // a reply for the previous candidate must not land on this one
@@ -65,17 +85,17 @@ export default function InterviewPage() {
     }
   }
 
-  const groups = tracks.reduce<Record<string, Track[]>>((acc, t) => {
+  const groups = (tracks ?? []).reduce<Record<string, Track[]>>((acc, t) => {
     (acc[t.group] ??= []).push(t);
     return acc;
   }, {});
   const session = result?.session;
-  const focus = tracks.find((t) => t.name === track)?.focus;
+  const asked = session ? Math.min(session.history.length + (session.current ? 1 : 0), TOTAL) : 0;
 
   if (!candidate)
     return (
       <>
-        <PageHeader title="Mock interview" lead="Rehearse an interview in your field." />
+        <PageHeader eyebrow="Mock interview" title="Rehearse an interview in your field" lead="Five questions, each scored on a rubric." />
         <NeedsCandidate />
       </>
     );
@@ -83,141 +103,188 @@ export default function InterviewPage() {
   return (
     <>
       <PageHeader
-        title="Mock interview"
-        lead="Five questions on a track from your field. Each question is checked by a critic before you see it; each answer is scored on relevance, depth, structure and clarity."
+        eyebrow="Mock interview"
+        title={session ? session.interview_type : "Rehearse an interview in your field"}
+        lead="Five questions on a track from your field. A critic checks every question before you see it; each answer is scored on relevance, depth, structure and clarity."
       />
+      <ErrorNote message={error} />
 
-      {!session && (
+      {!session && !tracks && !error && <Loading label="Loading interview tracks…" />}
+
+      {!session && tracks && (
         <section className="card" aria-label="Choose a track">
           {Object.entries(groups).map(([group, list]) => (
-            <fieldset key={group} className="mb-4">
-              <legend className="mb-2 text-sm font-semibold">{group}</legend>
-              <div className="flex flex-wrap gap-2">
-                {list.map((t) => (
-                  <button
-                    key={t.name}
-                    type="button"
-                    aria-pressed={track === t.name}
-                    onClick={() => setTrack(t.name)}
-                    className={`rounded-full border px-3 py-1.5 text-sm ${
-                      track === t.name ? "border-primary bg-primary text-white" : "border-line hover:bg-surface"
-                    }`}
-                  >
-                    {t.name}
-                  </button>
-                ))}
+            <fieldset key={group} className="mb-6 last:mb-0">
+              <legend className="eyebrow mb-3">{group}</legend>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {list.map((t) => {
+                  const on = track === t.name;
+                  return (
+                    <button
+                      key={t.name}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => setTrack(t.name)}
+                      className={`flex items-start gap-3 rounded-2xl border p-4 text-left transition-colors ${
+                        on ? "border-ink bg-surface" : "border-hair hover:border-line hover:bg-surface/50"
+                      }`}
+                    >
+                      <span
+                        aria-hidden
+                        className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border ${on ? "border-ink bg-ink text-bg" : "border-line"}`}
+                      >
+                        {on && <Check size={12} />}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-sm font-semibold">{t.name}</span>
+                        <span className="mt-0.5 block text-xs text-muted">{t.focus.charAt(0).toUpperCase() + t.focus.slice(1)}</span>
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </fieldset>
           ))}
-          {focus && <p className="mb-4 text-sm text-muted">Covers {focus}.</p>}
-          <button type="button" className="btn-primary" disabled={!track || busy} onClick={() => turn({ track })}>
-            {busy ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <Mic size={16} aria-hidden />}
-            Start interview
-          </button>
+          <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-hair pt-5">
+            <button type="button" className="btn-primary" disabled={!track || busy} onClick={() => turn({ track })}>
+              {busy ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <Mic size={16} aria-hidden />}
+              Start mock interview{track ? `: ${track}` : ""}
+            </button>
+            <p className="text-xs text-muted">Answer in writing here; spoken answers are in the main app.</p>
+          </div>
         </section>
       )}
 
       {session && (
         <section aria-label="Interview" className="space-y-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-lg font-semibold">{session.interview_type}</h2>
-            <Badge state="info">
-              Question {Math.min(session.history.length + (session.current ? 1 : 0), 5)} of 5
-            </Badge>
-            {result?.average != null && <Badge state="ok">Average {result.average}/5</Badge>}
+          <div className="card flex flex-wrap items-center justify-between gap-4 py-4">
+            <ol className="flex items-center gap-1.5" aria-label={`Question ${asked} of ${TOTAL}`}>
+              {Array.from({ length: TOTAL }, (_, i) => {
+                const done = i < session.history.length;
+                const now = !session.done && i === session.history.length;
+                return (
+                  <li
+                    key={i}
+                    aria-hidden
+                    className={`h-2 w-10 rounded-full sm:w-14 ${done ? "bg-ink" : now ? "bg-ink/40" : "bg-hair"}`}
+                  />
+                );
+              })}
+            </ol>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-mono text-xs text-muted">
+                Question {asked} of {TOTAL}
+              </span>
+              {result?.average != null && <Badge state="ok">Average {result.average}/5</Badge>}
+            </div>
           </div>
 
           {session.history.map((h, i) => (
-            <article key={i} className="card space-y-3">
-              <p className="font-medium">
-                <span className="mr-2 text-muted">Q{i + 1}.</span>
+            <article key={i} className="card space-y-4">
+              <p className="font-medium leading-relaxed">
+                <span className="mr-2 font-mono text-xs text-muted">Q{i + 1}</span>
                 {h.question}
               </p>
-              <p className="whitespace-pre-wrap rounded-lg bg-surface px-3 py-2 text-sm">{h.answer}</p>
-              <div className="flex flex-wrap gap-2">
-                {CRITERIA.map((c) => (
-                  <span key={c} className="chip border-line text-ink">
-                    {c} {h.evaluation[c]}/5
-                  </span>
-                ))}
+              <div className="rounded-2xl bg-surface px-4 py-3">
+                <p className="eyebrow mb-1">Your answer</p>
+                <p className="whitespace-pre-wrap text-sm">{h.answer}</p>
               </div>
+              <Rubric evaluation={h.evaluation} />
               {h.evaluation.improvements.length > 0 && (
-                <ul className="list-disc pl-5 text-sm text-muted">
+                <ul className="space-y-1 border-t border-hair pt-3 text-sm text-muted">
                   {h.evaluation.improvements.map((x) => (
-                    <li key={x}>{x}</li>
+                    <li key={x} className="flex gap-2">
+                      <TrendingDown size={14} className="mt-1 shrink-0 rotate-180" aria-hidden /> {x}
+                    </li>
                   ))}
                 </ul>
               )}
-              <details className="text-sm">
-                <summary className="cursor-pointer text-primary-ink">Model answer</summary>
-                <p className="mt-2 text-muted">{h.evaluation.model_answer}</p>
+              <details className="group text-sm">
+                <summary className="cursor-pointer font-medium text-primary-ink">Compare with a model answer</summary>
+                <p className="mt-2 rounded-2xl border border-hair px-4 py-3 text-muted">{h.evaluation.model_answer}</p>
               </details>
             </article>
           ))}
 
           {session.current && !session.done && (
-            <article className="card border-primary/50">
-              <p className="font-medium">
-                <span className="mr-2 text-muted">Q{session.history.length + 1}.</span>
-                {session.current.question}
+            <article className="card border-ink/30 shadow-[0_12px_40px_-24px_rgb(var(--ink)/0.4)]">
+              <p className="eyebrow">
+                Question {session.history.length + 1}
+                {session.current.is_followup && " · a follow-up on your last answer"}
               </p>
-              {session.current.is_followup && <p className="mt-1 text-xs text-muted">A follow-up on your last answer.</p>}
-              <label className="label mt-4" htmlFor="answer">Your answer</label>
+              <p className="mt-2 font-display text-xl font-medium leading-snug tracking-tight">{session.current.question}</p>
+              <label className="label mt-5" htmlFor="answer">
+                Your answer
+              </label>
               <textarea
                 id="answer"
-                className="input min-h-32"
+                className="input min-h-40"
                 maxLength={MAX_ANSWER}
                 value={answer}
                 onChange={(e) => setAnswer(e.target.value)}
+                aria-describedby="answer-count"
                 placeholder="Answer as you would aloud: what, how, and a result."
               />
-              <div className="mt-3 flex items-center gap-3">
+              <div className="mt-3 flex flex-wrap items-center gap-3">
                 <button type="button" className="btn-primary" disabled={busy || !answer.trim()} onClick={() => turn({ session, answer })}>
                   {busy ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <Send size={16} aria-hidden />}
-                  Send answer
+                  Submit answer to question {session.history.length + 1}
                 </button>
-                <span className="text-xs text-muted tabular-nums">{answer.length}/{MAX_ANSWER}</span>
+                <span id="answer-count" className="font-mono text-xs text-muted tabular-nums">
+                  {answer.length} of {MAX_ANSWER} characters
+                </span>
               </div>
             </article>
           )}
 
           {session.done && result?.summary && (
-            <article className="card">
-              <h3 className="font-semibold">Session summary</h3>
-              <p className="mt-1 text-sm text-muted">
-                Strongest: <span className="text-ink">{result.summary.strongest}</span> · Weakest:{" "}
-                <span className="text-ink">{result.summary.weakest}</span>
-              </p>
-              <ul className="mt-3 space-y-1 text-sm">
+            <article className="card surface-light">
+              <p className="eyebrow">Session summary</p>
+              <h2 className="h2 mt-1">Well done, that is all five questions</h2>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <p className="flex items-center gap-3 rounded-2xl border border-hair bg-bg px-4 py-3 text-sm">
+                  <Award size={18} aria-hidden /> Strongest: <span className="font-semibold capitalize">{result.summary.strongest}</span>
+                </p>
+                <p className="flex items-center gap-3 rounded-2xl border border-hair bg-bg px-4 py-3 text-sm">
+                  <TrendingDown size={18} aria-hidden /> Weakest: <span className="font-semibold capitalize">{result.summary.weakest}</span>
+                </p>
+              </div>
+              <ul className="mt-4 space-y-2 text-sm">
                 {Object.entries(result.summary.tips).map(([c, tip]) => (
                   <li key={c}>
-                    <span className="font-medium capitalize">{c}:</span> {tip}
+                    <span className="font-semibold capitalize">{c}:</span> {tip}
                   </li>
                 ))}
               </ul>
-              <button type="button" className="btn-ghost mt-4" onClick={() => setResult(null)}>
-                New interview
+              <button type="button" className="btn-primary mt-5" onClick={() => setResult(null)}>
+                Start a new mock interview
               </button>
             </article>
           )}
         </section>
       )}
 
-      {(busy || steps.length > 0) && (
-        <ol aria-live="polite" className="mt-4 space-y-1 text-sm text-muted">
-          {steps.map((s, i) => (
-            <li key={i} className="flex items-center gap-2">
-              <ShieldCheck size={14} aria-hidden /> {s}
-            </li>
-          ))}
-          {busy && (
-            <li className="flex items-center gap-2">
-              <Loader2 size={14} className="animate-spin" aria-hidden /> Working…
-            </li>
-          )}
-        </ol>
-      )}
-      <ErrorNote message={error} />
+      {/* Always mounted, so screen readers announce what is added: critic steps, then the next question. */}
+      <div role="status" aria-live="polite" className="mt-4 text-sm text-muted">
+        {(busy || steps.length > 0) && (
+          <ol className="space-y-1.5 rounded-2xl border border-hair bg-bg px-4 py-3">
+            {steps.map((s, i) => (
+              <li key={i} className="flex items-center gap-2">
+                <ShieldCheck size={14} className="text-ok" aria-hidden /> {s}
+              </li>
+            ))}
+            {busy && (
+              <li className="flex items-center gap-2">
+                <Loader2 size={14} className="animate-spin" aria-hidden /> Working…
+              </li>
+            )}
+          </ol>
+        )}
+        {!busy && session?.current && !session.done && (
+          <span className="sr-only">Question {Math.min(session.history.length + 1, TOTAL)} of {TOTAL} is ready.</span>
+        )}
+        {!busy && session?.done && <span className="sr-only">Interview finished. Your summary is below.</span>}
+      </div>
       <div ref={bottom} />
     </>
   );

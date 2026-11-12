@@ -5,7 +5,8 @@ import { useSearchParams } from "next/navigation";
 import { Download, Loader2, Plus, Sparkles, Trash2 } from "lucide-react";
 import { API, ApiError, get, post, qs, type Ats, type RoleFit } from "@/lib/api";
 import { useCatalog } from "@/lib/catalog";
-import { Badge, ErrorNote, PageHeader } from "@/components/ui";
+import { Badge, ErrorNote, PageHeader, Ring } from "@/components/ui";
+import { CONSENT_TEXT } from "@/lib/site";
 
 type Edu = {
   degree: string;
@@ -35,6 +36,25 @@ const FIT: Record<string, { state: "ok" | "info" | "warn"; text: string }> = {
   "no match": { state: "warn", text: "None of your degrees fits this role" },
 };
 
+const STEPS = [
+  ["contact", "Contact"],
+  ["education", "Education"],
+  ["experience", "Experience"],
+  ["skills", "Skills"],
+  ["projects", "Projects"],
+] as const;
+
+function StepTitle({ n, children, className = "" }: { n: number; children: React.ReactNode; className?: string }) {
+  return (
+    <h2 className={`flex items-center gap-3 font-display text-lg font-semibold tracking-tight ${className}`}>
+      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-ink font-mono text-xs text-bg" aria-hidden>
+        {n}
+      </span>
+      {children}
+    </h2>
+  );
+}
+
 function Labeled(props: { label: string; className?: string; children: (id: string) => React.ReactNode }) {
   const id = useId();
   return (
@@ -47,7 +67,15 @@ function Labeled(props: { label: string; className?: string; children: (id: stri
   );
 }
 
-function Field(props: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; type?: string }) {
+function Field(props: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  type?: string;
+  required?: boolean;
+  autoComplete?: string;
+}) {
   return (
     <Labeled label={props.label}>
       {(id) => (
@@ -57,6 +85,9 @@ function Field(props: { label: string; value: string; onChange: (v: string) => v
           type={props.type ?? "text"}
           value={props.value}
           placeholder={props.placeholder}
+          required={props.required}
+          aria-required={props.required || undefined}
+          autoComplete={props.autoComplete}
           onChange={(e) => props.onChange(e.target.value)}
         />
       )}
@@ -80,9 +111,11 @@ function Builder() {
   const [fits, setFits] = useState<RoleFit[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfDone, setPdfDone] = useState(false);
   const [raw, setRaw] = useState("");
   const [polished, setPolished] = useState("");
   const [polishBusy, setPolishBusy] = useState(false);
+  const [polishConsent, setPolishConsent] = useState(false);
 
   const domain = catalog?.domains.find((d) => d.id === domainId) ?? catalog?.domains[0];
   const roleInfo = domain?.roles.find((r) => r.name === role) ?? domain?.roles[0];
@@ -138,6 +171,7 @@ function Builder() {
 
   async function downloadPdf() {
     setPdfBusy(true);
+    setPdfDone(false);
     setError(null);
     try {
       const res = await fetch(`${API}/api/resume/build-pdf`, {
@@ -152,6 +186,7 @@ function Builder() {
       a.download = /filename="(.+)"/.exec(res.headers.get("content-disposition") ?? "")?.[1] ?? "resume.pdf";
       a.click();
       URL.revokeObjectURL(url);
+      setPdfDone(true);
     } catch (e) {
       setError(e instanceof TypeError ? `Cannot reach the API at ${API}.` : (e as Error).message);
     } finally {
@@ -179,6 +214,7 @@ function Builder() {
   return (
     <>
       <PageHeader
+        eyebrow="ATS resume builder"
         title="Resume builder"
         lead="Your own details as a single-column, ATS-friendly resume. The score updates as you type, from a local audit; only the bullet polish uses AI, and it never invents numbers."
       />
@@ -186,6 +222,17 @@ function Builder() {
 
       <div className="grid gap-6 lg:grid-cols-[1fr_18rem]">
         <div className="min-w-0 space-y-6">
+          <nav aria-label="Resume sections" className="sticky top-[7.5rem] z-10 -mx-1 overflow-x-auto rounded-full border border-hair bg-bg/85 p-1 backdrop-blur-xl lg:top-4">
+            <ol className="flex min-w-max gap-1">
+              {STEPS.map(([id, label], i) => (
+                <li key={id}>
+                  <a href={`#${id}`} className="flex items-center gap-2 rounded-full px-3 py-1.5 text-sm text-muted hover:bg-surface hover:text-ink">
+                    <span className="font-mono text-[11px]">{i + 1}</span> {label}
+                  </a>
+                </li>
+              ))}
+            </ol>
+          </nav>
           <section className="card grid gap-4 sm:grid-cols-2" aria-label="Target role">
             <Labeled label="Career domain">{(id) => (<select id={id} className="input" value={domain?.id ?? ""} onChange={(e) => setDomainId(e.target.value)}>
                 {catalog?.domains.map((d) => (
@@ -204,29 +251,33 @@ function Builder() {
             )}
           </section>
 
-          <section className="card" aria-label="Contact details">
-            <h2 className="mb-4 font-semibold">1. Contact details</h2>
+          <section id="contact" className="card scroll-mt-40" aria-label="Contact details">
+            <StepTitle n={1} className="mb-1">Contact details</StepTitle>
+            <p className="mb-4 text-sm text-muted">
+              Only your name and email are needed. Everything here stays on this page and is printed on your PDF; the
+              server builds the file and keeps nothing.
+            </p>
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Full name *" value={contact.full_name} onChange={(v) => setContact({ ...contact, full_name: v })} />
-              <Field label="Email *" type="email" value={contact.email} onChange={(v) => setContact({ ...contact, email: v })} placeholder="you@example.com" />
-              <Field label="Phone" value={contact.phone} onChange={(v) => setContact({ ...contact, phone: v })} placeholder="+91 ..." />
-              <Field label="City" value={contact.location} onChange={(v) => setContact({ ...contact, location: v })} />
-              <Field label="LinkedIn or portfolio" value={contact.linkedin_url} onChange={(v) => setContact({ ...contact, linkedin_url: v })} />
-              <Field label="GitHub" value={contact.github_url} onChange={(v) => setContact({ ...contact, github_url: v })} />
+              <Field label="Full name *" required autoComplete="name" value={contact.full_name} onChange={(v) => setContact({ ...contact, full_name: v })} />
+              <Field label="Email *" type="email" required autoComplete="email" value={contact.email} onChange={(v) => setContact({ ...contact, email: v })} placeholder="you@example.com" />
+              <Field label="Phone (optional)" autoComplete="tel" value={contact.phone} onChange={(v) => setContact({ ...contact, phone: v })} placeholder="+91 ..." />
+              <Field label="City (optional)" autoComplete="address-level2" value={contact.location} onChange={(v) => setContact({ ...contact, location: v })} />
+              <Field label="LinkedIn or portfolio (optional)" value={contact.linkedin_url} onChange={(v) => setContact({ ...contact, linkedin_url: v })} />
+              <Field label="GitHub (optional)" value={contact.github_url} onChange={(v) => setContact({ ...contact, github_url: v })} />
             </div>
           </section>
 
-          <section className="card" aria-label="Education">
+          <section id="education" className="card scroll-mt-40" aria-label="Education">
             <div className="mb-4 flex items-center justify-between gap-2">
-              <h2 className="font-semibold">2. Education</h2>
+              <StepTitle n={2}>Education</StepTitle>
               <button type="button" className="btn-ghost" disabled={education.length >= 6} onClick={() => setEducation((l) => [...l, { ...NEW_EDU }])}>
-                <Plus size={16} aria-hidden /> Add
+                <Plus size={16} aria-hidden /> Add qualification
               </button>
             </div>
             <p className="mb-4 text-sm text-muted">Highest first. Mark a degree in progress as Pursuing with its expected year.</p>
             <div className="space-y-4">
               {education.map((e, i) => (
-                <div key={i} className="grid gap-3 rounded-lg border border-hair p-3 sm:grid-cols-6">
+                <div key={i} className="grid gap-3 rounded-2xl border border-hair bg-surface/40 p-4 sm:grid-cols-6">
                   <Labeled className="sm:col-span-2" label="Qualification">{(id) => (<select id={id} className="input" value={e.degree} onChange={(x) => setEdu(i, { degree: x.target.value })}>
                       <option value="">Choose a qualification</option>
                       {catalog?.degrees.map((d) => (
@@ -249,7 +300,7 @@ function Builder() {
                   <Field label="CGPA or %" value={e.score} onChange={(v) => setEdu(i, { score: v })} />
                   {education.length > 1 && (
                     <button type="button" className="btn-ghost self-end sm:col-span-6 sm:justify-self-end" onClick={() => setEducation((l) => l.filter((_, k) => k !== i))}>
-                      <Trash2 size={16} aria-hidden /> Remove
+                      <Trash2 size={16} aria-hidden /> Remove qualification {i + 1}
                     </button>
                   )}
                 </div>
@@ -281,9 +332,9 @@ function Builder() {
             )}
           </section>
 
-          <section className="card" aria-label="Work experience">
+          <section id="experience" className="card scroll-mt-40" aria-label="Work experience">
             <div className="mb-4 flex items-center justify-between gap-2">
-              <h2 className="font-semibold">3. Work experience</h2>
+              <StepTitle n={3}>Work experience</StepTitle>
               <button type="button" className="btn-ghost" disabled={jobs.length >= 8} onClick={() => setJobs((l) => [...l, { ...NEW_JOB }])}>
                 <Plus size={16} aria-hidden /> Add job or internship
               </button>
@@ -291,7 +342,7 @@ function Builder() {
             {jobs.length === 0 && <p className="text-sm text-muted">None listed. Years of experience are computed from the dates you add.</p>}
             <div className="space-y-4">
               {jobs.map((j, i) => (
-                <div key={i} className="grid gap-3 rounded-lg border border-hair p-3 sm:grid-cols-6">
+                <div key={i} className="grid gap-3 rounded-2xl border border-hair bg-surface/40 p-4 sm:grid-cols-6">
                   <div className="sm:col-span-2"><Field label="Job title" value={j.title} onChange={(v) => setJob(i, { title: v })} /></div>
                   <div className="sm:col-span-2"><Field label="Company" value={j.company} onChange={(v) => setJob(i, { company: v })} /></div>
                   <Labeled className="sm:col-span-2" label="Type">{(id) => (<select id={id} className="input" value={j.type} onChange={(x) => setJob(i, { type: x.target.value })}>
@@ -306,15 +357,15 @@ function Builder() {
                   </label>
                   <Labeled className="sm:col-span-6" label="What you did and what it achieved (one bullet per line)">{(id) => (<textarea id={id} className="input min-h-24" value={j.highlights} onChange={(x) => setJob(i, { highlights: x.target.value })} />)}</Labeled>
                   <button type="button" className="btn-ghost sm:col-span-6 sm:justify-self-end" onClick={() => setJobs((l) => l.filter((_, k) => k !== i))}>
-                    <Trash2 size={16} aria-hidden /> Remove
+                    <Trash2 size={16} aria-hidden /> Remove job {i + 1}
                   </button>
                 </div>
               ))}
             </div>
           </section>
 
-          <section className="card" aria-label="Skills">
-            <h2 className="mb-2 font-semibold">4. Skills</h2>
+          <section id="skills" className="card scroll-mt-40" aria-label="Skills">
+            <StepTitle n={4} className="mb-2">Skills</StepTitle>
             <p className="mb-3 text-sm text-muted">Keywords recruiters scan for in this role. Pick only those you can show.</p>
             <div className="flex flex-wrap gap-2">
               {roleInfo?.ats_keywords.map((k) => {
@@ -337,8 +388,8 @@ function Builder() {
             </div>
           </section>
 
-          <section className="card space-y-4" aria-label="Projects and certifications">
-            <h2 className="font-semibold">5. Project and certifications</h2>
+          <section id="projects" className="card scroll-mt-40 space-y-4" aria-label="Projects and certifications">
+            <StepTitle n={5}>Project and certifications</StepTitle>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Project title" value={project.title} onChange={(v) => setProject({ ...project, title: v })} />
               <Field label="Tools and technologies" value={project.tech} onChange={(v) => setProject({ ...project, tech: v })} />
@@ -355,11 +406,33 @@ function Builder() {
               Rewrites one line as “Accomplished X, measured by Y, by doing Z”. It keeps only your numbers; where a
               measure is missing it writes [metric] for you to fill in.
             </p>
-            <textarea className="input mt-3 min-h-16" maxLength={400} value={raw} onChange={(e) => setRaw(e.target.value)} placeholder="made the app load faster by caching" />
+            <label htmlFor="polish-bullet" className="label mt-3">
+              Your bullet to polish
+            </label>
+            <textarea id="polish-bullet" className="input min-h-16" maxLength={400} value={raw} onChange={(e) => setRaw(e.target.value)} placeholder="made the app load faster by caching" />
+            <label className="mt-3 flex cursor-pointer items-start gap-2.5 text-sm">
+              <input
+                type="checkbox"
+                checked={polishConsent}
+                onChange={(e) => setPolishConsent(e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0 accent-[rgb(var(--primary))]"
+              />
+              <span>
+                {CONSENT_TEXT}{" "}
+                <a href="/privacy" className="font-medium text-primary-ink underline underline-offset-2">
+                  Privacy Policy
+                </a>
+              </span>
+            </label>
             <div className="mt-3 flex flex-wrap gap-2">
-              <button type="button" className="btn-primary" disabled={polishBusy || raw.trim().length < 5} onClick={polish}>
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={polishBusy || raw.trim().length < 5 || !polishConsent}
+                onClick={polish}
+              >
                 {polishBusy ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <Sparkles size={16} aria-hidden />}
-                Polish
+                Polish this bullet with AI
               </button>
               {polished && (
                 <button
@@ -371,19 +444,22 @@ function Builder() {
                 </button>
               )}
             </div>
-            {polished && <p className="mt-3 rounded-lg bg-surface px-3 py-2 text-sm">{polished}</p>}
+            <div aria-live="polite">{polished && <p className="mt-3 rounded-lg bg-surface px-3 py-2 text-sm">{polished}</p>}</div>
           </section>
         </div>
 
-        <aside className="lg:sticky lg:top-8 lg:self-start">
-          <section className="card" aria-label="ATS check" aria-live="polite">
-            <p className="text-xs text-muted">ATS match</p>
-            <p className="mt-1 text-4xl font-semibold tabular-nums">
-              {score}
-              <span className="text-base text-muted">/100</span>
+        <aside className="lg:sticky lg:top-6 lg:self-start">
+          <section className="card" aria-label="ATS check">
+            {/* One short sentence is announced when the score settles, not the whole card on every keystroke. */}
+            <p role="status" aria-live="polite" className="sr-only">
+              ATS match {score} out of 100: {score >= 80 ? "strong" : score >= 60 ? "fair" : "weak"} match.
             </p>
-            <div className="mt-2 h-2 rounded-full bg-surface" role="presentation">
-              <div className="h-2 rounded-full bg-primary transition-all" style={{ width: `${score}%` }} />
+            <div className="flex items-center gap-4">
+              <Ring value={score} label="ATS match" suffix=" out of 100" size={84} />
+              <div>
+                <h2 className="eyebrow">ATS match</h2>
+                <p className="mt-1 text-sm text-muted">Updates as you type, from a local audit.</p>
+              </div>
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
               <Badge state={scoreState}>{score >= 80 ? "Strong match" : score >= 60 ? "Fair match" : "Weak match"}</Badge>
@@ -407,11 +483,24 @@ function Builder() {
             <ul className="mt-4 space-y-2 text-sm text-muted">
               {ats?.suggestions.map((s) => (<li key={s}>{s}</li>))}
             </ul>
-            <button type="button" className="btn-primary mt-4 w-full" disabled={pdfBusy || !contact.full_name} onClick={downloadPdf}>
+            <button
+              type="button"
+              className="btn-primary mt-4 w-full"
+              disabled={pdfBusy || !contact.full_name}
+              aria-describedby={!contact.full_name ? "pdf-hint" : undefined}
+              onClick={downloadPdf}
+            >
               {pdfBusy ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <Download size={16} aria-hidden />}
-              Download PDF
+              Download resume as PDF
             </button>
-            {!contact.full_name && <p className="mt-2 text-xs text-muted">Add your name to download.</p>}
+            {!contact.full_name && (
+              <p id="pdf-hint" className="mt-2 text-xs text-muted">
+                Add your name to download.
+              </p>
+            )}
+            <p role="status" aria-live="polite" className="sr-only">
+              {pdfBusy ? "Building your PDF." : pdfDone ? "Your resume PDF was downloaded." : ""}
+            </p>
           </section>
           <ErrorNote message={error} />
         </aside>

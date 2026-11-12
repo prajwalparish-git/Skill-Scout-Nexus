@@ -56,6 +56,13 @@ SYNC_MAX_ATTEMPTS = 3  # a record the cloud rejects this many times is set aside
 SYNC_KEEP_DAYS = 30  # synced outbox rows are pruned after this many days
 DEMO_COHORT_PREFIX = "cohort"  # demo cohort usernames (scripts/seed_cohort.py): never synced
 # --- organizations: the admin portal and bulk provisioning (piq/orgs.py, core/org_provisioning.py)
+# Form consent: ticked by the student, never pre-ticked (sign-up, own resume upload). The web
+# front end shows the same sentence (frontend/lib/site.ts CONSENT_TEXT).
+CONSENT_TEXT = (
+    "I understand this is a college mini-project and consent to processing my input for AI "
+    "skill evaluation as outlined in the Privacy Policy."
+)
+
 ORG_TYPES = ("University", "Autonomous Institute", "Law/Commerce College", "Corporate L&D")
 ORG_CODE_RE = re.compile(r"^[A-Z0-9][A-Z0-9-]{2,29}$")  # DBIT-BLR-2027: upper-case, 3-30 characters
 DOMAIN_RE = re.compile(r"^(?=.{4,120}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$")

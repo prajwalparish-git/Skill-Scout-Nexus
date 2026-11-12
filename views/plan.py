@@ -6,8 +6,8 @@ from functools import partial
 import streamlit as st
 
 from core import calendar_export
-from piq import charts, formatter, services
-from piq.config import STUDY_TIME, TIMEZONE
+from piq import charts, formatter, services, study_library
+from piq.config import STUDY_TIME, TIMEZONE, WEAK_THRESHOLD
 from piq.ui import empty_state, page_header, require_profile, run_agent, show_last_run
 
 
@@ -26,6 +26,68 @@ def _days_done(sid: str, week_no: int, saved: set[int]) -> set[int]:
     if set(picked) != saved:
         return services.set_days_done(sid, week_no, picked)
     return saved
+
+
+PAGE = 8  # books and repositories shown before "show all"
+
+
+def _library(role: str, weakness: dict[str, float]) -> None:
+    """Books for the role's track (weak topics first) and curated GitHub repositories for the
+    role: the same library and ranking as the web plan page (piq/study_library.py)."""
+    weak = sorted(t for t, w in weakness.items() if w > WEAK_THRESHOLD)
+    with st.container(border=True):
+        st.subheader("Recommended Books & Deep Reading", anchor=False)
+        st.caption(
+            "Textbooks and handbooks for your track, with a free or official link wherever one "
+            "exists. "
+            + (f"Books for your weak topics ({', '.join(weak)}) come first." if weak else "")
+        )
+        left, right = st.columns([3, 2])
+        query = left.text_input(
+            "Search books", placeholder="Title, author or topic", key="lib_book_q"
+        )
+        level = right.segmented_control(
+            "Difficulty", list(study_library.LEVELS), key="lib_book_level"
+        )
+        books = study_library.books_for_student(role, weak, query, level)
+        if not books:
+            empty_state("No books match. Clear the search or choose another level.")
+        show_all = len(books) > PAGE and st.toggle(
+            f"Show all {len(books)} books", key="lib_book_all"
+        )
+        for book, fills in books if show_all else books[:PAGE]:
+            st.markdown(formatter.book_md(book, fills))
+        st.caption(f"Links last checked {study_library.library()['checked']}.")
+
+    with st.container(border=True):
+        st.subheader("Nexus Curated Roadmaps & Field Guides", anchor=False)
+        st.caption(
+            f"Free, open-source GitHub repositories that fit {role}. Hours are rough planning "
+            "estimates."
+        )
+        cats = {c["id"]: c["name"] for c in study_library.library()["repo_categories"]}
+        left, right = st.columns([3, 2])
+        query = left.text_input(
+            "Search repositories", placeholder="Name, topic or skill", key="lib_repo_q"
+        )
+        category = right.selectbox(
+            "Category",
+            [None, *cats],
+            format_func=lambda c: "All categories" if c is None else cats[c],
+            key="lib_repo_cat",
+        )
+        repos = study_library.repos_for_role(role, query, category)
+        if not repos:
+            empty_state(
+                "No repositories match yet. GitHub study guides lean towards software, so some "
+                "tracks have fewer; try another category or clear the search."
+            )
+        for repo in repos[:PAGE]:
+            st.markdown(formatter.repo_md(repo))
+        if len(repos) > PAGE:
+            with st.expander(f"{len(repos) - PAGE} more repositories"):
+                for repo in repos[PAGE:]:
+                    st.markdown(formatter.repo_md(repo))
 
 
 def _export(plan: services.WeeklyPlan) -> None:
@@ -228,3 +290,4 @@ with col_top_ics:
 
 show_last_run("Planner agent")
 _plans(sid, ov)
+_library(profile.target_role, ov.weakness)

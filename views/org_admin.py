@@ -350,10 +350,11 @@ def _provisioning() -> None:
     with st.container(border=True):
         st.subheader("Add students from a CSV file", anchor=False)
         st.markdown(
-            "Columns: `name`, `email`, `main_domain`, `subdomain` (required), then `target_role`, "
-            "`phone` and `batch_year`. Headers are matched in any case, and names such as "
-            "`full_name`, `student_email`, `stream`, `department` or `branch` work too. A blank "
-            "`target_role` is filled with the best fit for the subdomain."
+            "Columns: `name`, `email`, `main_domain`, `subdomain` (required), then `target_role` "
+            "and `batch_year`. The `phone` column is kept only so older files still import: leave "
+            "it empty, the platform does not need it. Headers are matched in any case, and names "
+            "such as `full_name`, `student_email`, `stream`, `department` or `branch` work too. "
+            "A blank `target_role` is filled with the best fit for the subdomain."
         )
         st.download_button(
             "Download the CSV template",
@@ -422,10 +423,8 @@ def _provisioning() -> None:
                 [AUTO_ROLE, *orgs.roles_for_stream(main or streams[0])],
                 key="org_qa_role",
             )
-            phone = left.text_input("Phone (optional)", key="org_qa_phone")
-            batch = right.text_input(
-                "Batch year (optional)", placeholder="2027", key="org_qa_batch"
-            )
+            # No phone field: name, email and track are all the platform needs (data minimisation).
+            batch = left.text_input("Batch year (optional)", placeholder="2027", key="org_qa_batch")
             go = st.form_submit_button(
                 "Add student and send email", type="primary", icon=":material/person_add:"
             )
@@ -438,7 +437,6 @@ def _provisioning() -> None:
                     main_domain=main or "",
                     subdomain=sub,
                     target_role="" if role == AUTO_ROLE else role or "",
-                    phone=phone,
                     batch_year=batch,
                 )
             except services.ServiceError as e:

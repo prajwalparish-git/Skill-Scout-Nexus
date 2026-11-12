@@ -13,6 +13,7 @@
   --hair: 220 225 222; /* #DCE1DE, decorative */
   --primary: 13 102 112; /* #0D6670 */
   --primary-ink: 13 102 112;
+  --focus: 13 102 112; /* focus rings: >= 3:1 on --bg and --surface, light and dark */
   --ok: 27 111 54;
   --warn: 120 78 0;
   --bad: 149 27 44;
@@ -30,6 +31,7 @@
     --hair: 44 56 59;
     --primary: 31 127 134;
     --primary-ink: 108 203 196;
+    --focus: 108 203 196;
     --ok: 91 191 122;
     --warn: 240 212 92;
     --bad: 255 134 117;
@@ -44,40 +46,151 @@ body {
   color: rgb(var(--ink));
 }
 
+/* A focused element is never left under the fixed top bar (WCAG 2.4.11). */
+html {
+  scroll-padding-top: 6rem;
+}
+
+/* One crisp ring for every keyboard-focusable thing. Components that draw their own ring
+   (.btn, .input) switch this outline off, so a control never shows two. */
+:focus-visible {
+  outline: 2px solid rgb(var(--focus));
+  outline-offset: 2px;
+}
+
+/* On the inverted band (dark in light mode, light in dark mode) the ring takes the page colour. */
+.on-ink {
+  --focus: var(--bg);
+}
+
 body {
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-body), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Anchored sections clear the floating top bar (Lenis applies the same offset). */
+section[id] {
+  scroll-margin-top: 6rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Windows high-contrast mode drops our colours: keep the focus ring and control edges. */
+@media (forced-colors: active) {
+  :focus-visible {
+    outline: 2px solid Highlight;
+  }
+  .btn,
+  .input,
+  .chip {
+    border: 1px solid ButtonText;
+  }
 }
 
 @layer components {
+  /* --- App pages share the home page's language: hairline panels, ink actions, mono numbers --- */
   .card {
-    @apply rounded-card border border-hair bg-bg p-5;
+    @apply rounded-[1.25rem] border border-hair bg-bg p-5 shadow-[0_1px_2px_rgb(var(--ink)/0.04)] sm:p-6;
+  }
+  .card-hover {
+    @apply transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-line
+      hover:shadow-[0_12px_32px_-16px_rgb(var(--ink)/0.25)];
   }
   .input {
-    @apply w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink
-      placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-primary/60;
+    @apply w-full rounded-xl border border-line bg-bg px-3.5 py-2.5 text-sm text-ink transition-colors
+      placeholder:text-muted hover:border-ink/40 focus:outline-none focus:ring-2 focus:ring-focus
+      focus:ring-offset-2 focus:ring-offset-bg disabled:cursor-not-allowed disabled:opacity-60;
   }
   .label {
-    @apply mb-1 block text-sm font-medium text-ink;
+    @apply mb-1.5 block text-sm font-medium text-ink;
   }
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium
-      transition-colors disabled:cursor-not-allowed disabled:opacity-50
-      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60;
+    @apply inline-flex min-h-[2.5rem] items-center justify-center gap-2 rounded-full px-5 py-2 text-sm
+      font-medium transition-[background-color,border-color,color,transform] duration-150
+      active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus
+      focus-visible:ring-offset-2 focus-visible:ring-offset-bg;
   }
   .btn-primary {
-    @apply btn bg-primary text-white hover:bg-primary/90;
+    @apply btn bg-ink text-bg hover:bg-ink/85;
   }
   .btn-ghost {
-    @apply btn border border-line bg-bg text-ink hover:bg-surface;
+    @apply btn border border-line bg-bg text-ink hover:border-ink/40 hover:bg-surface;
   }
   .chip {
     @apply inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium;
   }
   .h1 {
-    @apply text-2xl font-semibold tracking-tight text-ink sm:text-3xl;
+    @apply font-display text-3xl font-semibold tracking-[-0.03em] text-ink sm:text-[2.6rem] sm:leading-[1.05];
   }
   .lead {
-    @apply mt-2 max-w-2xl text-sm text-muted;
+    @apply mt-3 max-w-2xl text-[15px] leading-relaxed text-muted;
+  }
+  .h2 {
+    @apply font-display text-xl font-semibold tracking-tight text-ink;
+  }
+  /* A segmented control: a hairline track with the selected option in ink. */
+  .segmented {
+    @apply inline-flex flex-wrap gap-1 rounded-full border border-hair bg-surface/60 p-1;
+  }
+  .segment {
+    @apply rounded-full px-3.5 py-1.5 text-sm font-medium text-muted transition-colors hover:text-ink
+      disabled:cursor-not-allowed disabled:opacity-40 aria-pressed:bg-ink aria-pressed:text-bg;
+  }
+
+  /* --- Public pages: monochrome surfaces, 1px hairlines, one accent used sparingly --- */
+  .btn-ink {
+    @apply btn rounded-full bg-ink text-bg hover:bg-ink/85;
+  }
+  .btn-hair {
+    @apply btn rounded-full border border-hair bg-bg/60 text-ink hover:border-line hover:bg-surface;
+  }
+  .eyebrow {
+    @apply font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-muted;
+  }
+  .display {
+    @apply font-display font-semibold tracking-[-0.035em] text-ink;
+  }
+  .panel {
+    @apply rounded-[1.25rem] border border-hair bg-bg;
+  }
+  .glass {
+    @apply border border-hair/80 bg-bg/70 backdrop-blur-xl backdrop-saturate-150;
+  }
+}
+
+@layer utilities {
+  /* Soft overhead light on a surface, in ink at very low alpha: no hue. */
+  .surface-light {
+    background-image: radial-gradient(120% 80% at 50% -10%, rgb(var(--ink) / 0.07), transparent 60%);
+  }
+  /* A faint hairline grid that fades out from the top. */
+  .hairline-grid {
+    background-image:
+      linear-gradient(to right, rgb(var(--hair) / 0.7) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(var(--hair) / 0.7) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 30%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 30%, transparent 75%);
+  }
+  /* A cursor-following spotlight; the element sets --x and --y. */
+  .spotlight {
+    background-image: radial-gradient(
+      420px circle at var(--x, 50%) var(--y, 50%),
+      rgb(var(--ink) / 0.06),
+      transparent 60%
+    );
   }
 }

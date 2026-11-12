@@ -67,7 +67,10 @@ export function LineChart({ points, max = 100, unit = "", ariaLabel }: { points:
               fill="transparent"
               onMouseEnter={() => setHover(i)}
               onFocus={() => setHover(i)}
+              onBlur={() => setHover(null)}
+              onKeyDown={(e) => e.key === "Escape" && setHover(null)}
               tabIndex={0}
+              role="img"
               aria-label={`${p.label}: ${p.value}${unit}`}
             />
           </g>
