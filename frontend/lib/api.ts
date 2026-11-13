@@ -11,14 +11,27 @@ export class ApiError extends Error {
   }
 }
 
+const TIMEOUT_MS = 30_000;
+
+/** An AbortSignal that fires after TIMEOUT_MS, so a hung request fails instead of waiting forever. */
+function timeoutSignal(): AbortSignal {
+  const c = new AbortController();
+  setTimeout(() => c.abort(), TIMEOUT_MS);
+  return c.signal;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`${API}${path}`, {
       ...init,
+      signal: timeoutSignal(),
       headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
     });
-  } catch {
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "AbortError") {
+      throw new ApiError(`The API at ${API} took too long to respond.`, 0);
+    }
     throw new ApiError(`Cannot reach the API at ${API}. Is server.py running?`, 0);
   }
   if (!res.ok) {
@@ -38,45 +51,73 @@ export function qs(params: Record<string, string | number | undefined | null>): 
   return p.toString();
 }
 
-/** POST, then read text/event-stream: calls onEvent(event, data) for each event. */
+/**
+ * POST, then read text/event-stream: calls onEvent(event, data) for each event.
+ * Aborts on inactivity (no bytes for TIMEOUT_MS), not on total duration: a multi-step
+ * critic pipeline can legitimately run past 30s as long as it keeps emitting steps.
+ */
 export async function postStream(
   path: string,
   body: unknown,
   onEvent: (event: string, data: any) => void,
 ): Promise<void> {
+  const controller = new AbortController();
+  let idle = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const resetIdle = () => {
+    clearTimeout(idle);
+    idle = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  };
+
   let res: Response;
   try {
     res = await fetch(`${API}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: controller.signal,
     });
-  } catch {
+  } catch (e) {
+    clearTimeout(idle);
+    if (e instanceof DOMException && e.name === "AbortError") {
+      throw new ApiError(`The API at ${API} took too long to respond.`, 0);
+    }
     throw new ApiError(`Cannot reach the API at ${API}. Is server.py running?`, 0);
   }
   if (!res.ok || !res.body) {
+    clearTimeout(idle);
     const err = await res.json().catch(() => ({}));
     throw new ApiError(err.detail ?? `Request failed (${res.status})`, res.status);
   }
+
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    let cut: number;
-    while ((cut = buffer.indexOf("\n\n")) >= 0) {
-      const block = buffer.slice(0, cut);
-      buffer = buffer.slice(cut + 2);
-      let event = "message";
-      let data = "";
-      for (const line of block.split("\n")) {
-        if (line.startsWith("event: ")) event = line.slice(7);
-        else if (line.startsWith("data: ")) data += line.slice(6);
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      resetIdle();
+      buffer += decoder.decode(value, { stream: true });
+      let cut: number;
+      while ((cut = buffer.indexOf("\n\n")) >= 0) {
+        const block = buffer.slice(0, cut);
+        buffer = buffer.slice(cut + 2);
+        let event = "message";
+        let data = "";
+        for (const line of block.split("\n")) {
+          if (line.startsWith("event: ")) event = line.slice(7);
+          else if (line.startsWith("data: ")) data += line.slice(6);
+        }
+        if (data) onEvent(event, JSON.parse(data));
       }
-      if (data) onEvent(event, JSON.parse(data));
     }
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "AbortError") {
+      throw new ApiError(`The API at ${API} stopped responding.`, 0);
+    }
+    throw e;
+  } finally {
+    clearTimeout(idle);
   }
 }
 

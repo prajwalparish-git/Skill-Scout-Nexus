@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowRight, CalendarDays, CheckCircle2, Flame, ListChecks, MessagesSquare, Target } from "lucide-react";
-import { get, type DashboardPayload } from "@/lib/api";
+import { motion } from "motion/react";
+import { ArrowRight, CalendarDays, CheckCircle2, Flame, ListChecks, MessagesSquare, Sparkles } from "lucide-react";
+import { get, type DashboardPayload, type Mastery } from "@/lib/api";
 import { useCandidate } from "@/lib/candidate";
 import { BarList, LineChart } from "@/components/charts";
 import { Badge, Empty, ErrorNote, Loading, NeedsCandidate, PageHeader, Ring, Stat } from "@/components/ui";
@@ -36,8 +37,24 @@ function tier(score: number): string {
   return "Building up: follow the weekly plan and quiz the weak topics it puts first.";
 }
 
+/** The single most useful thing to do next, from what this dashboard already knows. */
+function nextAction(d: DashboardPayload, mastery: Mastery[]): { text: string; cta: string; href: string } {
+  if (d.quizzes_taken === 0) {
+    return d.profile.resume_feedback.length > 0
+      ? { text: "Resume parsed. Take a 5-minute quiz next to see where you stand.", cta: "Take a quiz", href: "/quiz" }
+      : { text: "Take your first quiz to start tracking readiness.", cta: "Take a quiz", href: "/quiz" };
+  }
+  if (mastery[0] && mastery[0].weakness > 0.3) {
+    return { text: `${mastery[0].topic} is your weakest topic right now.`, cta: `Practise ${mastery[0].topic}`, href: "/quiz" };
+  }
+  if (d.sessions.length === 0) {
+    return { text: "Your quiz scores are solid. A mock interview is the next step.", cta: "Start a mock interview", href: "/interview" };
+  }
+  return { text: "You're on track. Keep the streak going with another quiz.", cta: "Take a quiz", href: "/quiz" };
+}
+
 export default function DashboardPage() {
-  const { candidate } = useCandidate();
+  const { candidate, students, choose, loading: candidateLoading } = useCandidate();
   const [d, setD] = useState<DashboardPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -55,11 +72,28 @@ export default function DashboardPage() {
     };
   }, [candidate]);
 
+  if (candidateLoading)
+    return (
+      <>
+        <PageHeader eyebrow="Dashboard" title="Your progress, in one place" lead="Readiness, topic mastery and score trends." />
+        <Loading label="Checking your profile…" />
+      </>
+    );
+
   if (!candidate)
     return (
       <>
         <PageHeader eyebrow="Dashboard" title="Your progress, in one place" lead="Readiness, topic mastery and score trends." />
         <NeedsCandidate />
+        {students.length > 0 && (
+          <p className="mt-4 text-center text-sm text-muted">
+            Demonstrating this project?{" "}
+            <button type="button" className="font-medium text-primary-ink underline underline-offset-2" onClick={() => choose(students[0].id)}>
+              Load sample candidate data
+            </button>
+            {" "}to see a filled-in dashboard instantly — it opens {students[0].name}'s real profile from this database.
+          </p>
+        )}
       </>
     );
 
@@ -89,7 +123,27 @@ export default function DashboardPage() {
       {!d && !error && <Loading label="Loading your dashboard…" />}
       {d && (
         <>
-          <section aria-label="Readiness" className="grid gap-3 lg:grid-cols-[1.4fr_1fr_1fr]">
+          {(() => {
+            const action = nextAction(d, mastery);
+            return (
+              <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
+                <Link href={action.href} className="card card-hover group flex items-center gap-4 border-ink/15 bg-ink text-bg">
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-bg text-ink" aria-hidden>
+                    <Sparkles size={18} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="eyebrow text-bg/60">Next best action</span>
+                    <span className="mt-0.5 block text-sm font-semibold sm:text-base">{action.text}</span>
+                  </span>
+                  <span className="btn-ghost shrink-0 border-bg/30 bg-transparent text-bg">
+                    {action.cta} <ArrowRight size={16} className="transition-transform group-hover:translate-x-0.5" aria-hidden />
+                  </span>
+                </Link>
+              </motion.div>
+            );
+          })()}
+
+          <section aria-label="Readiness" className="mt-3 grid gap-3 lg:grid-cols-[1.4fr_1fr_1fr]">
             <div className="card flex items-center gap-5 lg:row-span-2">
               <Ring value={d.profile.readiness_score} label="Readiness" size={112} suffix=" out of 100" />
               <div className="min-w-0">
@@ -108,22 +162,6 @@ export default function DashboardPage() {
             />
             <Stat icon={MessagesSquare} label="Mock interviews" value={d.sessions.length} hint={d.sessions[0] ? `Last: ${d.sessions[0].avg_overall?.toFixed(1)}/5` : undefined} />
           </section>
-
-          {mastery[0] && (
-            <Link
-              href="/quiz"
-              className="card card-hover group mt-3 flex items-center gap-4 border-ink/15"
-            >
-              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-ink text-bg" aria-hidden>
-                <Target size={18} />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold">Next best step: practise {mastery[0].topic}</span>
-                <span className="block text-sm text-muted">It is your weakest topic right now; a quiz moves your plan too.</span>
-              </span>
-              <ArrowRight size={18} className="shrink-0 transition-transform group-hover:translate-x-0.5" aria-hidden />
-            </Link>
-          )}
 
           <div className="mt-6 grid gap-6 lg:grid-cols-2">
             <section className="card" aria-labelledby="dash-readiness">

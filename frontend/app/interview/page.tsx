@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Award, Check, Loader2, Mic, Send, ShieldCheck, TrendingDown } from "lucide-react";
+import { motion } from "motion/react";
+import { Award, Check, Clock, Loader2, Mic, Send, ShieldCheck, TrendingDown } from "lucide-react";
 import { get, postStream, type Evaluation, type Track, type TurnResult } from "@/lib/api";
 import { useCandidate } from "@/lib/candidate";
 import { Badge, ErrorNote, Loading, NeedsCandidate, PageHeader } from "@/components/ui";
@@ -29,8 +30,29 @@ function Rubric({ evaluation }: { evaluation: Evaluation }) {
   );
 }
 
+const elapsedLabel = (ms: number) => {
+  const s = Math.floor(ms / 1000);
+  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+};
+
+/** A row of bars that pulse while the critic is evaluating: a thinking indicator, not a mic. */
+function ThinkingPulse() {
+  return (
+    <span className="flex items-end gap-[3px]" aria-hidden>
+      {[0, 1, 2, 3, 4].map((i) => (
+        <motion.span
+          key={i}
+          className="w-[3px] rounded-full bg-ok"
+          animate={{ height: [4, 14, 4] }}
+          transition={{ duration: 0.9, repeat: Infinity, ease: "easeInOut", delay: i * 0.1 }}
+        />
+      ))}
+    </span>
+  );
+}
+
 export default function InterviewPage() {
-  const { candidate } = useCandidate();
+  const { candidate, loading: candidateLoading } = useCandidate();
   const [tracks, setTracks] = useState<Track[] | null>(null);
   const [track, setTrack] = useState("");
   const [result, setResult] = useState<TurnResult | null>(null);
@@ -38,12 +60,22 @@ export default function InterviewPage() {
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [now, setNow] = useState<number | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
+
+  // A live elapsed timer while the interview is in progress, ticking once a second.
+  useEffect(() => {
+    if (!startedAt || result?.session.done) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [startedAt, result?.session.done]);
 
   useEffect(() => {
     setResult(null);
     setTracks(null);
     setError(null);
+    setStartedAt(null);
     if (!candidate) return;
     let current = true; // a reply for the previous candidate must not land on this one
     get<Track[]>(`/api/interview/tracks/${candidate.id}`).then(
@@ -91,6 +123,14 @@ export default function InterviewPage() {
   }, {});
   const session = result?.session;
   const asked = session ? Math.min(session.history.length + (session.current ? 1 : 0), TOTAL) : 0;
+
+  if (candidateLoading)
+    return (
+      <>
+        <PageHeader eyebrow="Mock interview" title="Rehearse an interview in your field" lead="Five questions, each scored on a rubric." />
+        <Loading label="Checking your profile…" />
+      </>
+    );
 
   if (!candidate)
     return (
@@ -146,7 +186,16 @@ export default function InterviewPage() {
             </fieldset>
           ))}
           <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-hair pt-5">
-            <button type="button" className="btn-primary" disabled={!track || busy} onClick={() => turn({ track })}>
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={!track || busy}
+              onClick={() => {
+                setStartedAt(Date.now());
+                setNow(Date.now());
+                turn({ track });
+              }}
+            >
               {busy ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <Mic size={16} aria-hidden />}
               Start mock interview{track ? `: ${track}` : ""}
             </button>
@@ -175,6 +224,11 @@ export default function InterviewPage() {
               <span className="font-mono text-xs text-muted">
                 Question {asked} of {TOTAL}
               </span>
+              {startedAt && (
+                <span className="flex items-center gap-1 font-mono text-xs text-muted" aria-hidden>
+                  <Clock size={12} /> {elapsedLabel((now ?? startedAt) - startedAt)}
+                </span>
+              )}
               {result?.average != null && <Badge state="ok">Average {result.average}/5</Badge>}
             </div>
           </div>
@@ -256,7 +310,14 @@ export default function InterviewPage() {
                   </li>
                 ))}
               </ul>
-              <button type="button" className="btn-primary mt-5" onClick={() => setResult(null)}>
+              <button
+                type="button"
+                className="btn-primary mt-5"
+                onClick={() => {
+                  setResult(null);
+                  setStartedAt(null);
+                }}
+              >
                 Start a new mock interview
               </button>
             </article>
@@ -275,7 +336,7 @@ export default function InterviewPage() {
             ))}
             {busy && (
               <li className="flex items-center gap-2">
-                <Loader2 size={14} className="animate-spin" aria-hidden /> Working…
+                <ThinkingPulse /> Evaluating your answer…
               </li>
             )}
           </ol>

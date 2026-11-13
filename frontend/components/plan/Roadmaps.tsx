@@ -10,7 +10,17 @@ import { ExtLink, FilterPill, LevelTag } from "./shared";
 
 const MAX_SKILLS = 14;
 
-export function Roadmaps({ library, role }: { library: Library; role: string | null }) {
+export function Roadmaps({
+  library,
+  role,
+  checked,
+  onToggle,
+}: {
+  library: Library;
+  role: string | null;
+  checked: Set<string>;
+  onToggle: (id: string) => void;
+}) {
   const [q, setQ] = useState("");
   const [roleName, setRoleName] = useState(role ?? "");
   const [category, setCategory] = useState("");
@@ -173,7 +183,7 @@ export function Roadmaps({ library, role }: { library: Library; role: string | n
             <p className="mt-0.5 text-sm text-muted">{c.blurb}</p>
             <ul className="mt-3 grid gap-3 md:grid-cols-2">
               {c.repos.map((r) => (
-                <RepoCard key={r.id} repo={r} fits={sharedTerms(r, roleEntry)} role={roleName} />
+                <RepoCard key={r.id} repo={r} fits={sharedTerms(r, roleEntry)} role={roleName} done={checked.has(r.id)} onToggle={() => onToggle(r.id)} />
               ))}
             </ul>
           </div>
@@ -183,11 +193,32 @@ export function Roadmaps({ library, role }: { library: Library; role: string | n
   );
 }
 
-function RepoCard({ repo: r, fits, role }: { repo: Repo; fits: string[]; role: string }) {
+function RepoCard({
+  repo: r,
+  fits,
+  role,
+  done,
+  onToggle,
+}: {
+  repo: Repo;
+  fits: string[];
+  role: string;
+  done: boolean;
+  onToggle: () => void;
+}) {
   return (
     <li>
-      <article className="card flex h-full flex-col">
-        <h4 className="break-words font-mono text-sm font-semibold">{r.repo}</h4>
+      <article className={`card flex h-full flex-col ${done ? "bg-surface/40" : ""}`}>
+        <div className="flex items-start gap-2">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-4 w-4 shrink-0 accent-[rgb(var(--primary))]"
+            checked={done}
+            onChange={onToggle}
+            aria-label={`Mark "${r.repo}" as explored`}
+          />
+          <h4 className={`break-words font-mono text-sm font-semibold ${done ? "text-muted line-through decoration-line" : ""}`}>{r.repo}</h4>
+        </div>
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           <LevelTag level={r.level} />
           <span className="chip border-line text-ink">

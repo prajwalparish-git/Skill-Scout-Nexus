@@ -4,6 +4,7 @@
 // a hover tooltip on every mark, and text in ink tokens. Titles state the takeaway; each chart
 // is paired with a table elsewhere on its page.
 import { useEffect, useRef, useState } from "react";
+import { motion } from "motion/react";
 
 type Point = { label: string; value: number; note?: string };
 
@@ -55,10 +56,29 @@ export function LineChart({ points, max = 100, unit = "", ariaLabel }: { points:
         {hover !== null && (
           <line x1={x(hover)} x2={x(hover)} y1={pad.t} y2={pad.t + ih} stroke="rgb(var(--line))" strokeDasharray="3 3" />
         )}
-        <path d={path} fill="none" stroke="rgb(var(--primary))" strokeWidth={2} strokeLinejoin="round" />
+        <motion.path
+          d={path}
+          fill="none"
+          stroke="rgb(var(--primary))"
+          strokeWidth={2}
+          strokeLinejoin="round"
+          initial={{ pathLength: 0 }}
+          animate={{ pathLength: 1 }}
+          transition={{ duration: 0.6, ease: "easeOut" }}
+        />
         {points.map((p, i) => (
           <g key={i}>
-            <circle cx={x(i)} cy={y(p.value)} r={4.5} fill="rgb(var(--primary))" stroke="rgb(var(--bg))" strokeWidth={2} />
+            <motion.circle
+              cx={x(i)}
+              cy={y(p.value)}
+              r={4.5}
+              fill="rgb(var(--primary))"
+              stroke="rgb(var(--bg))"
+              strokeWidth={2}
+              initial={{ opacity: 0, scale: 0 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.3 + i * 0.05, type: "spring", stiffness: 350, damping: 30 }}
+            />
             <rect
               x={x(i) - Math.max(12, iw / Math.max(points.length, 1) / 2)}
               y={pad.t}
@@ -118,9 +138,11 @@ export function BarList({ rows, max, unit = "", ariaLabel }: { rows: Point[]; ma
             {r.label}
           </span>
           <span className="h-3 rounded-r bg-surface">
-            <span
+            <motion.span
               className="block h-3 rounded-r-[4px] bg-primary"
-              style={{ width: `${Math.max(1, (r.value / max) * 100)}%` }}
+              initial={{ width: 0 }}
+              animate={{ width: `${Math.max(1, (r.value / max) * 100)}%` }}
+              transition={{ delay: i * 0.04, type: "spring", stiffness: 350, damping: 30 }}
             />
           </span>
           <span className="text-right tabular-nums text-muted">

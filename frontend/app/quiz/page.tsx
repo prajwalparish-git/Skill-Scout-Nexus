@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, Check, Loader2, RotateCcw, Sparkles } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { ArrowLeft, ArrowRight, Check, Loader2, RotateCcw, Sparkles } from "lucide-react";
 import { get, post, qs, type Graded, type Quiz } from "@/lib/api";
 import { useCandidate } from "@/lib/candidate";
 import { domainOf, useCatalog } from "@/lib/catalog";
-import { Badge, ErrorNote, PageHeader, Ring } from "@/components/ui";
+import { Badge, ErrorNote, Kbd, PageHeader, Ring } from "@/components/ui";
+import { SPRING_UI } from "@/lib/site";
 
 const LEVELS = ["easy", "medium", "hard"] as const;
 const COUNTS = [5, 10, 15, 20];
@@ -20,6 +22,7 @@ export default function QuizPage() {
   const [count, setCount] = useState(5);
   const [quiz, setQuiz] = useState<Quiz | null>(null);
   const [answers, setAnswers] = useState<(number | null)[]>([]);
+  const [current, setCurrent] = useState(0);
   const [graded, setGraded] = useState<Graded | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,6 +52,7 @@ export default function QuizPage() {
       setQuiz(q);
       setDifficulty(level);
       setAnswers(q.questions.map(() => null));
+      setCurrent(0);
     } catch (e) {
       setError((e as Error).message);
       setQuiz(null);
@@ -77,6 +81,30 @@ export default function QuizPage() {
       setBusy(false);
     }
   }
+
+  // Keyboard shortcuts while a question is on screen: 1-9 or A-F pick an option, Enter advances.
+  useEffect(() => {
+    if (!quiz) return;
+    const q = quiz.questions[current];
+    function onKey(e: KeyboardEvent) {
+      const t = e.target as HTMLElement | null;
+      if (t && ["INPUT", "TEXTAREA", "SELECT", "BUTTON", "A"].includes(t.tagName)) return;
+      if (e.key === "Enter") {
+        e.preventDefault();
+        if (current < quiz!.questions.length - 1) setCurrent((c) => c + 1);
+        else if (!graded) submit();
+        return;
+      }
+      if (graded || !q) return;
+      let idx = -1;
+      if (/^[1-9]$/.test(e.key)) idx = Number(e.key) - 1;
+      else if (/^[a-zA-Z]$/.test(e.key)) idx = LETTERS.indexOf(e.key.toUpperCase());
+      if (idx >= 0 && idx < q.options.length) setAnswers((a) => a.map((x, k) => (k === current ? idx : x)));
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quiz, current, graded]);
 
   const blanks = answers.filter((a) => a === null).length;
   const answered = answers.length - blanks;
@@ -215,90 +243,121 @@ export default function QuizPage() {
                   {quiz.topic} · <span className="capitalize">{quiz.difficulty}</span>
                 </span>
                 <span className="font-mono text-xs tabular-nums text-muted">
-                  {answered} of {quiz.questions.length} answered
+                  Question {current + 1} of {quiz.questions.length} · {answered} answered
                 </span>
               </div>
               <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-hair" aria-hidden>
-                <div className="h-full rounded-full bg-ink transition-[width] duration-300" style={{ width: `${(answered / quiz.questions.length) * 100}%` }} />
+                <motion.div
+                  className="h-full rounded-full bg-ink"
+                  animate={{ width: `${(answered / quiz.questions.length) * 100}%` }}
+                  transition={SPRING_UI}
+                />
               </div>
             </div>
           )}
 
-          {quiz.questions.map((q, i) => {
-            const r = graded?.review[i];
-            return (
-              <fieldset key={q.id} className="card" aria-labelledby={`${q.id}-text`}>
-                <div className="flex items-start gap-3">
-                  <span className="mt-0.5 shrink-0 rounded-full border border-hair px-2 py-0.5 font-mono text-[11px] text-muted">
-                    {String(i + 1).padStart(2, "0")}
-                  </span>
-                  <p id={`${q.id}-text`} className="font-medium leading-relaxed">
-                    <span className="sr-only">Question {i + 1}. </span>
-                    {q.text}
-                  </p>
-                </div>
-                <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                  {q.options.map((o, j) => {
-                    const picked = answers[i] === j;
-                    const right = r && j === r.correct_index;
-                    const wrongPick = r && picked && !r.is_correct;
-                    return (
-                      <label
-                        key={j}
-                        className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3.5 py-3 text-sm transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-focus has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-bg ${
-                          right
-                            ? "border-ok bg-ok/[0.06]"
-                            : wrongPick
-                              ? "border-bad bg-bad/[0.05]"
-                              : picked
-                                ? "border-ink bg-surface"
-                                : "border-hair"
-                        } ${graded ? "cursor-default" : "hover:border-line hover:bg-surface/60"}`}
-                      >
-                        <input
-                          type="radio"
-                          name={q.id}
-                          className="peer sr-only"
-                          checked={picked}
-                          disabled={!!graded}
-                          onChange={() => setAnswers((a) => a.map((x, k) => (k === i ? j : x)))}
-                        />
-                        <span
-                          aria-hidden
-                          className={`grid h-6 w-6 shrink-0 place-items-center rounded-full border font-mono text-[11px] ${
-                            picked ? "border-ink bg-ink text-bg" : "border-line text-muted"
-                          }`}
-                        >
-                          {LETTERS[j] ?? j + 1}
-                        </span>
-                        <span className="flex-1 pt-0.5">{o}</span>
-                        {right && <Badge state="ok">Correct answer</Badge>}
-                        {wrongPick && <Badge state="bad">Your answer</Badge>}
-                      </label>
-                    );
-                  })}
-                </div>
-                {r && (
-                  <p className="mt-4 flex gap-2 rounded-xl bg-surface px-4 py-3 text-sm text-muted">
-                    <Sparkles size={15} className="mt-0.5 shrink-0" aria-hidden />
-                    <span>
-                      {r.chosen === null && <Badge state="todo">Left blank</Badge>} {r.explanation}
+          <AnimatePresence mode="wait" initial={false}>
+            {(() => {
+              const i = current;
+              const q = quiz.questions[i];
+              const r = graded?.review[i];
+              return (
+                <motion.fieldset
+                  key={q.id}
+                  className="card"
+                  aria-labelledby={`${q.id}-text`}
+                  initial={{ opacity: 0, x: 16 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -16 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <div className="flex items-start gap-3">
+                    <span className="mt-0.5 shrink-0 rounded-full border border-hair px-2 py-0.5 font-mono text-[11px] text-muted">
+                      {String(i + 1).padStart(2, "0")}
                     </span>
-                  </p>
-                )}
-              </fieldset>
-            );
-          })}
+                    <p id={`${q.id}-text`} className="font-medium leading-relaxed">
+                      <span className="sr-only">Question {i + 1}. </span>
+                      {q.text}
+                    </p>
+                  </div>
+                  <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                    {q.options.map((o, j) => {
+                      const picked = answers[i] === j;
+                      const right = r && j === r.correct_index;
+                      const wrongPick = r && picked && !r.is_correct;
+                      return (
+                        <motion.label
+                          key={j}
+                          whileTap={graded ? undefined : { scale: 0.99 }}
+                          className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3.5 py-3 text-sm transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-focus has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-bg ${
+                            right
+                              ? "border-ok bg-ok/[0.06]"
+                              : wrongPick
+                                ? "border-bad bg-bad/[0.05]"
+                                : picked
+                                  ? "border-ink bg-surface"
+                                  : "border-hair"
+                          } ${graded ? "cursor-default" : "hover:border-line hover:bg-surface/60"}`}
+                        >
+                          <input
+                            type="radio"
+                            name={q.id}
+                            className="peer sr-only"
+                            checked={picked}
+                            disabled={!!graded}
+                            onChange={() => setAnswers((a) => a.map((x, k) => (k === i ? j : x)))}
+                          />
+                          <span
+                            aria-hidden
+                            className={`grid h-6 w-6 shrink-0 place-items-center rounded-full border font-mono text-[11px] ${
+                              picked ? "border-ink bg-ink text-bg" : "border-line text-muted"
+                            }`}
+                          >
+                            {LETTERS[j] ?? j + 1}
+                          </span>
+                          <span className="flex-1 pt-0.5">{o}</span>
+                          {right && <Badge state="ok">Correct answer</Badge>}
+                          {wrongPick && <Badge state="bad">Your answer</Badge>}
+                          {!graded && <Kbd>{j + 1}</Kbd>}
+                        </motion.label>
+                      );
+                    })}
+                  </div>
+                  {r && (
+                    <p className="mt-4 flex gap-2 rounded-xl bg-surface px-4 py-3 text-sm text-muted">
+                      <Sparkles size={15} className="mt-0.5 shrink-0" aria-hidden />
+                      <span>
+                        {r.chosen === null && <Badge state="todo">Left blank</Badge>} {r.explanation}
+                      </span>
+                    </p>
+                  )}
+                </motion.fieldset>
+              );
+            })()}
+          </AnimatePresence>
 
-          {!graded && (
-            <div className="flex flex-wrap items-center gap-3 pt-2">
-              <button type="button" className="btn-primary" disabled={busy} onClick={submit}>
-                {busy ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <Check size={16} aria-hidden />}
-                Submit quiz answers for grading
-              </button>
-              {blanks > 0 && <p className="text-sm text-muted">{blanks} left blank: they count as wrong.</p>}
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+            <button type="button" className="btn-ghost" disabled={current === 0} onClick={() => setCurrent((c) => c - 1)}>
+              <ArrowLeft size={16} aria-hidden /> Previous
+            </button>
+            <div className="flex flex-wrap items-center gap-3">
+              {blanks > 0 && current === quiz.questions.length - 1 && !graded && (
+                <p className="text-sm text-muted">{blanks} left blank: they count as wrong.</p>
+              )}
+              {current < quiz.questions.length - 1 ? (
+                <button type="button" className="btn-primary" onClick={() => setCurrent((c) => c + 1)}>
+                  Next question <ArrowRight size={16} aria-hidden />
+                  <Kbd>Enter</Kbd>
+                </button>
+              ) : !graded ? (
+                <button type="button" className="btn-primary" disabled={busy} onClick={submit}>
+                  {busy ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <Check size={16} aria-hidden />}
+                  Submit quiz answers for grading
+                  <Kbd>Enter</Kbd>
+                </button>
+              ) : null}
             </div>
-          )}
+          </div>
         </section>
       )}
     </>

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { motion } from "motion/react";
 import { AlertTriangle, CheckCircle2, Circle, Info, ListChecks, UserRound, XCircle, type LucideIcon } from "lucide-react";
 import { SignInPrompt } from "./site/auth";
 
@@ -128,16 +129,18 @@ export function Ring({
     <div className="relative shrink-0" style={{ width: size, height: size }} role="img" aria-label={`${label}: ${value} of ${max}`}>
       <svg viewBox="0 0 100 100" className="h-full w-full -rotate-90" aria-hidden>
         <circle cx="50" cy="50" r={r} fill="none" strokeWidth="8" className="stroke-hair" />
-        <circle
+        <motion.circle
           cx="50"
           cy="50"
           r={r}
           fill="none"
           strokeWidth="8"
           strokeLinecap="round"
-          className="stroke-ink transition-[stroke-dashoffset] duration-700"
+          className="stroke-ink"
           strokeDasharray={c}
-          strokeDashoffset={c * (1 - share)}
+          initial={{ strokeDashoffset: c }}
+          animate={{ strokeDashoffset: c * (1 - share) }}
+          transition={{ type: "spring", stiffness: 100, damping: 20 }}
         />
       </svg>
       <span className="absolute inset-0 grid place-items-center font-mono font-semibold tabular-nums text-ink" style={{ fontSize: size / 4.2 }} aria-hidden>
@@ -145,6 +148,15 @@ export function Ring({
         {suffix && <span className="sr-only">{suffix}</span>}
       </span>
     </div>
+  );
+}
+
+/** A keycap, for a shortcut hint beside the control it triggers. */
+export function Kbd({ children }: { children: React.ReactNode }) {
+  return (
+    <kbd className="inline-flex min-w-[1.25rem] items-center justify-center rounded-md border border-line bg-surface px-1.5 py-0.5 font-mono text-[10px] font-semibold text-muted">
+      {children}
+    </kbd>
   );
 }
 

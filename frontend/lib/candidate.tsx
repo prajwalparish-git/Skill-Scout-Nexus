@@ -12,6 +12,8 @@ type Ctx = {
   choose: (id: string | null) => void;
   reload: () => void;
   error: string | null;
+  /** True until the stored candidate has been resolved against /api/students at least once. */
+  loading: boolean;
 };
 
 const CandidateContext = createContext<Ctx>({
@@ -20,6 +22,7 @@ const CandidateContext = createContext<Ctx>({
   choose: () => {},
   reload: () => {},
   error: null,
+  loading: true,
 });
 
 function readStored(): string | null {
@@ -34,6 +37,7 @@ export function CandidateProvider({ children }: { children: React.ReactNode }) {
   const [students, setStudents] = useState<Student[]>([]);
   const [id, setId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const reload = useCallback(() => {
     get<Student[]>("/api/students")
@@ -43,7 +47,8 @@ export function CandidateProvider({ children }: { children: React.ReactNode }) {
         const stored = readStored();
         setId((cur) => cur ?? (list.some((s) => s.id === stored) ? stored : list[0]?.id ?? null));
       })
-      .catch((e: Error) => setError(e.message));
+      .catch((e: Error) => setError(e.message))
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(reload, [reload]);
@@ -60,7 +65,7 @@ export function CandidateProvider({ children }: { children: React.ReactNode }) {
 
   const candidate = students.find((s) => s.id === id) ?? null;
   return (
-    <CandidateContext.Provider value={{ students, candidate, choose, reload, error }}>
+    <CandidateContext.Provider value={{ students, candidate, choose, reload, error, loading }}>
       {children}
     </CandidateContext.Provider>
   );

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { motion } from "motion/react";
 import {
   CalendarDays,
   FileText,
@@ -10,9 +11,11 @@ import {
   ListChecks,
   MessagesSquare,
   Repeat2,
+  Target,
   type LucideIcon,
 } from "lucide-react";
 import { useCandidate } from "@/lib/candidate";
+import { SPRING_UI } from "@/lib/site";
 import { useAuth } from "./site/auth";
 import { Brand } from "./site/Brand";
 import { SiteFooter } from "./site/Footer";
@@ -39,8 +42,22 @@ const initials = (name: string) =>
 
 /** The signed-in profile: who, readiness, and the controls to switch. */
 function ProfileCard({ selectId }: { selectId: string }) {
-  const { students, candidate, choose, error } = useCandidate();
+  const { students, candidate, choose, error, loading } = useCandidate();
   const { open } = useAuth();
+
+  if (loading)
+    return (
+      <div className="rounded-2xl border border-hair bg-bg p-3 shadow-[0_1px_2px_rgb(var(--ink)/0.04)]" aria-hidden>
+        <div className="flex items-center gap-3">
+          <span className="h-10 w-10 shrink-0 animate-pulse rounded-full bg-hair" />
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <span className="block h-3 w-3/4 animate-pulse rounded bg-hair" />
+            <span className="block h-2.5 w-1/2 animate-pulse rounded bg-hair" />
+          </div>
+        </div>
+      </div>
+    );
+
   return (
     <div className="rounded-2xl border border-hair bg-bg p-3 shadow-[0_1px_2px_rgb(var(--ink)/0.04)]">
       {candidate ? (
@@ -95,6 +112,30 @@ function ProfileCard({ selectId }: { selectId: string }) {
   );
 }
 
+/** Compact status bar: which tool, the candidate's track, and their readiness score. */
+function StatusBar({ path }: { path: string }) {
+  const { candidate, loading } = useCandidate();
+  const page = NAV.find((n) => path.startsWith(n.href));
+  if (loading || !candidate || !page) return null;
+  return (
+    <div className="mb-5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+      <Link href="/dashboard" className="hover:text-ink">
+        Skill Scout Nexus
+      </Link>
+      <span aria-hidden>/</span>
+      <span className="font-medium text-ink">{page.label}</span>
+      <span className="mx-1 h-3 w-px bg-hair" aria-hidden />
+      <span className="flex items-center gap-1">
+        <Target size={12} aria-hidden /> {candidate.target_role}
+      </span>
+      <span className="mx-1 h-3 w-px bg-hair" aria-hidden />
+      <span className="font-mono tabular-nums">
+        Readiness <span className="font-semibold text-ink">{candidate.readiness_score}</span>/100
+      </span>
+    </div>
+  );
+}
+
 export function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
 
@@ -133,14 +174,19 @@ export function Shell({ children }: { children: React.ReactNode }) {
                       <Link
                         href={href}
                         aria-current={active ? "page" : undefined}
-                        className={`flex items-center gap-2.5 whitespace-nowrap rounded-xl px-3 py-2 text-sm transition-colors ${
-                          active
-                            ? "border border-hair bg-bg font-semibold text-ink shadow-[0_1px_2px_rgb(var(--ink)/0.06)]"
-                            : "border border-transparent text-muted hover:bg-bg/70 hover:text-ink"
+                        className={`relative flex items-center gap-2.5 whitespace-nowrap rounded-xl px-3 py-2 text-sm transition-colors ${
+                          active ? "font-semibold text-ink" : "text-muted hover:bg-bg/70 hover:text-ink"
                         }`}
                       >
-                        <Icon size={16} aria-hidden />
-                        {label}
+                        {active && (
+                          <motion.span
+                            layoutId="active-nav-pill"
+                            transition={SPRING_UI}
+                            className="absolute inset-0 rounded-xl border border-hair bg-bg shadow-[0_1px_2px_rgb(var(--ink)/0.06)]"
+                          />
+                        )}
+                        <Icon size={16} className="relative" aria-hidden />
+                        <span className="relative">{label}</span>
                       </Link>
                     </li>
                   );
@@ -164,7 +210,15 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <div className="mb-6 lg:hidden">
               <ProfileCard selectId="candidate-mobile" />
             </div>
-            {children}
+            <StatusBar path={path} />
+            <motion.div
+              key={path}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.15 }}
+            >
+              {children}
+            </motion.div>
           </div>
         </main>
       </div>

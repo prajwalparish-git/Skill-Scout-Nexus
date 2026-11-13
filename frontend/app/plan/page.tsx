@@ -1,17 +1,28 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { motion } from "motion/react";
 import { CalendarPlus, Loader2 } from "lucide-react";
 import { get, post, type PlanPayload } from "@/lib/api";
 import { useCandidate } from "@/lib/candidate";
+import { useChecklist } from "@/lib/checklist";
 import { bestLink, pickBook, useLibrary, type Library } from "@/lib/library";
 import { BarList } from "@/components/charts";
 import { Books } from "@/components/plan/Books";
 import { Roadmaps } from "@/components/plan/Roadmaps";
-import { ExtLink } from "@/components/plan/shared";
+import { ExtLink, FilterPill } from "@/components/plan/shared";
 import { Badge, Empty, ErrorNote, Loading, NeedsCandidate, PageHeader, Ring } from "@/components/ui";
+import { SPRING_UI } from "@/lib/site";
 
 const WEAK = 0.5; // piq/config.py WEAK_THRESHOLD
+
+const VIEWS = [
+  { id: "all", label: "All" },
+  { id: "core", label: "Core modules" },
+  { id: "books", label: "Books" },
+  { id: "repos", label: "GitHub repos" },
+] as const;
+type View = (typeof VIEWS)[number]["id"];
 
 /** The two reading sections under the plan: books, then curated repositories. */
 function LibrarySections({
@@ -19,11 +30,17 @@ function LibrarySections({
   error,
   role,
   weakTopics,
+  view,
+  checked,
+  onToggle,
 }: {
   library: Library | null;
   error: string | null;
   role: string | null;
   weakTopics: string[];
+  view: View;
+  checked: Set<string>;
+  onToggle: (id: string) => void;
 }) {
   if (error)
     return (
@@ -39,19 +56,23 @@ function LibrarySections({
     );
   return (
     <>
-      <Books library={library} role={role} weakTopics={weakTopics} />
-      <Roadmaps library={library} role={role} />
+      {(view === "all" || view === "books") && (
+        <Books library={library} role={role} weakTopics={weakTopics} checked={checked} onToggle={onToggle} />
+      )}
+      {(view === "all" || view === "repos") && <Roadmaps library={library} role={role} checked={checked} onToggle={onToggle} />}
     </>
   );
 }
 
 export default function PlanPage() {
-  const { candidate } = useCandidate();
+  const { candidate, loading: candidateLoading } = useCandidate();
   const { library, error: libraryError } = useLibrary();
   const [data, setData] = useState<PlanPayload | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [announce, setAnnounce] = useState("");
+  const [view, setView] = useState<View>("all");
+  const { checked: checkedLibrary, toggle: toggleLibrary } = useChecklist(`ssn.plan.checklist.${candidate?.id ?? "guest"}`);
 
   useEffect(() => {
     setData(null);
@@ -95,12 +116,28 @@ export default function PlanPage() {
     }
   }
 
+  if (candidateLoading)
+    return (
+      <>
+        <PageHeader eyebrow="Study plan" title="A week that adapts to you" lead="Seven days of study weighted to your weakest topics." />
+        <Loading label="Checking your profile…" />
+      </>
+    );
+
   if (!candidate)
     return (
       <>
         <PageHeader eyebrow="Study plan" title="A week that adapts to you" lead="Seven days of study weighted to your weakest topics." />
         <NeedsCandidate />
-        <LibrarySections library={library} error={libraryError} role={null} weakTopics={[]} />
+        <LibrarySections
+          library={library}
+          error={libraryError}
+          role={null}
+          weakTopics={[]}
+          view={view}
+          checked={checkedLibrary}
+          onToggle={toggleLibrary}
+        />
       </>
     );
 
@@ -135,6 +172,33 @@ export default function PlanPage() {
       </p>
       <ErrorNote message={error} />
 
+      {plan && (
+        <div className="sticky top-[7.5rem] z-10 mb-4 rounded-2xl border border-hair bg-bg/85 px-4 py-3 backdrop-blur-xl lg:top-4">
+          <div className="flex items-center justify-between text-sm">
+            <span className="font-medium">Overall plan completion</span>
+            <span className="font-mono text-xs tabular-nums text-muted">
+              {doneCount} of 7 days done ({Math.round((doneCount / 7) * 100)}%)
+              {checkedLibrary.size > 0 && ` · ${checkedLibrary.size} library item${checkedLibrary.size === 1 ? "" : "s"} marked`}
+            </span>
+          </div>
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-hair" aria-hidden>
+            <motion.div
+              className="h-full rounded-full bg-ink"
+              animate={{ width: `${(doneCount / 7) * 100}%` }}
+              transition={SPRING_UI}
+            />
+          </div>
+        </div>
+      )}
+
+      <div className="mb-5 flex flex-wrap gap-2" role="group" aria-label="Show">
+        {VIEWS.map((v) => (
+          <FilterPill key={v.id} pressed={view === v.id} onClick={() => setView(v.id)}>
+            {v.label}
+          </FilterPill>
+        ))}
+      </div>
+
       {!data && !error && <Loading label="Loading your study plan…" />}
       {!plan && data && (
         <Empty icon={CalendarPlus}>
@@ -142,7 +206,7 @@ export default function PlanPage() {
         </Empty>
       )}
 
-      {plan && (
+      {plan && (view === "all" || view === "core") && (
         <>
           <section aria-label="This week at a glance" className="card surface-light mb-6 flex flex-wrap items-center gap-6">
             <Ring value={doneCount} max={7} label="Days done this week" size={96} />
@@ -257,7 +321,15 @@ export default function PlanPage() {
         </>
       )}
 
-      <LibrarySections library={library} error={libraryError} role={candidate.target_role} weakTopics={weakTopics} />
+      <LibrarySections
+        library={library}
+        error={libraryError}
+        role={candidate.target_role}
+        weakTopics={weakTopics}
+        view={view}
+        checked={checkedLibrary}
+        onToggle={toggleLibrary}
+      />
     </>
   );
 }

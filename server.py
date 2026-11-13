@@ -52,7 +52,7 @@ async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
     yield
 
 
-DEFAULT_ORIGINS = "http://localhost:3000"
+DEFAULT_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000"
 
 
 def cors_origins() -> list[str]:

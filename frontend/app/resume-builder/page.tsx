@@ -2,11 +2,12 @@
 
 import { Suspense, useEffect, useId, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Download, Loader2, Plus, Sparkles, Trash2 } from "lucide-react";
-import { API, ApiError, get, post, qs, type Ats, type RoleFit } from "@/lib/api";
+import { AnimatePresence, motion } from "motion/react";
+import { Download, Loader2, Plus, Sparkles, Trash2, Wand2 } from "lucide-react";
+import { API, ApiError, get, post, qs, type Ats, type Catalog, type RoleFit } from "@/lib/api";
 import { useCatalog } from "@/lib/catalog";
 import { Badge, ErrorNote, PageHeader, Ring } from "@/components/ui";
-import { CONSENT_TEXT } from "@/lib/site";
+import { CONSENT_TEXT, SPRING_UI } from "@/lib/site";
 
 type Edu = {
   degree: string;
@@ -35,6 +36,14 @@ const FIT: Record<string, { state: "ok" | "info" | "warn"; text: string }> = {
   "on completion": { state: "info", text: "Your degree fits once completed" },
   "no match": { state: "warn", text: "None of your degrees fits this role" },
 };
+
+// Three quick-start presets for a demo: real roles and real catalog data (ats_keywords,
+// sample_projects), never invented skills or projects. Contact details are an obvious placeholder.
+const SAMPLES = [
+  { role: "Software Engineer", label: "Python Developer" },
+  { role: "Backend Developer", label: "Java Backend" },
+  { role: "Data Analyst & BI Specialist", label: "Data Analyst" },
+] as const;
 
 const STEPS = [
   ["contact", "Contact"],
@@ -206,6 +215,33 @@ function Builder() {
     }
   }
 
+  // Fills every section from a real role in the catalog, for an instant demo. Contact and
+  // education are an obvious placeholder; skills and the project come straight from the role's
+  // own ats_keywords and sample_projects, so the ATS score that follows reflects real data.
+  function loadSample(roleName: string, c: Catalog) {
+    const found = c.domains.flatMap((d) => d.roles.map((r) => ({ domainId: d.id, role: r }))).find((x) => x.role.name === roleName);
+    if (!found) return;
+    const { domainId: did, role: r } = found;
+    const sample = r.sample_projects[0];
+    const degree = c.degrees.find((d) => /tech|engineering/i.test(d.name))?.code ?? c.degrees[0]?.code ?? "";
+    setDomainId(did);
+    setRole(r.name);
+    setContact({
+      full_name: "Demo Candidate",
+      email: "demo.candidate@example.com",
+      phone: "",
+      location: "Bengaluru, India",
+      linkedin_url: "",
+      github_url: "",
+    });
+    setEducation([{ degree, specialization: "Computer Science", institution: "Demo Institute of Technology", status: "Pursuing", start: "2023", end: "2027", score: "8.5" }]);
+    setJobs([]);
+    setSkills(r.ats_keywords.slice(0, 8));
+    setExtraSkills("");
+    setProject(sample ? { title: sample.title, tech: sample.tech, desc: sample.bullets.join("\n") } : { title: "", tech: "", desc: "" });
+    setCerts("");
+  }
+
   const setEdu = (i: number, patch: Partial<Edu>) => setEducation((l) => l.map((e, k) => (k === i ? { ...e, ...patch } : e)));
   const setJob = (i: number, patch: Partial<Job>) => setJobs((l) => l.map((e, k) => (k === i ? { ...e, ...patch } : e)));
   const score = ats?.score ?? 0;
@@ -233,6 +269,24 @@ function Builder() {
               ))}
             </ol>
           </nav>
+          {catalog && (
+            <section className="card" aria-label="Quick start">
+              <h2 className="flex items-center gap-2 text-sm font-semibold">
+                <Wand2 size={15} aria-hidden /> Try a sample resume
+              </h2>
+              <p className="mt-1 text-sm text-muted">
+                Fills every section below with a real role, its own keywords and a sample project from the catalog, for an instant demo.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {SAMPLES.map((s) => (
+                  <button key={s.role} type="button" className="btn-ghost" onClick={() => loadSample(s.role, catalog)}>
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+
           <section className="card grid gap-4 sm:grid-cols-2" aria-label="Target role">
             <Labeled label="Career domain">{(id) => (<select id={id} className="input" value={domain?.id ?? ""} onChange={(e) => setDomainId(e.target.value)}>
                 {catalog?.domains.map((d) => (
@@ -461,22 +515,34 @@ function Builder() {
                 <p className="mt-1 text-sm text-muted">Updates as you type, from a local audit.</p>
               </div>
             </div>
-            <div className="mt-3 flex flex-wrap gap-2">
+            <motion.div className="mt-3 flex flex-wrap gap-2" key={scoreState} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={SPRING_UI}>
               <Badge state={scoreState}>{score >= 80 ? "Strong match" : score >= 60 ? "Fair match" : "Weak match"}</Badge>
               {ats?.degree_fit && FIT[ats.degree_fit] && <Badge state={FIT[ats.degree_fit].state}>{FIT[ats.degree_fit].text}</Badge>}
-            </div>
+            </motion.div>
             <p className="mt-3 text-xs text-muted">
               Action verbs: {ats?.action_verbs_count ?? 0} · Numbers in bullets: {ats?.has_metrics ? "yes" : "none"}
             </p>
             <h3 className="mt-4 text-sm font-semibold">Keywords found ({ats?.matched_keywords.length ?? 0})</h3>
             <div className="mt-1 flex flex-wrap gap-1">
-              {ats?.matched_keywords.map((k) => (<Badge key={k} state="ok">{k}</Badge>))}
+              <AnimatePresence>
+                {ats?.matched_keywords.map((k, i) => (
+                  <motion.span key={k} layout initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ ...SPRING_UI, delay: Math.min(i, 10) * 0.02 }}>
+                    <Badge state="ok">{k}</Badge>
+                  </motion.span>
+                ))}
+              </AnimatePresence>
             </div>
             {!!ats?.missing_keywords.length && (
               <>
                 <h3 className="mt-3 text-sm font-semibold">Not on the resume</h3>
                 <div className="mt-1 flex flex-wrap gap-1">
-                  {ats.missing_keywords.slice(0, 10).map((k) => (<Badge key={k} state="todo">{k}</Badge>))}
+                  <AnimatePresence>
+                    {ats.missing_keywords.slice(0, 10).map((k, i) => (
+                      <motion.span key={k} layout initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ ...SPRING_UI, delay: i * 0.02 }}>
+                        <Badge state="todo">{k}</Badge>
+                      </motion.span>
+                    ))}
+                  </AnimatePresence>
                 </div>
               </>
             )}

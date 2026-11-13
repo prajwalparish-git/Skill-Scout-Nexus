@@ -44,10 +44,14 @@ export function Books({
   library,
   role,
   weakTopics,
+  checked,
+  onToggle,
 }: {
   library: Library;
   role: string | null;
   weakTopics: string[];
+  checked: Set<string>;
+  onToggle: (id: string) => void;
 }) {
   const roleEntry = role ? library.roles[role] : undefined;
   const [domain, setDomain] = useState(roleEntry?.domain ?? "");
@@ -162,12 +166,23 @@ export function Books({
         </div>
       ) : (
         <ul className="mt-3 grid gap-3 md:grid-cols-2">
-          {list.slice(0, shown).map(({ book, fills }) => (
+          {list.slice(0, shown).map(({ book, fills }) => {
+            const done = checked.has(book.id);
+            return (
             <li key={book.id}>
-              <article className="card flex h-full gap-4" aria-labelledby={`${id}-${book.id}`}>
+              <article className={`card flex h-full gap-4 ${done ? "bg-surface/40" : ""}`} aria-labelledby={`${id}-${book.id}`}>
+                <label className="-m-1 flex h-fit shrink-0 cursor-pointer flex-col items-center gap-1 p-1">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-[rgb(var(--primary))]"
+                    checked={done}
+                    onChange={() => onToggle(book.id)}
+                    aria-label={`Mark "${book.title}" as read`}
+                  />
+                </label>
                 <Cover book={book} />
                 <div className="min-w-0 flex-1">
-                  <h3 id={`${id}-${book.id}`} className="font-semibold leading-snug">
+                  <h3 id={`${id}-${book.id}`} className={`font-semibold leading-snug ${done ? "text-muted line-through decoration-line" : ""}`}>
                     {book.title}
                   </h3>
                   <p className="mt-0.5 text-sm text-muted">{book.author}</p>
@@ -194,7 +209,8 @@ export function Books({
                 </div>
               </article>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
 

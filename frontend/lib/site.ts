@@ -39,3 +39,6 @@ export const CONSENT_TEXT =
 
 /** The spring every interactive element uses. */
 export const SPRING = { type: "spring", stiffness: 300, damping: 30 } as const;
+
+/** The snappier spring for in-app controls: nav pills, question transitions, tap feedback. */
+export const SPRING_UI = { type: "spring", stiffness: 350, damping: 30 } as const;
