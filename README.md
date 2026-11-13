@@ -179,6 +179,12 @@ every option is explained in that file. Never commit `.env`.
 
 ## Running locally
 
+There are two front ends over the same services and the same `.env`: the Streamlit app (full
+product, including organization admin) and a Next.js web app (the animated marketing site, a
+redesigned dashboard, quiz, mock interview, study plan and resume builder).
+
+### Streamlit app
+
 ```bash
 streamlit run app.py
 ```
@@ -194,28 +200,34 @@ own under **Organization admin access**. To rebuild the demo organization:
 python -m scripts.seed_cohort --replace    # the fictional demo organization and its students
 ```
 
-<details>
-<summary><b>Optional: the Next.js front end</b></summary>
+### Next.js web app
 
-<br>
+The API (step 1) and the Next.js dev server (step 2) each run in their own terminal, both from
+the repo root created by [Quick start](#quick-start):
 
-A faster web front end over the same services, with instant quizzes from the question bank:
+**1. Start the API**, reading the same `.env` as the Streamlit app:
+
+| Windows (PowerShell) | macOS / Linux |
+|---|---|
+| `.venv\Scripts\python -m uvicorn server:app --port 8000` | `.venv/bin/python -m uvicorn server:app --port 8000` |
+
+**2. Start the front end** (first run only: `npm install` once inside `frontend/`):
 
 ```bash
-uvicorn server:app --port 8000             # the API, reading the same .env
 cd frontend
-npm install
-npm run dev                                # http://localhost:3000
+npm install        # first run only
+npm run dev
 ```
 
-Set `NEXT_PUBLIC_API_URL=http://localhost:8000` in `frontend/.env.local`. If the front end runs
-on another address, list it in `FRONTEND_ORIGINS` in `.env` (comma-separated).
+Open **http://localhost:3000** — accounts are still created in the Streamlit app at
+`:8501` (sign up, then upload a resume); the Next.js app reads the same students and data.
+
+If the API needs a different `NEXT_PUBLIC_API_URL`, set it in `frontend/.env.local`; if the front
+end runs on another address, list it in `FRONTEND_ORIGINS` in `.env` (comma-separated).
 
 > **Local use only.** The API has no sign-in of its own: any caller that can reach it can read
 > and write any student's records by id. Keep it on `localhost` (or behind your own
 > authentication); the Streamlit app is the one with accounts.
-
-</details>
 
 <details>
 <summary><b>Optional: check your Groq models before a demo</b></summary>
