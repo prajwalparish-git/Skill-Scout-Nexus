@@ -1,0 +1,38 @@
+# Render Blueprint for the FastAPI backend (server.py). Deploy: dashboard.render.com ->
+# New -> Blueprint -> this repo. The Next.js frontend is not deployed from this file — it goes
+# to Vercel (see README.md > Deployment).
+services:
+  - type: web
+    name: skill-scout-nexus-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: MOCK_MODE
+        value: "false"
+      # The Vercel URL(s) allowed to call this API (comma-separated, no trailing slash).
+      - key: FRONTEND_ORIGINS
+        sync: false
+      - key: GROQ_API_KEYS
+        sync: false
+      - key: GEMINI_API_KEYS
+        sync: false
+      # Recommended for production: a hosted Postgres URL (e.g. Supabase) so student records
+      # survive a redeploy without relying on the disk below. DATABASE_URL and SUPABASE_DB_URL
+      # are interchangeable (piq/config.py); DATABASE_URL wins if both are set.
+      - key: DATABASE_URL
+        sync: false
+      # Only read when no DATABASE_URL/SUPABASE_DB_URL is set: the local SQLite fallback then
+      # lives on the persistent disk below instead of the container's writable layer, so it
+      # survives restarts and redeploys (but not disk deletion).
+      - key: DB_PATH
+        value: /data/placementiq.db
+      - key: TELEMETRY_DB_PATH
+        value: /data/placement_nexus.db
+    disk:
+      name: skill-scout-nexus-data
+      mountPath: /data
+      sizeGB: 1

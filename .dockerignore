@@ -1,0 +1,22 @@
+# Keep the backend image lean: the Next.js app deploys separately (Vercel), and none of this
+# is needed to run server.py.
+frontend/
+.venv/
+venv/
+.git/
+.github/
+tests/
+docs/
+.claude/
+.gemini/
+deploy/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+node_modules/
+.env
+.env.*
+!.env.example

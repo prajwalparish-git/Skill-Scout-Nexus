@@ -371,6 +371,33 @@ Only original project artwork, open-licensed fonts and icons, and open-source li
 The study library on the plan page links to books and repositories that belong to their authors;
 nothing from them is copied into the app.
 
+## Deployment
+
+The Next.js front end and the FastAPI backend deploy separately. Copy `.env.production.example`
+and fill it in; it documents every variable below.
+
+**Backend (`server.py`) → [Render](https://render.com):**
+
+1. Push this repo to GitHub, then in Render: **New → Blueprint**, pick the repo. `render.yaml`
+   at the root defines the service (Docker, a persistent disk at `/data` so the SQLite fallback
+   survives restarts, and a health check on `/api/health`).
+2. Set `FRONTEND_ORIGINS`, `GROQ_API_KEYS` and/or `GEMINI_API_KEYS` in the service's
+   **Environment** tab. For production, also set `DATABASE_URL` (or `SUPABASE_DB_URL`) to a
+   hosted Postgres database — the disk is a fallback for a quick demo deploy, not a substitute
+   for a real database.
+3. Note the deployed URL (`https://<service>.onrender.com`).
+
+**Frontend (`frontend/`) → [Vercel](https://vercel.com):**
+
+1. **New Project**, pick this repo, set **Root Directory** to `frontend`.
+2. Add the environment variable `NEXT_PUBLIC_API_URL` = the Render URL from above (no trailing
+   slash) in **Settings → Environment Variables**, then deploy.
+3. Back on Render, set `FRONTEND_ORIGINS` to the resulting `https://<project>.vercel.app` URL
+   (step 2 above) and redeploy the backend so CORS allows it.
+
+Local Docker build, to sanity-check the image before pushing: `docker build -t ssn-api . &&
+docker run -p 8000:8000 --env-file .env ssn-api`.
+
 <div align="center">
 <br>
 <sub>Built with Streamlit, LangGraph and Pydantic · runs offline in mock mode · <a href="https://github.com/prajwalparish-git/Skill-Scout-Nexus">github.com/prajwalparish-git/Skill-Scout-Nexus</a></sub>
