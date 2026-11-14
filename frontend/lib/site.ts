@@ -2,7 +2,7 @@
 
 export const GITHUB_URL = "https://github.com/prajwalparish-git/Skill-Scout-Nexus";
 
-/** The Streamlit app, where accounts are created (sign-up and resume onboarding). */
+/** The Streamlit app: the organization admin portal (students sign in on this site). */
 export const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:8501";
 
 /** Sections of the home page, linked from the top bar and the footer. */

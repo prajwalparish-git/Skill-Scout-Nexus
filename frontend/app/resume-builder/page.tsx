@@ -4,7 +4,7 @@ import { Suspense, useEffect, useId, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
 import { Download, Loader2, Plus, Sparkles, Trash2, Wand2 } from "lucide-react";
-import { API, ApiError, get, post, qs, type Ats, type Catalog, type RoleFit } from "@/lib/api";
+import { API, failure, get, post, qs, saveFile, type Ats, type Catalog, type RoleFit } from "@/lib/api";
 import { useCatalog } from "@/lib/catalog";
 import { Badge, ErrorNote, PageHeader, Ring } from "@/components/ui";
 import { CONSENT_TEXT, SPRING_UI } from "@/lib/site";
@@ -147,19 +147,25 @@ function Builder() {
     [contact, roleInfo, skills, extraSkills, education, jobs, project, certs],
   );
 
-  // Live ATS score: the local audit, debounced so typing never waits on it.
+  // Live ATS score: the local audit, debounced so typing never waits on it. A reply for an older
+  // version of the form is dropped, so a slow one cannot overwrite a newer score.
   useEffect(() => {
     if (!body.role_name) return;
+    let current = true;
     const t = setTimeout(() => {
       post<{ ats: Ats }>("/api/resume/ats", body).then(
         (r) => {
+          if (!current) return;
           setAts(r.ats);
           setError(null);
         },
-        (e: Error) => setError(e.message),
+        (e: Error) => current && setError(e.message),
       );
     }, 250);
-    return () => clearTimeout(t);
+    return () => {
+      current = false;
+      clearTimeout(t);
+    };
   }, [body]);
 
   // Roles the first degree qualifies for.
@@ -169,13 +175,17 @@ function Builder() {
       setFits([]);
       return;
     }
+    let current = true;
     const t = setTimeout(() => {
       get<RoleFit[]>(`/api/roles-for-degree?${qs({ degree: first.degree, specialization: first.specialization, status: first.status })}`).then(
-        setFits,
-        () => setFits([]),
+        (f) => current && setFits(f),
+        () => current && setFits([]),
       );
     }, 250);
-    return () => clearTimeout(t);
+    return () => {
+      current = false;
+      clearTimeout(t);
+    };
   }, [first?.degree, first?.specialization, first?.status]);
 
   async function downloadPdf() {
@@ -188,13 +198,8 @@ function Builder() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new ApiError((await res.json().catch(() => ({}))).detail ?? "PDF failed", res.status);
-      const url = URL.createObjectURL(await res.blob());
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = /filename="(.+)"/.exec(res.headers.get("content-disposition") ?? "")?.[1] ?? "resume.pdf";
-      a.click();
-      URL.revokeObjectURL(url);
+      if (!res.ok) throw await failure(res);
+      saveFile(await res.blob(), res.headers.get("content-disposition"), "resume.pdf");
       setPdfDone(true);
     } catch (e) {
       setError(e instanceof TypeError ? "Cannot reach the server. Is the API running?" : (e as Error).message);

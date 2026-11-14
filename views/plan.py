@@ -219,10 +219,6 @@ def _plans(sid: str, ov: services.PlanOverview) -> None:
                             checklist_md, f"copy_btn_w{shown.week_no}"
                         )
                     )
-                    st.caption(
-                        ":material/sync_alt: *Advanced: Configure Zapier/Make webhook in "
-                        "settings to auto-sync to Google Tasks*"
-                    )
 
                 if st.toggle("Table view", help="The same seven days as a table."):
                     st.dataframe(formatter.plan_table(shown), width="stretch")

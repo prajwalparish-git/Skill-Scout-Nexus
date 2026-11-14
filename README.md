@@ -77,7 +77,8 @@ organization and assigned domain in the sidebar, start on a profile already buil
 role's benchmark skills, and are offered a password of their own. An admin only ever sees their
 own organization's students.
 
-**More tools:** an adaptive weekly plan that follows quiz scores, a full quiz with its
+**More tools:** an adaptive weekly plan that follows quiz scores (and downloads as a calendar
+file for Google Calendar, Outlook or Apple Calendar), a full quiz with its
 step-by-step critic trail, a chat mock interview, an ATS resume builder with PDF export, a
 project space for computing roles, and a personal dashboard.
 
@@ -303,7 +304,7 @@ flowchart LR
 
 | Layer | Built with |
 |---|---|
-| Interface | Streamlit 1.66 with Altair charts; optional Next.js 14 over FastAPI |
+| Interface | Streamlit 1.66 with Altair charts; Next.js 16 (React 18, Tailwind) over FastAPI |
 | Agents | LangGraph generate → verify → retry loop; every AI answer is a validated Pydantic model |
 | AI | Groq and Google Gemini (round-robin key pools), local Ollama, built-in answers |
 | Voice | ElevenLabs, Gemini TTS, the PC's own voice or the browser's Web Speech API; Whisper on Groq, Gemini or faster-whisper (offline) for transcription. `python -m scripts.offline_setup` checks the no-internet setup |
@@ -313,7 +314,9 @@ flowchart LR
 
 ```
 app.py              Streamlit entry point: settings check, session gate, navigation
-server.py           FastAPI over the same services, for the Next.js front end
+server.py           FastAPI over the same services, for the Next.js front end (JSON errors)
+server_auth.py      Its sign-in: sessions in HttpOnly cookies, codes, devices, rate limits
+server_ops.py       The operations view (read-only), opened only with DEV_SECRET
 views/              One file per page; thin, no business logic
 piq/                Application core: services, journey, accounts, organizations, LLM gateway,
                     prompts, checks, formatting and charts (only piq/ui.py imports Streamlit)
@@ -323,7 +326,7 @@ database/           Telemetry: local SQLite with a background copy to PostgreSQL
 data/               Catalog, role skills, degrees, interview tracks, question bank, samples
 scripts/            Seeding, model checks, offline setup, CI checks and dev tools
 evaluation/         The frozen baseline-vs-agents evaluation and its report
-frontend/           Optional Next.js 14 front end
+frontend/           Next.js 16 web app (the student front door)
 ```
 
 Before opening a pull request, run what CI runs:
@@ -331,7 +334,7 @@ Before opening a pull request, run what CI runs:
 ```bash
 ruff format --check .
 ruff check .
-python -m scripts.ci_check         # every module compiles, datasets agree, every page renders
+python -m scripts.ci_check         # modules compile, datasets agree, the API answers, pages render
 cd frontend && npm run typecheck && npm run build   # if you changed the front end
 ```
 
@@ -377,14 +380,16 @@ and fill it in; it documents every variable below.
 **Backend (`server.py`) → [Render](https://render.com):**
 
 1. Push this repo to GitHub, then in Render: **New → Blueprint**, pick the repo. `render.yaml`
-   at the root defines the service (Docker, a persistent disk at `/data` so the SQLite fallback
-   survives restarts, and a health check on `/api/health`).
+   at the root defines a free-tier demo service (Docker, a health check on `/api/health`).
 2. Set `AUTH_PEPPER`, `APP_URL`, `GROQ_API_KEYS` and/or `GEMINI_API_KEYS` in the service's
-   **Environment** tab. For production, also set `DATABASE_URL` (or `SUPABASE_DB_URL`) to a
-   hosted Postgres database. Accounts and sessions are kept in the service's own SQLite file
-   (never copied to the cloud database), so that file must survive redeploys: keep the
-   persistent disk, which needs a paid Render plan, because the free plan's disk is wiped on
-   every deploy and would delete every account.
+   **Environment** tab. Optionally set `DATABASE_URL` (or `SUPABASE_DB_URL`) to a hosted
+   Postgres database: it receives a background copy of the telemetry.
+
+   Accounts and sessions live in the service's own SQLite file (never copied to the cloud
+   database). On the free plan that file sits on the container's own storage, which Render wipes
+   on every deploy, restart and idle spin-down, so a free demo starts empty each time. To keep
+   accounts, switch to a paid instance type and uncomment the `disk:` block and the two `/data`
+   paths in `render.yaml` (Render refuses a disk on the free plan).
 3. Note the deployed URL (`https://<service>.onrender.com`).
 
 **Frontend (`frontend/`) → [Vercel](https://vercel.com):**

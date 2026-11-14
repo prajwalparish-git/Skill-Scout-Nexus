@@ -73,6 +73,7 @@ LAYERS = {
     "test_question_bank": ("Integration", "Local question bank and its share of quizzes"),
     "test_server": ("Integration", "HTTP API for the Next.js frontend"),
     "test_server_auth": ("Integration", "Sign-in over HTTP: sessions, steps, ownership"),
+    "test_ops": ("Integration", "Operations view: access, token expiry, no secrets shown"),
     "test_study_library": ("Integration", "Study books and curated repositories"),
     "test_all_domains": ("Integration", "Every role and domain, resume to interview"),
     "test_agents_layer2": ("Integration", "Layer 2 agents: resume parser, planner, critic quiz"),

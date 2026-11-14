@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowLeft, ArrowRight, Check, Loader2, RotateCcw, Sparkles } from "lucide-react";
 import { get, post, qs, type Graded, type Quiz } from "@/lib/api";
@@ -82,6 +82,12 @@ export default function QuizPage() {
     }
   }
 
+  // The listener below is registered once per question, so it calls the latest submit through a
+  // ref: a stale copy would grade the answers as they were when the question appeared (an option
+  // clicked after that would count as blank), and could submit twice while one is in flight.
+  const submitLatest = useRef(submit);
+  submitLatest.current = () => (busy ? Promise.resolve() : submit());
+
   // Keyboard shortcuts while a question is on screen: 1-9 or A-F pick an option, Enter advances.
   useEffect(() => {
     if (!quiz) return;
@@ -92,7 +98,7 @@ export default function QuizPage() {
       if (e.key === "Enter") {
         e.preventDefault();
         if (current < quiz!.questions.length - 1) setCurrent((c) => c + 1);
-        else if (!graded) submit();
+        else if (!graded) submitLatest.current();
         return;
       }
       if (graded || !q) return;
@@ -103,7 +109,6 @@ export default function QuizPage() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quiz, current, graded]);
 
   const blanks = answers.filter((a) => a === null).length;
@@ -122,7 +127,7 @@ export default function QuizPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Critic-checked quiz"
+        eyebrow="Question-bank quiz"
         title="Quiz"
         lead={
           candidate

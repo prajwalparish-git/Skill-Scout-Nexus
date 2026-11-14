@@ -4,8 +4,8 @@ Method B: Google Calendar deep links and RFC-5545 compliant .ics calendar files.
 Method C: Markdown/plain-text checklist formatting for Google Keep, Apple Notes, and Tasks.
 """
 
-import html
 import json
+import re
 import urllib.parse
 from collections.abc import Collection, Sequence
 from datetime import UTC, date, datetime, timedelta
@@ -171,9 +171,18 @@ def format_tasks_checklist(
 
 
 def copy_clipboard_button_html(text_to_copy: str, button_id: str = "btn-copy-tasks") -> str:
-    """Return a clean HTML/JS button component that copies text directly to system clipboard."""
-    safe_json = json.dumps(text_to_copy)
-    b_id = html.escape(button_id)
+    """Return a clean HTML/JS button component that copies text directly to system clipboard.
+
+    The text sits in an inline <script>: `<`, `>` and `&` are written as JSON escapes, so text
+    holding "</script>" (plan text comes from the AI) cannot close the script and inject markup.
+    The id becomes part of JS function names, so it is reduced to letters, digits and "_"."""
+    safe_json = (
+        json.dumps(text_to_copy)
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+    )
+    b_id = re.sub(r"\W", "_", button_id, flags=re.ASCII) or "btn"
     return f"""
     <div style="margin: 8px 0;">
         <button id="{b_id}" onclick='copyText_{b_id}()'

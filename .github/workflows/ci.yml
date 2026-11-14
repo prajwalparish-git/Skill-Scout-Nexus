@@ -9,10 +9,17 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same branch or pull request replaces a run still in progress.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 # The test suite stays with the developers; the public repository proves the product: format,
-# lint, every module compiles, the datasets agree, and every page renders in mock mode.
+# lint, every module compiles, the datasets agree, the API answers, every page renders in mock
+# mode, and the web app type-checks and builds.
 jobs:
   check:
+    name: Backend (format, lint, compile, datasets, API, pages)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -27,5 +34,27 @@ jobs:
         run: ruff format --check .
       - name: Lint
         run: ruff check .
-      - name: Compile, datasets and pages (offline, MOCK_MODE; no secrets needed)
+      - name: Compile, datasets, API and pages (offline, MOCK_MODE; no secrets needed)
         run: python -m scripts.ci_check
+
+  frontend:
+    name: Web app (type-check, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Type-check
+        run: npm run typecheck
+      - name: Production build
+        run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"

@@ -1,22 +1,51 @@
-# Keep the backend image lean: the Next.js app deploys separately (Vercel), and none of this
-# is needed to run server.py.
+# Keep the backend image lean, and never bake a developer's local state into it: the Next.js
+# app deploys separately (Vercel), and none of this is needed to run server.py.
 frontend/
 .venv/
 venv/
+.tools/
 .git/
 .github/
 tests/
 docs/
+deploy/
 .claude/
 .gemini/
-deploy/
+.vscode/
+.idea/
 __pycache__/
-*.pyc
+*.py[cod]
 .pytest_cache/
 .ruff_cache/
 htmlcov/
 .coverage
 node_modules/
+
+# Secrets: set them in the host's dashboard instead.
 .env
 .env.*
 !.env.example
+!.env.production.example
+
+# Local state: databases (accounts, sessions), dev login codes, caches and evaluation output.
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+*.sqlite
+*.sqlite3
+data/.ai_cache.json
+data/.audio_cache/
+data/.preload_cache/
+data/.mail_outbox.log
+evaluation/results/
+
+# Personal and planning files that live only on the developer's disk.
+Personal Docs/
+Personal documentation/
+MCQ.csv*
+PlacementIQ_Project_Spec*
+REDESIGN_*.md
+test.html
+run.ps1
+run.sh

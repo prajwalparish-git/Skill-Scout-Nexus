@@ -68,7 +68,7 @@ CONSENT_TEXT = (
 )
 
 ORG_TYPES = ("University", "Autonomous Institute", "Law/Commerce College", "Corporate L&D")
-ORG_CODE_RE = re.compile(r"^[A-Z0-9][A-Z0-9-]{2,29}$")  # DBIT-BLR-2027: upper-case, 3-30 characters
+ORG_CODE_RE = re.compile(r"^[A-Z0-9][A-Z0-9-]{2,29}$")  # ACME-BLR-2027: upper-case, 3-30 characters
 DOMAIN_RE = re.compile(r"^(?=.{4,120}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$")
 BATCH_RE = re.compile(r"^\d{4}(-\d{4})?$")  # 2027 or 2026-2027
 PHONE_RE = re.compile(r"^\+?\d[\d ()-]{6,18}$")
@@ -80,8 +80,8 @@ TEMP_PASSWORD_LEN = 12  # generated passwords (core/org_provisioning.py)
 CSV_MAX_BYTES = 1_000_000  # a student CSV above this is refused
 CSV_MAX_ROWS = 1000
 ACTIVE_WITHIN_DAYS = 14  # a learner with a quiz or voice session this recent counts as active
-DEMO_ORG_CODE = "DEMO-DBIT-2027"  # the 1-click demo organization (scripts/seed_cohort.py)
-DEMO_ORG_NAME = "Don Bosco Institute of Technology - Multi-Stream Placement Cell"
+DEMO_ORG_CODE = "DEMO-ORG-2027"  # the 1-click demo organization (scripts/seed_cohort.py)
+DEMO_ORG_NAME = "Demo Institute of Technology - Multi-Stream Placement Cell"
 DEMO_ORG_PREFIX = "DEMO-"  # demo organizations are never synced to the cloud copy
 # --- Layer 3: the AI and speech routers (core/) --------------------------------------
 # Speed first: Groq (fastest cloud), Gemini, a local Ollama; then the offline tier.

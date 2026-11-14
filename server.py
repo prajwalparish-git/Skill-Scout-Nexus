@@ -6,7 +6,11 @@ The interview route streams server-sent events: each critic step as it happens, 
 approved question. Questions are not streamed token by token, because the critic checks each
 one before the student sees it.
 
-Run: uvicorn server:app --port 8000   (the frontend reads NEXT_PUBLIC_API_URL)
+Errors always come back as JSON `{"detail": "<a sentence safe to show>"}`: a ServiceError is 400,
+an invalid request 422, a rate limit 429, an AI failure 502, and anything unexpected 500 (logged
+here, never shown).
+
+Run: uvicorn server:app --port 8000   (the Next.js server proxies /api/* here: API_ORIGIN)
 """
 
 import json
@@ -21,10 +25,12 @@ from typing import Any
 
 from dotenv import dotenv_values
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, ValidationError
 
+from core import calendar_export
 from piq import (
     db,
     formatter,
@@ -36,7 +42,13 @@ from piq import (
     study_library,
     syllabus,
 )
-from piq.config import INSTANT_QUIZ_SIZE, QUIZ_MAX_PER_TOPIC, ROOT
+from piq.config import (
+    INSTANT_QUIZ_SIZE,
+    QUIZ_MAX_PER_TOPIC,
+    RESUME_MAX_EDUCATION,
+    RESUME_MAX_EXPERIENCE,
+    ROOT,
+)
 from piq.services import InterviewSession, ServiceError
 from server_auth import authorize, owner, require_student
 from server_auth import router as auth_router
@@ -61,13 +73,17 @@ DEFAULT_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000"
 def cors_origins() -> list[str]:
     """FRONTEND_ORIGINS from the environment, else from .env, else the local Next.js app.
     Read without loading .env into os.environ: the middleware is built at import, before
-    settings() runs."""
+    settings() runs. A wildcard is dropped: with credentials allowed, "*" would let any site
+    call the API with a student's cookie."""
     raw = (
         os.getenv("FRONTEND_ORIGINS")
         or dotenv_values(os.getenv("PIQ_DOTENV", ROOT / ".env")).get("FRONTEND_ORIGINS")
         or DEFAULT_ORIGINS
     )
-    return [o.strip() for o in raw.split(",") if o.strip()]
+    origins = [o.strip().rstrip("/") for o in raw.split(",") if o.strip()]
+    if "*" in origins:
+        log.warning("FRONTEND_ORIGINS: '*' is ignored; list the frontend's origins instead")
+    return [o for o in origins if o != "*"]
 
 
 app = FastAPI(title="Skill Scout Nexus API", version="1.0", lifespan=_lifespan)
@@ -101,6 +117,35 @@ def _llm_error(_: Request, e: llm.LLMError) -> JSONResponse:
 @app.exception_handler(graph.CriticRejected)
 def _rejected(_: Request, e: graph.CriticRejected) -> JSONResponse:
     return JSONResponse({"detail": f"The critic rejected every attempt: {e}"}, status_code=502)
+
+
+def _field_error(err: dict) -> str:
+    where = ".".join(str(p) for p in err.get("loc", ()) if p not in ("body", "query", "path"))
+    return f"{where}: {err.get('msg', 'invalid')}" if where else str(err.get("msg", "invalid"))
+
+
+@app.exception_handler(RequestValidationError)
+def _invalid_request(_: Request, e: RequestValidationError) -> JSONResponse:
+    """A readable sentence in `detail` (the frontend shows it as is), the field list beside it.
+    The submitted values are left out: a too-long password must not travel back in the reply."""
+    errors = e.errors()
+    detail = _field_error(errors[0]) if errors else "The request is not valid."
+    fields = [
+        {
+            "loc": [str(p) for p in err.get("loc", ())],
+            "msg": err.get("msg"),
+            "type": err.get("type"),
+        }
+        for err in errors
+    ]
+    return JSONResponse({"detail": f"Check the form: {detail}", "errors": fields}, status_code=422)
+
+
+@app.exception_handler(Exception)
+def _unexpected(request: Request, e: Exception) -> JSONResponse:
+    """Last resort: log the traceback, answer JSON the frontend can show (never the error)."""
+    log.error("%s %s failed", request.method, request.url.path, exc_info=e)
+    return JSONResponse({"detail": "Something went wrong on our side. Try again."}, 500)
 
 
 def _rows(rows: list) -> list[dict]:
@@ -269,6 +314,23 @@ def plan_done(candidate_id: str, body: DaysDone) -> dict:
     return {"done": sorted(services.set_days_done(candidate_id, body.week_no, body.days))}
 
 
+@app.get("/api/plan/{candidate_id}/calendar.ics", dependencies=[Depends(owner)])
+def plan_calendar(candidate_id: str) -> Response:
+    """The latest plan as an iCalendar file (one all-day event per day, from next Monday), for
+    Google Calendar, Outlook or Apple Calendar."""
+    ov = services.plan_overview(candidate_id, _student(candidate_id))
+    if not ov.plans:
+        raise HTTPException(404, "There is no study plan yet. Generate one first.")
+    latest = ov.plans[-1]
+    return Response(
+        calendar_export.generate_plan_ics(latest),
+        media_type="text/calendar; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="study-plan-week-{latest.week_no}.ics"'
+        },
+    )
+
+
 @app.get("/api/dashboard/{candidate_id}", dependencies=[Depends(owner)])
 def dashboard(candidate_id: str) -> dict:
     d = services.dashboard(candidate_id, _student(candidate_id))
@@ -373,22 +435,23 @@ def interview_turn(body: InterviewTurnRequest, request: Request) -> StreamingRes
 
 
 class ResumeInput(BaseModel):
-    """The resume form, as resume_builder.build_ats_resume_data takes it."""
+    """The resume form, as resume_builder.build_ats_resume_data takes it. The caps match the
+    form's own and keep a visitor (these routes need no sign-in) from sending a huge PDF job."""
 
-    full_name: str = ""
-    email: str = ""
-    phone: str = ""
-    location: str = ""
-    linkedin_url: str = ""
-    github_url: str = ""
-    role_name: str
-    skills: list[str] = []
-    education: list[dict] = []
-    experience: list[dict] = []
-    project_title: str = ""
-    project_tech: str = ""
-    project_desc: str = ""
-    certifications: list[str] = []
+    full_name: str = Field("", max_length=120)
+    email: str = Field("", max_length=254)
+    phone: str = Field("", max_length=40)
+    location: str = Field("", max_length=120)
+    linkedin_url: str = Field("", max_length=300)
+    github_url: str = Field("", max_length=300)
+    role_name: str = Field(max_length=120)
+    skills: list[str] = Field(default_factory=list, max_length=60)
+    education: list[dict] = Field(default_factory=list, max_length=RESUME_MAX_EDUCATION)
+    experience: list[dict] = Field(default_factory=list, max_length=RESUME_MAX_EXPERIENCE)
+    project_title: str = Field("", max_length=200)
+    project_tech: str = Field("", max_length=300)
+    project_desc: str = Field("", max_length=3000)
+    certifications: list[str] = Field(default_factory=list, max_length=30)
 
 
 def _build(body: ResumeInput) -> dict:
@@ -443,22 +506,3 @@ class BulletRequest(BaseModel):
 def enhance_bullet(body: BulletRequest) -> dict:
     """One bullet in XYZ form (interactive lane: Groq key 1); numbers are never invented."""
     return {"bullet": services.enhance_bullet(body.text, body.role)}
-
-
-class TasksWebhookPayload(BaseModel):
-    student_id: str | None = None
-    tasks: list[dict[str, Any]] | list[str] = Field(default_factory=list)
-    week_no: int | None = None
-    notes: str | None = None
-
-
-@app.post("/api/webhooks/tasks")
-def tasks_webhook(payload: TasksWebhookPayload) -> dict:
-    """Mock webhook endpoint for integrating tasks with Zapier, Make, Google Tasks, etc."""
-    count = len(payload.tasks)
-    return {
-        "status": "success",
-        "message": f"Successfully received {count} task(s) for sync.",
-        "tasks_received": count,
-        "week_no": payload.week_no,
-    }

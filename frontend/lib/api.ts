@@ -20,33 +20,72 @@ export class ApiError extends Error {
 
 const TIMEOUT_MS = 30_000;
 
-/** An AbortSignal that fires after TIMEOUT_MS, so a hung request fails instead of waiting forever. */
-function timeoutSignal(): AbortSignal {
-  const c = new AbortController();
-  setTimeout(() => c.abort(), TIMEOUT_MS);
-  return c.signal;
+/** The API's `detail` as one sentence: a string as is, a validation list as its first message. */
+function detailOf(body: unknown, status: number): string {
+  const detail = (body as { detail?: unknown } | null)?.detail;
+  if (typeof detail === "string" && detail) return detail;
+  if (Array.isArray(detail) && detail.length && typeof detail[0]?.msg === "string") return detail[0].msg;
+  return `Request failed (${status})`;
+}
+
+/** The error a failed (non-2xx) response carries; a 401 also signs the app out. */
+export async function failure(res: Response): Promise<ApiError> {
+  if (res.status === 401) signedOut();
+  const body = await res.json().catch(() => null);
+  return new ApiError(detailOf(body, res.status), res.status);
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  // Aborts a hung request after TIMEOUT_MS; the timer is cleared once the reply has been read.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    let res: Response;
+    try {
+      res = await fetch(`${API}${path}`, {
+        ...init,
+        signal: controller.signal,
+        headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+      });
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") {
+        throw new ApiError("The server took too long to respond.", 0);
+      }
+      throw new ApiError("Cannot reach the server. Is the API running?", 0);
+    }
+    if (!res.ok) throw await failure(res);
+    try {
+      return (await res.json()) as T;
+    } catch {
+      throw new ApiError("The server sent a reply this page could not read.", res.status);
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Hands `blob` to the browser as a download, named from Content-Disposition when it has one. */
+export function saveFile(blob: Blob, disposition: string | null, fallback: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = /filename="([^"]+)"/.exec(disposition ?? "")?.[1] ?? fallback;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000); // revoking at once can cancel the download
+}
+
+/** GET a file from the API and save it (a calendar, a PDF). */
+export async function download(path: string, fallback: string): Promise<void> {
   let res: Response;
   try {
-    res = await fetch(`${API}${path}`, {
-      ...init,
-      signal: timeoutSignal(),
-      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
-    });
-  } catch (e) {
-    if (e instanceof DOMException && e.name === "AbortError") {
-      throw new ApiError("The server took too long to respond.", 0);
-    }
+    res = await fetch(`${API}${path}`);
+  } catch {
     throw new ApiError("Cannot reach the server. Is the API running?", 0);
   }
-  if (!res.ok) {
-    if (res.status === 401) signedOut();
-    const body = await res.json().catch(() => ({}));
-    throw new ApiError(body.detail ?? `Request failed (${res.status})`, res.status);
-  }
-  return res.json() as Promise<T>;
+  if (!res.ok) throw await failure(res);
+  saveFile(await res.blob(), res.headers.get("content-disposition"), fallback);
 }
 
 export const get = <T>(path: string) => request<T>(path);
@@ -63,17 +102,26 @@ export function qs(params: Record<string, string | number | undefined | null>): 
  * POST, then read text/event-stream: calls onEvent(event, data) for each event.
  * Aborts on inactivity (no bytes for TIMEOUT_MS), not on total duration: a multi-step
  * critic pipeline can legitimately run past 30s as long as it keeps emitting steps.
+ * `cancel` (e.g. the page unmounting) stops the stream quietly: the promise resolves.
  */
 export async function postStream(
   path: string,
   body: unknown,
   onEvent: (event: string, data: any) => void,
+  cancel?: AbortSignal,
 ): Promise<void> {
   const controller = new AbortController();
+  if (cancel?.aborted) return;
+  const onCancel = () => controller.abort();
+  cancel?.addEventListener("abort", onCancel, { once: true });
   let idle = setTimeout(() => controller.abort(), TIMEOUT_MS);
   const resetIdle = () => {
     clearTimeout(idle);
     idle = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  };
+  const cleanup = () => {
+    clearTimeout(idle);
+    cancel?.removeEventListener("abort", onCancel);
   };
 
   let res: Response;
@@ -85,17 +133,16 @@ export async function postStream(
       signal: controller.signal,
     });
   } catch (e) {
-    clearTimeout(idle);
+    cleanup();
+    if (cancel?.aborted) return;
     if (e instanceof DOMException && e.name === "AbortError") {
       throw new ApiError("The server took too long to respond.", 0);
     }
     throw new ApiError("Cannot reach the server. Is the API running?", 0);
   }
   if (!res.ok || !res.body) {
-    clearTimeout(idle);
-    if (res.status === 401) signedOut();
-    const err = await res.json().catch(() => ({}));
-    throw new ApiError(err.detail ?? `Request failed (${res.status})`, res.status);
+    cleanup();
+    throw await failure(res);
   }
 
   const reader = res.body.getReader();
@@ -121,12 +168,13 @@ export async function postStream(
       }
     }
   } catch (e) {
+    if (cancel?.aborted) return;
     if (e instanceof DOMException && e.name === "AbortError") {
-      throw new ApiError(`The API at ${API} stopped responding.`, 0);
+      throw new ApiError("The server stopped responding.", 0);
     }
     throw e;
   } finally {
-    clearTimeout(idle);
+    cleanup();
   }
 }
 

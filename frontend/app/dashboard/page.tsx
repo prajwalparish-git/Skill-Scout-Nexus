@@ -58,19 +58,22 @@ export default function DashboardPage() {
   const [d, setD] = useState<DashboardPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const candidateId = candidate?.id;
+
+  // Keyed on the id: a refreshed copy of the same student does not reload the dashboard.
   useEffect(() => {
     setD(null);
     setError(null);
-    if (!candidate) return;
+    if (!candidateId) return;
     let current = true; // a reply for the previous candidate must not land on this one
-    get<DashboardPayload>(`/api/dashboard/${candidate.id}`).then(
+    get<DashboardPayload>(`/api/dashboard/${candidateId}`).then(
       (payload) => current && setD(payload),
       (e: Error) => current && setError(e.message),
     );
     return () => {
       current = false;
     };
-  }, [candidate]);
+  }, [candidateId]);
 
   if (candidateLoading)
     return (

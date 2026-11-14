@@ -73,7 +73,7 @@ class Organization(Base):
     __tablename__ = "organizations"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    org_code: Mapped[str] = mapped_column(String(30), unique=True)  # DBIT-BLR-2027
+    org_code: Mapped[str] = mapped_column(String(30), unique=True)  # ACME-BLR-2027
     name: Mapped[str] = mapped_column(String(200))
     org_type: Mapped[str] = mapped_column(String(40))
     official_domain: Mapped[str | None] = mapped_column(String(120))

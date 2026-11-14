@@ -348,7 +348,7 @@ def change_password(student_id: str, current: str, password: str, confirm: str) 
         _fail(student_id)
         raise ServiceError("Your current password is not right.")
     if password == current:
-        raise ServiceError("Choose a password different from the temporary one.")
+        raise ServiceError("Choose a new password, different from your current one.")
     check_password(password, confirm, student["username"], student["email"] or "")
     db.set_password(student_id, auth.hash_password(password, pepper=settings().auth_pepper))
     db.set_must_change_password(student_id, False)

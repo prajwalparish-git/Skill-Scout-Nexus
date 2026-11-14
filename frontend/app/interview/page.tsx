@@ -63,6 +63,8 @@ export default function InterviewPage() {
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [now, setNow] = useState<number | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
+  const stream = useRef<AbortController | null>(null);
+  const candidateId = candidate?.id;
 
   // A live elapsed timer while the interview is in progress, ticking once a second.
   useEffect(() => {
@@ -71,14 +73,19 @@ export default function InterviewPage() {
     return () => clearInterval(t);
   }, [startedAt, result?.session.done]);
 
+  // Leaving the page (or switching student) stops a turn that is still streaming.
+  useEffect(() => () => stream.current?.abort(), [candidateId]);
+
+  // Keyed on the id, not the object: a refreshed copy of the same student (after a password
+  // change, say) must not throw away an interview in progress.
   useEffect(() => {
     setResult(null);
     setTracks(null);
     setError(null);
     setStartedAt(null);
-    if (!candidate) return;
+    if (!candidateId) return;
     let current = true; // a reply for the previous candidate must not land on this one
-    get<Track[]>(`/api/interview/tracks/${candidate.id}`).then(
+    get<Track[]>(`/api/interview/tracks/${candidateId}`).then(
       (t) => {
         if (!current) return;
         setTracks(t);
@@ -89,7 +96,7 @@ export default function InterviewPage() {
     return () => {
       current = false;
     };
-  }, [candidate]);
+  }, [candidateId]);
 
   // Braces: newer browsers return a Promise from scrollIntoView, and React would take a
   // returned value for the effect's cleanup function.
@@ -99,21 +106,40 @@ export default function InterviewPage() {
 
   async function turn(body: Record<string, unknown>) {
     if (!candidate) return;
+    stream.current?.abort();
+    const controller = new AbortController();
+    stream.current = controller;
     setBusy(true);
     setError(null);
     setSteps([]);
+    let ended = false; // a result or an error arrived
     try {
-      await postStream("/api/interview/turn", { candidate_id: candidate.id, ...body }, (event, data) => {
-        if (event === "step") setSteps((s) => [...s, String(data)]);
-        else if (event === "result") {
-          setResult(data as TurnResult);
-          setAnswer("");
-        } else if (event === "error") setError(data.detail);
-      });
+      await postStream(
+        "/api/interview/turn",
+        { candidate_id: candidate.id, ...body },
+        (event, data) => {
+          if (event === "step") setSteps((s) => [...s, String(data)]);
+          else if (event === "result") {
+            ended = true;
+            setResult(data as TurnResult);
+            setAnswer("");
+          } else if (event === "error") {
+            ended = true;
+            setError(String(data?.detail ?? "Something went wrong. Try again."));
+          }
+        },
+        controller.signal,
+      );
+      if (!ended && !controller.signal.aborted) {
+        setError("The connection closed before the interview answered. Try again.");
+      }
     } catch (e) {
-      setError((e as Error).message);
+      if (!controller.signal.aborted) setError((e as Error).message);
     } finally {
-      setBusy(false);
+      if (stream.current === controller) {
+        stream.current = null;
+        setBusy(false);
+      }
     }
   }
 

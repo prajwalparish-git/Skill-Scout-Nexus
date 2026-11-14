@@ -59,11 +59,13 @@ function Preferences() {
   }, []);
   const save = async (change: Partial<Prefs>) => {
     if (!data) return;
+    const before = data;
     setData({ ...data, prefs: { ...data.prefs, ...change } }); // shown at once, confirmed below
     try {
       setData(await post<SettingsPayload>("/api/auth/settings", change));
       setError(null);
     } catch (e) {
+      setData(before); // not saved: show the setting as it still is
       setError((e as Error).message);
     }
   };

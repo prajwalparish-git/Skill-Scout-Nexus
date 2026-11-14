@@ -7,7 +7,10 @@ repository proves the product itself works.
 2. The datasets parse and agree: every JSON file loads; the question bank has its columns and
    usable questions; every catalog role has a skill list; every bank topic maps to a real
    syllabus topic (or none).
-3. The app starts: every page renders headless (Streamlit AppTest) in mock mode, with no
+3. The API answers (server.py through FastAPI's TestClient): health, catalog, a guest quiz,
+   the resume audit, a local sign-up, the student's plan, calendar and dashboard, and the
+   refusals (signed out, the operations view, an invalid body).
+4. The app starts: every page renders headless (Streamlit AppTest) in mock mode, with no
    student and with the demo student, on throwaway databases. No network, no secrets.
 
 Exit code 0 when everything passes, 1 otherwise (each failure is printed).
@@ -46,7 +49,7 @@ def compile_all() -> None:
     print("Compile")
     for name in CODE:
         check(bool(compileall.compile_dir(ROOT / name, quiet=1)), f"{name}/ compiles")
-    for name in ("app.py", "server.py"):
+    for name in ("app.py", "server.py", "server_auth.py", "server_ops.py", "bootstrap.py"):
         check(bool(compileall.compile_file(ROOT / name, quiet=1)), f"{name} compiles")
 
 
@@ -86,6 +89,90 @@ def datasets() -> None:
         if not study_library.books_for(d.id, t)
     ]
     check(not gaps, f"every domain topic has a study book{gaps[:3] or ''}")
+
+
+def _why(response: object) -> str:
+    """The server's own message for a failed call, appended to the check's label."""
+    status = getattr(response, "status_code", 0)
+    if 200 <= status < 300:
+        return ""
+    try:
+        return f" -> {status}: {response.json().get('detail')}"  # type: ignore[attr-defined]
+    except ValueError:
+        return f" -> {status}"
+
+
+def api() -> None:
+    print("API (server.py, mock mode)")
+    from fastapi.testclient import TestClient
+
+    from piq import syllabus
+    from server import app
+
+    skills = syllabus.role_skills()
+    password = "blue river 4821"  # letters and digits, no username or email in it
+    with TestClient(app) as c:
+        health = c.get("/api/health")
+        check(health.status_code == 200 and health.json().get("ok") is True, "GET /api/health")
+        catalog = c.get("/api/catalog")
+        domains = catalog.json().get("domains", []) if catalog.status_code == 200 else []
+        check(bool(domains), f"GET /api/catalog ({len(domains)} domains)")
+        topic = next((t["name"] for d in domains for t in d["topics"] if t["bank"]), None)
+        if topic:
+            level = next(
+                lv for d in domains for t in d["topics"] if t["name"] == topic for lv in t["bank"]
+            )
+            quiz = c.get("/api/quiz", params={"topic": topic, "difficulty": level})
+            qs = quiz.json().get("questions", []) if quiz.status_code == 200 else []
+            check(
+                bool(qs) and all("correct_index" not in q for q in qs),
+                f"GET /api/quiz (guest, {topic}): questions without answers",
+            )
+        # A role both the catalog (resume templates) and the skill lists know.
+        role = next(r["name"] for d in domains for r in d["roles"] if r["name"] in skills)
+        ats = c.post("/api/resume/ats", json={"full_name": "CI", "role_name": role})
+        check(
+            ats.status_code == 200 and "score" in ats.json().get("ats", {}),
+            f"POST /api/resume/ats{_why(ats)}",
+        )
+        me = c.get("/api/auth/me")
+        check(me.status_code == 200 and me.json().get("student") is None, "GET /api/auth/me")
+        check(c.get("/api/ops/overview").status_code == 401, "operations view refuses a visitor")
+        bad = c.post("/api/quiz/submit", json={"topic": "x", "difficulty": "easy", "answers": []})
+        check(
+            bad.status_code == 422 and isinstance(bad.json().get("detail"), str),
+            "an invalid body is a 422 with a readable detail",
+        )
+        signup = c.post(
+            "/api/auth/signup",
+            json={
+                "name": "CI Student",
+                "username": "cicheck",
+                "email": "student.ci@example.com",
+                "password": password,
+                "confirm": password,
+                "target_role": role,
+            },
+        )
+        sid = (signup.json().get("student") or {}).get("id") if signup.status_code == 200 else None
+        check(
+            sid is not None, f"POST /api/auth/signup (local mode: signed in at once){_why(signup)}"
+        )
+        if sid:
+            check(c.get(f"/api/plan/{sid}").status_code == 200, "GET /api/plan/{id}")
+            made = c.post(f"/api/plan/{sid}/next")
+            check(
+                made.status_code == 200 and made.json().get("plan") is not None,
+                "POST /api/plan/{id}/next (mock planner, critic-checked)",
+            )
+            ics = c.get(f"/api/plan/{sid}/calendar.ics")
+            check(
+                ics.status_code == 200 and ics.text.startswith("BEGIN:VCALENDAR"),
+                "GET /api/plan/{id}/calendar.ics",
+            )
+            check(c.get(f"/api/dashboard/{sid}").status_code == 200, "GET /api/dashboard/{id}")
+            c.post("/api/auth/logout")
+            check(c.get(f"/api/plan/{sid}").status_code == 401, "signed out: the plan is refused")
 
 
 def pages() -> None:
@@ -135,12 +222,23 @@ def main() -> int:
         AI_CACHE_PATH=str(tmp / "ai_cache.json"),
         AUDIO_CACHE_DIR=str(tmp / "audio"),
         PRELOAD_CACHE_DIR=str(tmp / "preload"),
+        MAIL_OUTBOX_PATH=str(tmp / "outbox.log"),
+        LOCAL_MODE="true",  # one student, password only: the API check signs up without email
     )
-    for key in ("DATABASE_URL", "SUPABASE_DB_URL", "GROQ_API_KEY", "GROQ_API_KEYS"):
+    for key in (
+        "DATABASE_URL",
+        "SUPABASE_DB_URL",
+        "GROQ_API_KEY",
+        "GROQ_API_KEYS",
+        "SMTP_EMAIL",
+        "SMTP_APP_PASSWORD",
+        "DEV_SECRET",
+    ):
         os.environ.pop(key, None)
     sys.path.insert(0, str(ROOT))
     compile_all()
     datasets()
+    api()
     pages()
     print(f"\n{'All checks passed.' if not failures else f'{len(failures)} check(s) failed.'}")
     return 1 if failures else 0

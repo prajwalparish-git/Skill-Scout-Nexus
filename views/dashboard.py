@@ -205,10 +205,6 @@ def _plans(d: services.Dashboard) -> None:
         dash_checklist = calendar_export.format_tasks_checklist(curr_plan, done_days=done_set)
         st.code(dash_checklist, language="markdown")
         st.html(calendar_export.copy_clipboard_button_html(dash_checklist, "dash_copy_btn"))
-        st.caption(
-            ":material/sync_alt: *Advanced: Configure Zapier/Make webhook in settings "
-            "to auto-sync to Google Tasks*"
-        )
 
 
 def _under_the_hood(d: services.Dashboard) -> None:

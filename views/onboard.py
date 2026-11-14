@@ -222,7 +222,7 @@ def _create_org_tab() -> None:
         name = left.text_input("Organization name", key="auth_org_name")
         code = right.text_input(
             "Organization code",
-            help="A short code such as DBIT-BLR-2027: capital letters, digits, hyphens.",
+            help="A short code such as ACME-BLR-2027: capital letters, digits, hyphens.",
             key="auth_org_code",
         )
         org_type = left.selectbox("Institution type", ORG_TYPES, key="auth_org_type")

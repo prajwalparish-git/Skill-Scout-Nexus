@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { CalendarPlus, Loader2 } from "lucide-react";
-import { get, post, type PlanPayload } from "@/lib/api";
+import { CalendarDays, CalendarPlus, Loader2 } from "lucide-react";
+import { download, get, post, type PlanPayload } from "@/lib/api";
 import { useCandidate } from "@/lib/candidate";
 import { useChecklist } from "@/lib/checklist";
 import { bestLink, pickBook, useLibrary, type Library } from "@/lib/library";
@@ -72,21 +72,39 @@ export default function PlanPage() {
   const [error, setError] = useState<string | null>(null);
   const [announce, setAnnounce] = useState("");
   const [view, setView] = useState<View>("all");
-  const { checked: checkedLibrary, toggle: toggleLibrary } = useChecklist(`ssn.plan.checklist.${candidate?.id ?? "guest"}`);
+  const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const candidateId = candidate?.id;
+  const { checked: checkedLibrary, toggle: toggleLibrary } = useChecklist(`ssn.plan.checklist.${candidateId ?? "guest"}`);
 
+  // Keyed on the id: a refreshed copy of the same student does not reload the plan.
   useEffect(() => {
     setData(null);
     setError(null);
-    if (!candidate) return;
+    if (!candidateId) return;
     let current = true; // a reply for the previous candidate must not land on this one
-    get<PlanPayload>(`/api/plan/${candidate.id}`).then(
+    get<PlanPayload>(`/api/plan/${candidateId}`).then(
       (payload) => current && setData(payload),
       (e: Error) => current && setError(e.message),
     );
     return () => {
       current = false;
     };
-  }, [candidate]);
+  }, [candidateId]);
+
+  async function exportCalendar() {
+    if (!candidate) return;
+    setExporting(true);
+    setError(null);
+    try {
+      await download(`/api/plan/${candidate.id}/calendar.ics`, "study-plan.ics");
+      setAnnounce("Calendar file downloaded. Open it to add the week to your calendar.");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setExporting(false);
+    }
+  }
 
   async function generate() {
     if (!candidate) return;
@@ -104,15 +122,20 @@ export default function PlanPage() {
     }
   }
 
+  // One save at a time: the server stores exactly the days sent, so two overlapping saves built
+  // from the same list would undo each other.
   async function toggle(day: number) {
-    if (!candidate || !data?.plan) return;
+    if (!candidate || !data?.plan || saving) return;
     const done = data.done.includes(day) ? data.done.filter((d) => d !== day) : [...data.done, day];
+    setSaving(true);
     try {
       const r = await post<{ done: number[] }>(`/api/plan/${candidate.id}/done`, { week_no: data.plan.week_no, days: done });
-      setData({ ...data, done: r.done });
+      setData((prev) => (prev ? { ...prev, done: r.done } : prev));
       setAnnounce(`Day ${day} marked ${r.done.includes(day) ? "done" : "not done"}. ${r.done.length} of 7 days done this week.`);
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -161,10 +184,18 @@ export default function PlanPage() {
         title={plan ? `Week ${plan.week_no}` : "A week that adapts to you"}
         lead="Seven days of study weighted to your weakest topics. A critic checks that weak topics get at least half the time before you see it."
         actions={
-          <button type="button" className="btn-primary" disabled={busy || !data} onClick={generate}>
-            {busy ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <CalendarPlus size={16} aria-hidden />}
-            {busy ? "Generating study plan…" : plan ? `Generate week ${data?.next_week} study plan` : "Generate my first week's study plan"}
-          </button>
+          <div className="flex flex-wrap gap-2">
+            {plan && (
+              <button type="button" className="btn-hair" disabled={exporting} onClick={exportCalendar}>
+                {exporting ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <CalendarDays size={16} aria-hidden />}
+                Add week {plan.week_no} to my calendar
+              </button>
+            )}
+            <button type="button" className="btn-primary" disabled={busy || !data} onClick={generate}>
+              {busy ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <CalendarPlus size={16} aria-hidden />}
+              {busy ? "Generating study plan…" : plan ? `Generate week ${data?.next_week} study plan` : "Generate my first week's study plan"}
+            </button>
+          </div>
         }
       />
       <p role="status" aria-live="polite" className="sr-only">
@@ -234,6 +265,7 @@ export default function PlanPage() {
                             type="checkbox"
                             className="h-5 w-5 accent-[rgb(var(--primary))]"
                             checked={done}
+                            disabled={saving}
                             onChange={() => toggle(d.day)}
                             aria-label={`Day ${d.day}: ${d.topic}, mark as done`}
                           />

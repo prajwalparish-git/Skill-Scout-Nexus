@@ -181,7 +181,7 @@ class OrganizationForm(BaseModel):
         code = str(v or "").strip().upper()
         if not ORG_CODE_RE.match(code):
             raise ValueError(
-                "Organization code: 3-30 capital letters, digits or hyphens, such as DBIT-BLR-2027."
+                "Organization code: 3-30 capital letters, digits or hyphens, such as ACME-BLR-2027."
             )
         return code
 
