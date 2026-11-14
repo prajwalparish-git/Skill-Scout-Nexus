@@ -5,7 +5,7 @@
 
 The evaluation numbers come from the summary `python -m evaluation.run_eval` writes, so run
 this again after every evaluation run. The page is HTML printed to A4 by Playwright's
-Chromium (the screenshot tool's dev dependency) with the app's own fonts and mark embedded,
+Chromium (a dev dependency) with the app's own fonts and mark embedded,
 so nothing is fetched. Never imported by the app; the test suite covers build_html only.
 """
 

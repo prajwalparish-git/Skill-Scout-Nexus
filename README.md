@@ -75,8 +75,7 @@ portal**:
 Students of an organization sign in with the email and password they were sent, see their
 organization and assigned domain in the sidebar, start on a profile already built from their
 role's benchmark skills, and are offered a password of their own. An admin only ever sees their
-own organization's students. **Try demo organization admin** on the sign-in page opens a fictional
-organization with two dozen students across the four streams.
+own organization's students.
 
 **More tools:** an adaptive weekly plan that follows quiz scores, a full quiz with its
 step-by-step critic trail, a chat mock interview, an ATS resume builder with PDF export, a
@@ -93,10 +92,17 @@ project space for computing roles, and a personal dashboard.
 - **Never blocks on the network.** Records are saved to a local SQLite database at once and
   copied to a cloud PostgreSQL (such as Supabase) in the background, catching up after an
   outage.
-- **Your own account.** Sign in with a username or email, a password (PBKDF2-SHA256, 600,000
-  rounds, salted) and a 9-digit code emailed to you; five wrong tries lock the account for 15
-  minutes. You stay signed in across a browser refresh, and your scan, roadmap, quizzes and
-  voice scores are where you left them.
+- **Your own account.** A 9-digit code emailed to you confirms a new account; after that a
+  username or email and a password (PBKDF2-SHA256, 600,000 rounds, salted) sign you in, and the
+  code is asked again only after more than two wrong tries. Five wrong tries lock the account for
+  15 minutes. A sign-in on a new device is emailed to you (browser, OS, IP, approximate location),
+  and **Settings** lists every signed-in device so you can sign any of them out. You stay signed
+  in across a browser refresh, and your scan, roadmap, quizzes and voice scores are where you
+  left them.
+- **Saves AI quota by default.** Preparing the next steps in the background is off for each
+  student until they turn it on in Settings.
+- **One student on one laptop.** With no email and no cloud database set up, the app runs as a
+  single-student copy: one account, and the password alone signs in.
 - **No key prompts, ever.** Keys are read from `.env`; anything missing is skipped quietly
   (without email settings, codes go to a local outbox file for testing).
 - **Accessible design.** Light and dark themes, readable on a phone and on a projector,
@@ -119,8 +125,7 @@ writes a launcher (`run.ps1` on Windows, `run.sh` on macOS and Linux). Then star
 |---|---|
 | `.\run.ps1` | `./run.sh` |
 
-Open http://localhost:8501, sign up (or press **Continue with demo account**) and follow the
-journey. With no keys it runs in mock mode, so every page can be tried offline.
+Open http://localhost:8501, sign up and follow the journey. With no keys it runs in mock mode, so every page can be tried offline.
 
 <details>
 <summary>Manual setup instead</summary>
@@ -191,14 +196,8 @@ streamlit run app.py
 
 Then open **http://localhost:8501**.
 
-Create an account (a 9-digit code confirms your email), or press **Continue with demo account**
-to see a returning student with four weeks of fictional history; it is set up on first use. For
-organizations, press **Try demo organization admin** (also set up on first use), or create your
-own under **Organization admin access**. To rebuild the demo organization:
-
-```bash
-python -m scripts.seed_cohort --replace    # the fictional demo organization and its students
-```
+Create an account (a 9-digit code confirms your email). For organizations, create one under
+**Organization admin access**.
 
 ### Next.js web app
 
@@ -219,15 +218,14 @@ npm install        # first run only
 npm run dev
 ```
 
-Open **http://localhost:3000** — accounts are still created in the Streamlit app at
-`:8501` (sign up, then upload a resume); the Next.js app reads the same students and data.
+Open **http://localhost:3000** and create an account (a password, then a 9-digit code emailed to
+you). The same accounts work in the Streamlit app at `:8501`, which also has the organization
+admin portal. The browser only calls the site's own `/api/*`; the Next.js server forwards it to the
+API, so the session cookie is first-party. If the API runs elsewhere, set `API_ORIGIN` in
+`frontend/.env.local`.
 
-If the API needs a different `NEXT_PUBLIC_API_URL`, set it in `frontend/.env.local`; if the front
-end runs on another address, list it in `FRONTEND_ORIGINS` in `.env` (comma-separated).
-
-> **Local use only.** The API has no sign-in of its own: any caller that can reach it can read
-> and write any student's records by id. Keep it on `localhost` (or behind your own
-> authentication); the Streamlit app is the one with accounts.
+The API only returns a student's records to that student's own signed-in session, and sign-in
+requests are rate-limited per address.
 
 <details>
 <summary><b>Optional: check your Groq models before a demo</b></summary>
@@ -381,19 +379,22 @@ and fill it in; it documents every variable below.
 1. Push this repo to GitHub, then in Render: **New → Blueprint**, pick the repo. `render.yaml`
    at the root defines the service (Docker, a persistent disk at `/data` so the SQLite fallback
    survives restarts, and a health check on `/api/health`).
-2. Set `FRONTEND_ORIGINS`, `GROQ_API_KEYS` and/or `GEMINI_API_KEYS` in the service's
+2. Set `AUTH_PEPPER`, `APP_URL`, `GROQ_API_KEYS` and/or `GEMINI_API_KEYS` in the service's
    **Environment** tab. For production, also set `DATABASE_URL` (or `SUPABASE_DB_URL`) to a
-   hosted Postgres database — the disk is a fallback for a quick demo deploy, not a substitute
-   for a real database.
+   hosted Postgres database. Accounts and sessions are kept in the service's own SQLite file
+   (never copied to the cloud database), so that file must survive redeploys: keep the
+   persistent disk, which needs a paid Render plan, because the free plan's disk is wiped on
+   every deploy and would delete every account.
 3. Note the deployed URL (`https://<service>.onrender.com`).
 
 **Frontend (`frontend/`) → [Vercel](https://vercel.com):**
 
 1. **New Project**, pick this repo, set **Root Directory** to `frontend`.
-2. Add the environment variable `NEXT_PUBLIC_API_URL` = the Render URL from above (no trailing
-   slash) in **Settings → Environment Variables**, then deploy.
-3. Back on Render, set `FRONTEND_ORIGINS` to the resulting `https://<project>.vercel.app` URL
-   (step 2 above) and redeploy the backend so CORS allows it.
+2. Add the environment variable `API_ORIGIN` = the Render URL from above (no trailing slash) in
+   **Settings → Environment Variables**, then deploy. Vercel forwards `/api/*` to it, so there is
+   no CORS setup.
+3. Back on Render, set `APP_URL` to the resulting `https://<project>.vercel.app` URL (the
+   buttons in emails point there).
 
 Local Docker build, to sanity-check the image before pushing: `docker build -t ssn-api . &&
 docker run -p 8000:8000 --env-file .env ssn-api`.

@@ -20,7 +20,7 @@ from dataclasses import asdict
 from typing import Any
 
 from dotenv import dotenv_values
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, ValidationError
@@ -38,6 +38,9 @@ from piq import (
 )
 from piq.config import INSTANT_QUIZ_SIZE, QUIZ_MAX_PER_TOPIC, ROOT
 from piq.services import InterviewSession, ServiceError
+from server_auth import authorize, owner, require_student
+from server_auth import router as auth_router
+from server_ops import router as ops_router
 
 log = logging.getLogger("server")
 
@@ -68,9 +71,12 @@ def cors_origins() -> list[str]:
 
 
 app = FastAPI(title="Skill Scout Nexus API", version="1.0", lifespan=_lifespan)
+app.include_router(auth_router)
+app.include_router(ops_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins(),
+    allow_credentials=True,  # the session cookie, when the app calls the API from another origin
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type"],
     expose_headers=["Content-Disposition"],  # the PDF's file name, read by the browser
@@ -145,15 +151,6 @@ def library() -> dict:
     return study_library.payload()
 
 
-PUBLIC_STUDENT = ("id", "name", "username", "target_role", "readiness_score")
-
-
-@app.get("/api/students")
-def students() -> list[dict]:
-    """The picker's list: public fields only (an email never leaves the server)."""
-    return [{k: r[k] for k in PUBLIC_STUDENT} for r in services.list_students()]
-
-
 @app.get("/api/roles-for-degree")
 def roles_for_degree(degree: str, specialization: str = "", status: str = "Completed") -> list:
     return [asdict(f) for f in services.roles_for_degree(degree, specialization, status)]
@@ -164,12 +161,15 @@ def roles_for_degree(degree: str, specialization: str = "", status: str = "Compl
 
 @app.get("/api/quiz")
 def quiz(
+    request: Request,
     topic: str,
     difficulty: str = "medium",
     count: int = INSTANT_QUIZ_SIZE,
     candidate_id: str | None = None,
 ) -> dict:
-    """Bank questions without their answers: the submit route grades them."""
+    """Bank questions without their answers: the submit route grades them. A guest names no
+    student; naming one needs that student's session."""
+    authorize(request, candidate_id)
     q = services.instant_quiz(topic, difficulty, count, candidate_id or None)
     return {
         "topic": q.topic,
@@ -193,7 +193,8 @@ class QuizSubmission(BaseModel):
 
 
 @app.post("/api/quiz/submit")
-def quiz_submit(body: QuizSubmission) -> dict:
+def quiz_submit(body: QuizSubmission, request: Request) -> dict:
+    authorize(request, body.candidate_id)
     result = services.grade_instant_quiz(
         body.candidate_id or None,
         body.topic,
@@ -243,13 +244,13 @@ def _plan_payload(candidate_id: str) -> dict:
     }
 
 
-@app.get("/api/plan/{candidate_id}")
+@app.get("/api/plan/{candidate_id}", dependencies=[Depends(owner)])
 def plan(candidate_id: str) -> dict:
     """The latest 7-day plan with its weakness table."""
     return _plan_payload(candidate_id)
 
 
-@app.post("/api/plan/{candidate_id}/next")
+@app.post("/api/plan/{candidate_id}/next", dependencies=[Depends(owner)])
 def plan_next(candidate_id: str) -> dict:
     """Generate next week's plan (background lane: Groq key 2), checked by the critic."""
     _student(candidate_id)
@@ -262,13 +263,13 @@ class DaysDone(BaseModel):
     days: list[int]
 
 
-@app.post("/api/plan/{candidate_id}/done")
+@app.post("/api/plan/{candidate_id}/done", dependencies=[Depends(owner)])
 def plan_done(candidate_id: str, body: DaysDone) -> dict:
     _student(candidate_id)
     return {"done": sorted(services.set_days_done(candidate_id, body.week_no, body.days))}
 
 
-@app.get("/api/dashboard/{candidate_id}")
+@app.get("/api/dashboard/{candidate_id}", dependencies=[Depends(owner)])
 def dashboard(candidate_id: str) -> dict:
     d = services.dashboard(candidate_id, _student(candidate_id))
     correct, total = d.answered
@@ -288,7 +289,7 @@ def dashboard(candidate_id: str) -> dict:
 # --- interviews: server-sent events ----------
 
 
-@app.get("/api/interview/tracks/{candidate_id}")
+@app.get("/api/interview/tracks/{candidate_id}", dependencies=[Depends(owner)])
 def interview_tracks(candidate_id: str) -> list[dict]:
     return [asdict(t) for t in services.interview_tracks(_student(candidate_id))]
 
@@ -341,9 +342,10 @@ def _session_payload(session: InterviewSession) -> dict:
 
 
 @app.post("/api/interview/turn")
-def interview_turn(body: InterviewTurnRequest) -> StreamingResponse:
+def interview_turn(body: InterviewTurnRequest, request: Request) -> StreamingResponse:
     """Start a session (`track`), or answer the open question and get the next one
     (`session` + `answer`). Streams `step` events, then one `result` or `error` event."""
+    authorize(request, body.candidate_id)
     _student(body.candidate_id)
 
     def work(on_event: Callable[[str], None]) -> dict:
@@ -437,7 +439,7 @@ class BulletRequest(BaseModel):
     role: str
 
 
-@app.post("/api/resume/enhance-bullet")
+@app.post("/api/resume/enhance-bullet", dependencies=[Depends(require_student)])
 def enhance_bullet(body: BulletRequest) -> dict:
     """One bullet in XYZ form (interactive lane: Groq key 1); numbers are never invented."""
     return {"bullet": services.enhance_bullet(body.text, body.role)}

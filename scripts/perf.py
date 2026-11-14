@@ -132,10 +132,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
-    from scripts.screenshots import PAGES, isolated_env
+    from scripts.pages import PAGES, isolated_env
 
     with tempfile.TemporaryDirectory() as tmp:
-        env = isolated_env(Path(tmp)) | {"SEED_DEMO": "false"}  # seeded explicitly below
+        env = isolated_env(Path(tmp))  # the demo student is seeded explicitly below
         os.environ.clear()
         os.environ.update(env)
 

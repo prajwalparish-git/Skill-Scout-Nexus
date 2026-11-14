@@ -29,7 +29,6 @@ from piq.config import (
     AUTH_CODE_MAX_ATTEMPTS,
     AUTH_CODE_RESEND_S,
     AUTH_CODE_TTL_S,
-    DEMO_ORG_CODE,
     DEMO_ORG_PREFIX,
     SESSION_TTL_S,
     VOICE_RUBRIC_MAX,
@@ -323,20 +322,6 @@ def session_admin(token: str | None) -> int | None:
 def end_session(token: str | None) -> None:
     if token:
         db.delete_admin_session(auth.token_hash(token))
-
-
-def demo_admin() -> int:
-    """The demo organization's id (the admin portal with a fictional multi-stream cohort),
-    seeded on first use ("Try demo organization admin"). It has no usable password."""
-    row = db.organization_by_code(DEMO_ORG_CODE)
-    if row is None:
-        from scripts.seed_cohort import main as seed_cohort  # a fictional organization
-
-        seed_cohort([])
-        row = db.organization_by_code(DEMO_ORG_CODE)
-    if row is None:
-        raise ServiceError("The demo organization could not be prepared.")
-    return row["id"]
 
 
 # --- the roster, with what each student has done ------------------------------------------------

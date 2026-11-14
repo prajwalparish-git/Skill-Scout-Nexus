@@ -1,6 +1,6 @@
 """Onboard. Signed out, two ways in: Student / Learner access (sign in with a password then a
-9-digit code from email, create an account, recover one, or continue with the demo account) and
-Organization admin access (sign in, create an organization, or try the demo organization).
+9-digit code from email, create an account, or recover one) and Organization admin access
+(sign in, create an organization, or recover the admin account).
 Signed in: analyse a resume against a target role for a readiness score, the skills that are
 there and missing, and what to fix."""
 
@@ -12,8 +12,11 @@ from piq import accounts, charts, formatter, journey, orgs, services
 from piq.config import CONSENT_TEXT, ORG_TYPES
 from piq.ui import (
     SUSPENDED_NOTICE,
+    count_wrong_try,
+    current_device,
     current_student,
     page_header,
+    risky_browser,
     run_agent,
     set_student,
     show_last_run,
@@ -51,12 +54,20 @@ def _roles_for(role: str | None, key: str) -> tuple[list[str], int]:
     return roles, roles.index(role) if role in roles else 0
 
 
-def _start_code_step(action: Callable[[], accounts.Pending]) -> None:
+def _start_code_step(action: Callable[[], accounts.Pending | str]) -> None:
+    """Run a sign-in step: a student id signs them in at once (the password was enough, or
+    local mode), a Pending asks for the emailed code."""
     try:
-        st.session_state[PENDING] = action()
+        result = action()
     except services.ServiceError as e:
+        if str(e) == accounts.WRONG_LOGIN:
+            count_wrong_try()
         st.error(formatter.md_escape(str(e)), icon=":material/error:")
         return
+    if isinstance(result, str):
+        sign_in(result)
+    else:
+        st.session_state[PENDING] = result
     st.rerun()
 
 
@@ -68,7 +79,11 @@ def _sign_in_tab() -> None:
         )
         go = st.form_submit_button("Sign in", type="primary", icon=":material/login:")
     if go:
-        _start_code_step(lambda: accounts.start_login(who, password))
+        _start_code_step(
+            lambda: accounts.start_login(
+                who, password, risky=risky_browser(), device=current_device()
+            )
+        )
 
 
 def _sign_up_tab() -> None:
@@ -96,7 +111,9 @@ def _sign_up_tab() -> None:
         return
     if go:
         _start_code_step(
-            lambda: accounts.sign_up(name, username, email, password, confirm, role or "")
+            lambda: accounts.sign_up(
+                name, username, email, password, confirm, role or "", device=current_device()
+            )
         )
 
 
@@ -339,69 +356,42 @@ def _signed_out() -> None:
         "quizzes and voice practice. Organizations manage their students from the admin portal.",
     )
     _, middle, _ = st.columns([1, 3, 1])
-    with middle:
-        with st.container(border=True):
-            if note := st.session_state.pop(NOTICE, None):
-                st.success(note, icon=":material/check_circle:")
-            if st.session_state.pop(SUSPENDED_NOTICE, None):
-                st.warning(accounts.SUSPENDED, icon=":material/block:")
-            pending: accounts.Pending | None = st.session_state.get(PENDING)
-            admin_pending: orgs.AdminPending | None = st.session_state.get(ADMIN_PENDING)
-            if admin_pending is not None:
-                _admin_code_step(admin_pending)
-            elif pending is not None:
-                _code_step(pending)
-            else:
-                students, admins = st.tabs(
-                    [
-                        ":material/school: Student / Learner access",
-                        ":material/apartment: Organization admin access",
-                    ]
+    with middle, st.container(border=True):
+        if note := st.session_state.pop(NOTICE, None):
+            st.success(note, icon=":material/check_circle:")
+        if st.session_state.pop(SUSPENDED_NOTICE, None):
+            st.warning(accounts.SUSPENDED, icon=":material/block:")
+        pending: accounts.Pending | None = st.session_state.get(PENDING)
+        admin_pending: orgs.AdminPending | None = st.session_state.get(ADMIN_PENDING)
+        if admin_pending is not None:
+            _admin_code_step(admin_pending)
+        elif pending is not None:
+            _code_step(pending)
+        else:
+            students, admins = st.tabs(
+                [
+                    ":material/school: Student / Learner access",
+                    ":material/apartment: Organization admin access",
+                ]
+            )
+            with students:
+                signin, signup, recover = st.tabs(["Sign in", "Create account", "Recover account"])
+                with signin:
+                    _sign_in_tab()
+                with signup:
+                    _sign_up_tab()
+                with recover:
+                    _recover_tab()
+            with admins:
+                admin_in, create, recover_admin = st.tabs(
+                    ["Admin sign in", "Create organization", "Recover admin account"]
                 )
-                with students:
-                    signin, signup, recover = st.tabs(
-                        ["Sign in", "Create account", "Recover account"]
-                    )
-                    with signin:
-                        _sign_in_tab()
-                    with signup:
-                        _sign_up_tab()
-                    with recover:
-                        _recover_tab()
-                with admins:
-                    admin_in, create, recover_admin = st.tabs(
-                        ["Admin sign in", "Create organization", "Recover admin account"]
-                    )
-                    with admin_in:
-                        _admin_sign_in_tab()
-                    with create:
-                        _create_org_tab()
-                    with recover_admin:
-                        _admin_recover_tab()
-        with st.container(horizontal=True, horizontal_alignment="center"):
-            demo = st.button(
-                "Continue with demo account", icon=":material/rocket_launch:", key="auth_demo"
-            )
-            demo_org = st.button(
-                "Try demo organization admin", icon=":material/apartment:", key="auth_demo_org"
-            )
-        st.caption("The demo account and the demo organization hold fictional data.")
-    if demo:
-        try:
-            sid = accounts.demo_student()
-        except services.ServiceError as e:
-            st.error(formatter.md_escape(str(e)), icon=":material/error:")
-            return
-        sign_in(sid)
-        st.rerun()
-    if demo_org:
-        try:
-            org_id = orgs.demo_admin()
-        except services.ServiceError as e:
-            st.error(formatter.md_escape(str(e)), icon=":material/error:")
-            return
-        sign_in_admin(org_id)
-        st.rerun()
+                with admin_in:
+                    _admin_sign_in_tab()
+                with create:
+                    _create_org_tab()
+                with recover_admin:
+                    _admin_recover_tab()
 
 
 # --- signed in: the profile -------------------------------------------------------------------
@@ -569,9 +559,7 @@ def _signed_in(student: dict) -> None:
         show_last_run("Profile agent")
         with st.expander("Re-profile with a new resume", icon=":material/refresh:"):
             _form(profile, "again")
-        if not accounts.is_demo(student) and st.button(
-            "Delete my account", type="tertiary", icon=":material/delete:"
-        ):
+        if st.button("Delete my account", type="tertiary", icon=":material/delete:"):
             st.session_state[DELETE] = True
         if st.session_state.get(DELETE):
             _delete(student)

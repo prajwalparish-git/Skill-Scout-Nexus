@@ -92,9 +92,9 @@ def pages() -> None:
     print("Pages (headless, mock mode)")
     from streamlit.testing.v1 import AppTest
 
-    from piq import db, orgs, services
-    from scripts import seed
-    from scripts.screenshots import PAGES, STUDENT_ONLY
+    from piq import db, services
+    from scripts import seed, seed_cohort
+    from scripts.pages import PAGES, STUDENT_ONLY
 
     db.init_db()
     seed.main()
@@ -113,7 +113,7 @@ def pages() -> None:
             check(not errors, label + (f": {errors[0]}" if errors else ""))
 
     # The organization admin portal, signed in to the fictional demo organization.
-    org_id = orgs.demo_admin()
+    org_id = seed_cohort.ensure_org()
     for path in ("views/org_admin.py", "views/faculty.py"):  # the old address redirects
         at = AppTest.from_file(str(ROOT / "app.py"), default_timeout=90)
         at.session_state["admin_org_id"] = org_id
@@ -136,7 +136,7 @@ def main() -> int:
         AUDIO_CACHE_DIR=str(tmp / "audio"),
         PRELOAD_CACHE_DIR=str(tmp / "preload"),
     )
-    for key in ("DATABASE_URL", "SUPABASE_DB_URL", "GROQ_API_KEY", "GROQ_API_KEYS", "SEED_DEMO"):
+    for key in ("DATABASE_URL", "SUPABASE_DB_URL", "GROQ_API_KEY", "GROQ_API_KEYS"):
         os.environ.pop(key, None)
     sys.path.insert(0, str(ROOT))
     compile_all()

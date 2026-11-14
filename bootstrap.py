@@ -1,7 +1,7 @@
 """One-command setup for Skill Scout Nexus: run it once from the repository root.
 
     python bootstrap.py              (Windows: py bootstrap.py; macOS/Linux: python3 bootstrap.py)
-    python bootstrap.py --dev        also the test, lint and screenshot tools
+    python bootstrap.py --dev        also the test and lint tools
     python bootstrap.py --frontend   also the Next.js front end's packages (needs Node.js)
 
 What it does, all inside this folder (nothing is installed system-wide):
@@ -284,7 +284,7 @@ def ensure_env_file(root: Path = ROOT) -> bool:
 
 RUN_SH = r"""#!/usr/bin/env sh
 # Skill Scout Nexus launcher, written by bootstrap.py for this machine (macOS / Linux).
-# Usage: ./run.sh [app|api|seed|test|check]     (default: app)
+# Usage: ./run.sh [app|api|test|check]     (default: app)
 set -e
 cd "$(dirname "$0")"
 PY=".venv/bin/python"
@@ -298,17 +298,16 @@ fi
 case "${1:-app}" in
   app)   shift 2>/dev/null || true; exec "$PY" -m streamlit run app.py "$@" ;;
   api)   exec "$PY" -m uvicorn server:app --port 8000 ;;
-  seed)  "$PY" -m scripts.seed && exec "$PY" -m scripts.seed_cohort --replace ;;
   test)  exec "$PY" -m pytest -q ;;
   check) exec "$PY" -m scripts.check_models ;;
-  *)     echo "Usage: ./run.sh [app|api|seed|test|check]" >&2; exit 2 ;;
+  *)     echo "Usage: ./run.sh [app|api|test|check]" >&2; exit 2 ;;
 esac
 """
 
 RUN_PS1 = r"""# Skill Scout Nexus launcher, written by bootstrap.py for this machine (Windows).
-# Usage: .\run.ps1 [app|api|seed|test|check]     (default: app)
+# Usage: .\run.ps1 [app|api|test|check]     (default: app)
 # Blocked by the execution policy? Run: powershell -ExecutionPolicy Bypass -File .\run.ps1
-param([ValidateSet("app", "api", "seed", "test", "check")][string]$Command = "app")
+param([ValidateSet("app", "api", "test", "check")][string]$Command = "app")
 $ErrorActionPreference = "Stop"
 Set-Location -LiteralPath $PSScriptRoot
 $Py = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
@@ -323,10 +322,6 @@ if (-not (Test-Path -LiteralPath ".env")) {
 switch ($Command) {
     "app"   { & $Py -m streamlit run app.py }
     "api"   { & $Py -m uvicorn server:app --port 8000 }
-    "seed"  {
-        & $Py -m scripts.seed
-        if ($LASTEXITCODE -eq 0) { & $Py -m scripts.seed_cohort --replace }
-    }
     "test"  { & $Py -m pytest -q }
     "check" { & $Py -m scripts.check_models }
 }
@@ -412,7 +407,7 @@ def summary(system: str, made_env: bool, root: Path = ROOT) -> str:
         "",
         f"     {S.green(cmd)}" + S.dim("      then open http://localhost:8501"),
         "",
-        f"  {S.dim('More: ' + cmd + ' seed | api | test | check')}",
+        f"  {S.dim('More: ' + cmd + ' api | test | check')}",
     ]
     if system == "windows":
         hint = "Blocked by policy? powershell -ExecutionPolicy Bypass -File " + cmd

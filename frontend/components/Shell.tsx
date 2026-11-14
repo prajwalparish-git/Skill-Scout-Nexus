@@ -10,7 +10,9 @@ import {
   Home,
   ListChecks,
   MessagesSquare,
-  Repeat2,
+  Settings,
+  LogIn,
+  LogOut,
   Target,
   type LucideIcon,
 } from "lucide-react";
@@ -18,6 +20,7 @@ import { useCandidate } from "@/lib/candidate";
 import { SPRING_UI } from "@/lib/site";
 import { useAuth } from "./site/auth";
 import { Brand } from "./site/Brand";
+import { PasswordNotice } from "./PasswordNotice";
 import { SiteFooter } from "./site/Footer";
 import { SiteNav } from "./site/Nav";
 import { SmoothScroll } from "./site/SmoothScroll";
@@ -28,6 +31,7 @@ const NAV: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/quiz", label: "Quiz", icon: ListChecks },
   { href: "/interview", label: "Mock interview", icon: MessagesSquare },
   { href: "/plan", label: "Study plan", icon: CalendarDays },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 /** Public pages: the floating top bar, full-bleed content and the footer, no app sidebar. */
@@ -40,9 +44,9 @@ const initials = (name: string) =>
     .map((w) => w[0]?.toUpperCase() ?? "")
     .join("");
 
-/** The signed-in profile: who, readiness, and the controls to switch. */
-function ProfileCard({ selectId }: { selectId: string }) {
-  const { students, candidate, choose, error, loading } = useCandidate();
+/** The signed-in student: who, readiness, and the way to sign out (or in, for a guest). */
+function ProfileCard() {
+  const { candidate, signOut, error, loading } = useCandidate();
   const { open } = useAuth();
 
   if (loading)
@@ -84,25 +88,15 @@ function ProfileCard({ selectId }: { selectId: string }) {
           </div>
         </div>
       )}
-      <label htmlFor={selectId} className="mt-3 block text-xs font-medium text-muted">
-        Profile
-      </label>
-      <select
-        id={selectId}
-        className="input mt-1 py-2 text-xs"
-        value={candidate?.id ?? ""}
-        onChange={(e) => choose(e.target.value || null)}
-      >
-        <option value="">Guest (nothing saved)</option>
-        {students.map((s) => (
-          <option key={s.id} value={s.id}>
-            @{s.username} · {s.name}
-          </option>
-        ))}
-      </select>
-      <button type="button" className="btn-ghost mt-2 min-h-[2.25rem] w-full py-1.5 text-xs" onClick={() => open("signin")}>
-        <Repeat2 size={14} aria-hidden /> Switch profile
-      </button>
+      {candidate ? (
+        <button type="button" className="btn-ghost mt-3 min-h-[2.25rem] w-full py-1.5 text-xs" onClick={signOut}>
+          <LogOut size={14} aria-hidden /> Sign out
+        </button>
+      ) : (
+        <button type="button" className="btn-ink mt-3 min-h-[2.25rem] w-full py-1.5 text-xs" onClick={() => open("signin")}>
+          <LogIn size={14} aria-hidden /> Sign in
+        </button>
+      )}
       {error && (
         <p role="alert" className="mt-2 text-xs text-bad">
           {error}
@@ -138,6 +132,8 @@ function StatusBar({ path }: { path: string }) {
 
 export function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
+
+  if (path.startsWith("/ops")) return <>{children}</>; // a page of its own, without the app's chrome
 
   if (PUBLIC.has(path))
     return (
@@ -200,7 +196,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
               </Link>
             </nav>
             <div className="hidden lg:mt-auto lg:block">
-              <ProfileCard selectId="candidate" />
+              <ProfileCard />
             </div>
           </div>
         </header>
@@ -208,8 +204,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <div aria-hidden className="surface-light pointer-events-none absolute inset-x-0 top-0 h-72" />
           <div className="relative mx-auto w-full max-w-6xl px-4 py-8 sm:px-8 sm:py-12">
             <div className="mb-6 lg:hidden">
-              <ProfileCard selectId="candidate-mobile" />
+              <ProfileCard />
             </div>
+            <PasswordNotice />
             <StatusBar path={path} />
             <motion.div
               key={path}

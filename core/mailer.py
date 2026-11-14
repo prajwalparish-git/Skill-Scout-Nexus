@@ -12,11 +12,15 @@ the code went to the local outbox. A send that fails (wrong App Password, no net
 lands there, and the failure is logged as its type and the server's reply only: the password
 never appears in a log, an exception or the page.
 
+Every message shares one branded layout (header with the logo, a card, a footer with the Terms
+and Privacy links at APP_URL); the logo is the PNG static/brand/mark-email.png, attached inline.
+
 Welcome emails (an organization's new students, core/org_provisioning.py) also go to the outbox
 when SMTP works (`also_outbox`): the admin can then hand a student their details if the email
 is lost. That file holds temporary passwords in plain text, like the emails themselves; it is
 git-ignored, and every one of those passwords must be changed at first sign-in.
 """
+# ruff: noqa: E501  (the HTML templates carry long inline-CSS lines)
 
 import html
 import logging
@@ -34,6 +38,7 @@ from typing import Literal
 from piq.config import (
     AUTH_CODE_TTL_S,
     BRAND_COLOR,
+    BRAND_DIR,
     MAIL_BATCH,
     MAIL_WORKERS,
     ORG_WELCOME_CODE_TTL_S,
@@ -50,6 +55,11 @@ _SUBJECTS = {
     "login": f"Your {APP_NAME} sign-in code",
     "recover": f"Your {APP_NAME} account recovery code",
     "verify": f"Confirm your {APP_NAME} organization admin email",
+}
+_TITLES = {
+    "login": "Your sign-in code",
+    "recover": "Recover your account",
+    "verify": "Confirm your email",
 }
 _INTROS = {
     "login": "Use this code to finish signing in.",
@@ -75,25 +85,158 @@ def configured() -> bool:
     return bool(s.smtp_email and s.smtp_app_password)
 
 
+LOGO_CID = "brandmark"
+LOGO_PATH = BRAND_DIR / "mark-email.png"  # the brand mark as a PNG: Gmail and Outlook show no SVG
+TAGLINE = "Adaptive placement-readiness coaching"
+_FONT = "-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
+_MONO = "'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace"
+
+# Colours survive inversion: the dark-mode block repaints the surfaces, the brand band stays.
+_STYLE = """
+body{margin:0;padding:0}
+@media (max-width:620px){.wrap{width:100%!important}.pad{padding-left:20px!important;padding-right:20px!important}
+.code{font-size:24px!important;letter-spacing:2px!important}}
+@media (prefers-color-scheme:dark){
+.bg{background:#0E1A1B!important}.card{background:#16282A!important;border-color:#25393B!important}
+.tx{color:#E7EFEF!important}.mu{color:#9DB2B4!important}.lk{color:#7FD0D6!important}
+.codebox{background:#0E1A1B!important;border-color:#3A9AA1!important}.code{color:#F2FAFA!important}
+.note{background:#1D3033!important;color:#C5D6D8!important}.rule{border-color:#25393B!important}}
+"""
+
+
+def _esc(value: str) -> str:
+    return html.escape(value, quote=True)
+
+
+def _links() -> tuple[str, str, str]:
+    base = settings().app_url
+    return base, f"{base}/terms", f"{base}/privacy"
+
+
+def _logo_cell() -> str:
+    """The mark as an inline image when the PNG exists, else a plain monogram."""
+    if LOGO_PATH.is_file():
+        return (
+            f'<img src="cid:{LOGO_CID}" width="40" height="40" alt="" '
+            'style="display:block;border:0;border-radius:10px">'
+        )
+    return (
+        '<div style="width:40px;height:40px;line-height:40px;border-radius:10px;text-align:center;'
+        f'background:#ffffff;color:{BRAND_COLOR};font:700 20px {_FONT}">S</div>'
+    )
+
+
+def _code_block(value: str) -> str:
+    return (
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" '
+        'style="margin:22px 0"><tr><td align="center" class="codebox" '
+        f'style="background:#E9F5F6;border:2px dashed {BRAND_COLOR};border-radius:12px;'
+        'padding:18px 12px">'
+        f'<span class="code" style="font-family:{_MONO};font-size:34px;font-weight:700;'
+        f'letter-spacing:5px;color:#0B3A3E">{_esc(value)}</span></td></tr></table>'
+    )
+
+
+def _button(label: str, url: str) -> str:
+    return (
+        '<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
+        'style="margin:26px 0 6px"><tr>'
+        f'<td align="center" bgcolor="{BRAND_COLOR}" style="border-radius:10px">'
+        f'<a href="{_esc(url)}" style="display:inline-block;padding:14px 28px;color:#ffffff;'
+        f'font:600 16px {_FONT};text-decoration:none;border-radius:10px">{_esc(label)}</a>'
+        "</td></tr></table>"
+    )
+
+
+def _note(text: str, lead: str = "Keep it private.") -> str:
+    return (
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" '
+        'style="margin-top:22px"><tr><td class="note" '
+        'style="background:#F1F5F5;border-radius:10px;padding:12px 14px;color:#4A5C5E;'
+        f'font:14px/1.5 {_FONT}"><strong>{_esc(lead)}</strong> {_esc(text)}</td></tr></table>'
+    )
+
+
+def _layout(*, title: str, preheader: str, body: str, notice: str) -> str:
+    """The shared frame: brand band, card with the body, footer with the policy links."""
+    base, terms, privacy = _links()
+    support = settings().support_email
+    support_html = (
+        f' &middot; Need help? <a class="lk" href="mailto:{_esc(support)}" '
+        f'style="color:{BRAND_COLOR}">{_esc(support)}</a>'
+        if support
+        else ""
+    )
+    return f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark">
+<title>{_esc(title)}</title><style>{_STYLE}</style></head>
+<body class="bg" style="margin:0;padding:0;background:#EEF3F3">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">{_esc(preheader)}</div>
+<table role="presentation" class="bg" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#EEF3F3"><tr><td align="center" style="padding:24px 12px">
+<table role="presentation" class="wrap" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:100%">
+<tr><td style="background:{BRAND_COLOR};border-radius:14px 14px 0 0;padding:20px 28px" class="pad">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+<td style="vertical-align:middle;padding-right:12px">{_logo_cell()}</td>
+<td style="vertical-align:middle;color:#ffffff;font:700 20px {_FONT};letter-spacing:-0.2px">{APP_NAME}
+<div style="font:400 12px {_FONT};opacity:.85;letter-spacing:0">{TAGLINE}</div></td></tr></table>
+</td></tr>
+<tr><td class="card pad" style="background:#ffffff;border:1px solid #DCE6E6;border-top:0;border-radius:0 0 14px 14px;padding:30px 28px 28px">
+<h1 class="tx" style="margin:0 0 14px;color:#14282B;font:700 24px/1.25 {_FONT}">{_esc(title)}</h1>
+<div class="tx" style="color:#26393C;font:16px/1.6 {_FONT}">{body}</div>
+</td></tr>
+<tr><td class="pad" style="padding:22px 28px 6px;text-align:center">
+<p class="mu" style="margin:0 0 8px;color:#5F7274;font:13px/1.6 {_FONT}">{notice}</p>
+<p class="mu" style="margin:0 0 8px;color:#5F7274;font:13px/1.6 {_FONT}">
+<a class="lk" href="{_esc(base)}" style="color:{BRAND_COLOR}">{APP_NAME}</a> &middot;
+<a class="lk" href="{_esc(terms)}" style="color:{BRAND_COLOR}">Terms</a> &middot;
+<a class="lk" href="{_esc(privacy)}" style="color:{BRAND_COLOR}">Privacy</a>{support_html}</p>
+<p class="mu" style="margin:0;color:#7A8C8E;font:12px/1.6 {_FONT}">By using {APP_NAME} you agree to the Terms and the Privacy Policy linked above.
+This is an automated message: it is sent only when an account on {APP_NAME} needs it.</p>
+</td></tr></table></td></tr></table></body></html>"""
+
+
+def _text_footer(notice: str) -> str:
+    base, terms, privacy = _links()
+    support = settings().support_email
+    lines = [
+        "--",
+        f"{APP_NAME}: {TAGLINE}",
+        f"Terms: {terms}",
+        f"Privacy: {privacy}",
+    ]
+    if support:
+        lines.append(f"Need help? {support}")
+    lines += ["", notice, f"By using {APP_NAME} you agree to the Terms and the Privacy Policy."]
+    return "\n".join(lines)
+
+
 def code_message(to: str, name: str, code: str, purpose: Purpose) -> Message:
     """The plain-text and HTML email for a code shown as XXX-XXX-XXX (`code` is formatted)."""
     minutes = AUTH_CODE_TTL_S // 60
     intro = _INTROS[purpose]
-    text = (
-        f"Hello {name},\n\n{intro}\n\n    {code}\n\n"
-        f"It expires in {minutes} minutes and works once. If you did not ask for it, ignore "
-        f"this email: your password has not changed.\n\n{APP_NAME}"
+    security = f"It expires in {minutes} minutes and works once. Never share it with anyone."
+    ignore = "If you did not ask for it, ignore this email: your password has not changed."
+    notice = (
+        f"You received this email because a code was requested for the {APP_NAME} account "
+        "with this address."
     )
-    body = f"""<!doctype html>
-<html><body style="font-family:system-ui,sans-serif;color:#1f2a2c;max-width:480px">
-<p>Hello {html.escape(name)},</p>
-<p>{html.escape(intro)}</p>
-<p style="font-size:28px;font-weight:700;letter-spacing:4px;font-family:monospace">{code}</p>
-<p>It expires in {minutes} minutes and works once. If you did not ask for it, ignore this
-email: your password has not changed.</p>
-<p style="color:#5b6b6e">{APP_NAME}</p>
-</body></html>"""
-    return Message(to, _SUBJECTS[purpose], text, body)
+    text = (
+        f"Hello {name},\n\n{intro}\n\n    {code}\n\n{security} {ignore}\n\n{_text_footer(notice)}"
+    )
+    body = (
+        f'<p style="margin:0 0 12px">Hello {_esc(name)},</p><p style="margin:0">{_esc(intro)}</p>'
+        f"{_code_block(code)}"
+        f'<p style="margin:0">{_esc(ignore)}</p>{_note(security)}'
+    )
+    page = _layout(
+        title=_TITLES[purpose],
+        preheader=f"{intro} Your code expires in {minutes} minutes.",
+        body=body,
+        notice=_esc(notice),
+    )
+    return Message(to, _SUBJECTS[purpose], text, page)
 
 
 def welcome_message(
@@ -123,10 +266,10 @@ def welcome_message(
         else f"Your {org_name} account on {APP_NAME}"
     )
     steps = (
-        f"1. Open {APP_NAME} and choose Student / Learner access.\n"
-        "2. Sign in with your login email and the temporary password.\n"
-        "3. Enter the 9-digit code when asked.\n"
-        "4. Choose a password of your own when the app offers to."
+        f"Open {APP_NAME} and choose Sign in.",
+        "Enter your login email and the temporary password.",
+        "Enter the 9-digit code when asked.",
+        "Choose a password of your own when the app offers to.",
     )
     rows = (
         ("Organization", org_name),
@@ -138,34 +281,107 @@ def welcome_message(
         ("9-digit code", code),
     )
     days = ORG_WELCOME_CODE_TTL_S // 86400
+    security = f"The password is temporary and the code works for {days} days. Do not share either."
+    notice = f"You received this email because {org_name} added you as a student on {APP_NAME}."
     text = (
         f"Hello {name},\n\n{lead}\n\n"
         + "\n".join(f"  {label}: {value}" for label, value in rows)
-        + f"\n\n{steps}\n\nThe password is temporary and the code works for {days} days. "
-        f"Do not share either.\n\n{APP_NAME}"
+        + "\n\n"
+        + "\n".join(f"{i}. {s}" for i, s in enumerate(steps, 1))
+        + f"\n\nSign in: {settings().app_url}\n\n{security}\n\n{_text_footer(notice)}"
     )
-    secret = ";font-family:monospace;font-size:16px"
     cells = "".join(
-        f'<tr><td style="padding:6px 16px 6px 0;color:#5b6b6e">{html.escape(label)}</td>'
-        f'<td style="padding:6px 0;font-weight:600{secret if label in SECRET_ROWS else ""}">'
-        f"{html.escape(value)}</td></tr>"
+        f'<tr><td class="mu rule" style="padding:9px 14px 9px 0;color:#5F7274;font:14px {_FONT};'
+        f'border-top:1px solid #E3EBEB;vertical-align:top" width="38%">{_esc(label)}</td>'
+        f'<td class="tx rule" style="padding:9px 0;border-top:1px solid #E3EBEB;font:600 15px {_FONT}'
+        f'{";" + _secret_style() if label in SECRET_ROWS else ""}">{_esc(value)}</td></tr>'
         for label, value in rows
     )
-    steps_html = "".join(f"<li>{html.escape(line[3:])}</li>" for line in steps.splitlines())
-    body = f"""<!doctype html>
-<html><body style="margin:0;font-family:system-ui,sans-serif;color:#1f2a2c">
-<div style="max-width:520px;margin:0 auto">
-<div style="background:{BRAND_COLOR};color:#fff;padding:16px 20px;font-size:18px;font-weight:700">
-{APP_NAME}</div>
-<div style="padding:20px">
-<p>Hello {html.escape(name)},</p>
-<p>{html.escape(lead)}</p>
-<table style="border-collapse:collapse">{cells}</table>
-<ol style="padding-left:20px">{steps_html}</ol>
-<p style="color:#5b6b6e">The password is temporary and the code works for
-{days} days. Do not share either.</p>
-</div></div></body></html>"""
-    return Message(to, subject, text, body)
+    steps_html = "".join(f'<li style="margin:0 0 6px">{_esc(s)}</li>' for s in steps)
+    body = (
+        f'<p style="margin:0 0 12px">Hello {_esc(name)},</p><p style="margin:0 0 18px">{_esc(lead)}</p>'
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">'
+        f"{cells}</table>"
+        f'<p style="margin:22px 0 8px;font-weight:700">Get started</p>'
+        f'<ol style="margin:0;padding-left:20px">{steps_html}</ol>'
+        f"{_button('Sign in to ' + APP_NAME, settings().app_url)}{_note(security)}"
+    )
+    page = _layout(
+        title="Your account is ready" if not reset else "Your sign-in details were reset",
+        preheader=f"{lead} Your login email, temporary password and code are inside.",
+        body=body,
+        notice=_esc(notice),
+    )
+    return Message(to, subject, text, page)
+
+
+def new_device_message(
+    to: str,
+    *,
+    name: str,
+    browser: str,
+    os: str,
+    ip: str,
+    location: str,
+    when: str,
+    signed_up: bool = False,
+) -> Message:
+    """A sign-in (or the sign-up) on a device the account had not used before."""
+    lead = (
+        f"Your {APP_NAME} account was created and signed in on this device."
+        if signed_up
+        else f"Your {APP_NAME} account was just signed in on a new device."
+    )
+    rows = (
+        ("When", when),
+        ("Browser", browser),
+        ("Operating system", os),
+        ("IP address", ip or "Unknown"),
+        ("Location", location or "Unknown (approximate, from the network)"),
+    )
+    settings_url = f"{settings().app_url}/settings"
+    act = (
+        "If this was not you, reset your password now and sign that device out from "
+        "Settings > Signed-in devices."
+    )
+    notice = (
+        f"You received this email because a new device signed in to your {APP_NAME} account. "
+        "You can turn these alerts off in Settings."
+    )
+    text = (
+        f"Hello {name},\n\n{lead}\n\n"
+        + "\n".join(f"  {label}: {value}" for label, value in rows)
+        + f"\n\nIf this was you, there is nothing to do. {act}\n\nSettings: {settings_url}"
+        + f"\n\n{_text_footer(notice)}"
+    )
+    cells = "".join(
+        f'<tr><td class="mu rule" style="padding:9px 14px 9px 0;color:#5F7274;font:14px {_FONT};'
+        f'border-top:1px solid #E3EBEB;vertical-align:top" width="38%">{_esc(label)}</td>'
+        f'<td class="tx rule" style="padding:9px 0;border-top:1px solid #E3EBEB;font:600 15px {_FONT}">'
+        f"{_esc(value)}</td></tr>"
+        for label, value in rows
+    )
+    body = (
+        f'<p style="margin:0 0 12px">Hello {_esc(name)},</p><p style="margin:0 0 18px">{_esc(lead)}</p>'
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">'
+        f"{cells}</table>"
+        '<p style="margin:20px 0 0">If this was you, there is nothing to do.</p>'
+        f"{_button('Review signed-in devices', settings_url)}{_note(act, 'Not you?')}"
+    )
+    page = _layout(
+        title="New sign-in to your account" if not signed_up else "Welcome: your account is ready",
+        preheader=f"{browser} on {os}, {location or ip or 'unknown location'}, {when}.",
+        body=body,
+        notice=_esc(notice),
+    )
+    subject = (
+        f"New sign-in to your {APP_NAME} account" if not signed_up else f"Welcome to {APP_NAME}"
+    )
+    return Message(to, subject, text, page)
+
+
+def _secret_style() -> str:
+    return f"font-family:{_MONO};font-size:16px;letter-spacing:.5px"
 
 
 def nudge_message(
@@ -181,6 +397,7 @@ def nudge_message(
     subject = f"Get back on track with your {APP_NAME} placement preparation"
     task_items = list(pending_tasks) or ["Resume and complete your pending study plan roadmap"]
     task_lines = "\n".join(f"- {task}" for task in task_items)
+    notice = f"You received this email because you are enrolled with {org_name} on {APP_NAME}."
     text = (
         f"Hello {name},\n\n"
         f"This is a friendly reminder from {org_name} regarding your placement preparation "
@@ -189,32 +406,30 @@ def nudge_message(
         f"preparation is key to clearing placement cutoffs and securing top roles.\n\n"
         f"Here are your recommended next steps to get back on track:\n"
         f"{task_lines}\n\n"
-        f"Log in to {APP_NAME} today to continue your preparation.\n\n"
-        f"Best regards,\n{org_name} Placement Team\n{APP_NAME}"
+        f"Log in to {APP_NAME} today to continue your preparation: {settings().app_url}\n\n"
+        f"Best regards,\n{org_name} Placement Team\n{APP_NAME}\n\n{_text_footer(notice)}"
     )
-    items_html = "".join(
-        f"<li style='margin-bottom:6px'>{html.escape(task)}</li>" for task in task_items
+    items_html = "".join(f'<li style="margin:0 0 8px">{_esc(task)}</li>' for task in task_items)
+    body = (
+        f'<p style="margin:0 0 12px">Hello {_esc(name)},</p>'
+        f'<p style="margin:0 0 12px">This is a friendly reminder from <strong>{_esc(org_name)}</strong> '
+        f"about your placement preparation on {APP_NAME}.</p>"
+        f'<p style="margin:0 0 16px">Your learning momentum is currently '
+        f'<strong style="color:{BRAND_COLOR}">{_esc(momentum_stage)}</strong>. Steady daily practice '
+        "is what clears company cutoffs.</p>"
+        '<p style="margin:0 0 8px;font-weight:700">Your next steps</p>'
+        f'<ul style="margin:0;padding-left:20px">{items_html}</ul>'
+        f"{_button('Continue your preparation', settings().app_url)}"
+        f'<p class="mu" style="margin:18px 0 0;color:#5F7274">Best regards,<br>'
+        f"{_esc(org_name)} Placement Team</p>"
     )
-    body = f"""<!doctype html>
-<html><body style="margin:0;font-family:system-ui,sans-serif;color:#1f2a2c">
-<div style="max-width:520px;margin:0 auto">
-<div style="background:{BRAND_COLOR};color:#fff;padding:16px 20px;font-size:18px;font-weight:700">
-{APP_NAME}</div>
-<div style="padding:20px">
-<p>Hello {html.escape(name)},</p>
-<p>This is a friendly reminder from <strong>{html.escape(org_name)}</strong> regarding your
-placement preparation on {APP_NAME}.</p>
-<p>Our records show your learning momentum is currently
-<strong>{html.escape(momentum_stage)}</strong>. Consistent daily practice is essential to
-clearing company cutoffs and staying competitive for placement drives.</p>
-<p><strong>Your recommended pending tasks:</strong></p>
-<ul style="padding-left:20px;color:#2c3e50">
-{items_html}
-</ul>
-<p>Log in to {APP_NAME} to continue your preparation and build your placement readiness score.</p>
-<p style="color:#5b6b6e">Best regards,<br>{html.escape(org_name)} Placement Team<br>{APP_NAME}</p>
-</div></div></body></html>"""
-    return Message(to, subject, text, body)
+    page = _layout(
+        title="Time to get back on track",
+        preheader=f"{org_name} placement team: your next steps are waiting on {APP_NAME}.",
+        body=body,
+        notice=_esc(notice),
+    )
+    return Message(to, subject, text, page)
 
 
 def _email(msg: Message, sender: str) -> EmailMessage:
@@ -222,6 +437,11 @@ def _email(msg: Message, sender: str) -> EmailMessage:
     email["From"], email["To"], email["Subject"] = f"{APP_NAME} <{sender}>", msg.to, msg.subject
     email.set_content(msg.text)
     email.add_alternative(msg.html, subtype="html")
+    if f"cid:{LOGO_CID}" in msg.html and LOGO_PATH.is_file():
+        body = email.get_body(("html",))
+        body.add_related(  # type: ignore[union-attr]
+            LOGO_PATH.read_bytes(), "image", "png", cid=f"<{LOGO_CID}>", disposition="inline"
+        )
     return email
 
 

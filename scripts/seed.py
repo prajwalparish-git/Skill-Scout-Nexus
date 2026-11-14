@@ -1,9 +1,10 @@
-"""Seed the demo account with 4 weeks of history so adaptive re-planning can be shown instantly.
+"""Test and CI fixture: a demo student with 4 weeks of history for adaptive re-planning checks.
 
     python -m scripts.seed
 
-Idempotent: deletes and recreates the demo account (username DEMO_USERNAME, no password: it is
-entered only with "Continue with demo account"). Makes no LLM calls. All data is fictional.
+Idempotent: deletes and recreates the demo account (username DEMO_USERNAME, no password, so
+nobody can sign in as it). Nothing in the app calls this; run it by hand or from a test. Makes no
+LLM calls. All data is fictional.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -133,6 +134,16 @@ def main() -> None:
         f"Seeded @{USERNAME} ({ROLE}) with 4 weeks of plans, 24 quizzes, "
         f"{sum(len(t) for *_, t in INTERVIEWS)} interview turns. Next plan = week 5."
     )
+
+
+def ensure_student() -> str:
+    """The demo student's id, seeding it first when it does not exist yet."""
+    row = db.student_by_username(USERNAME)
+    if row is None:
+        main()
+        row = db.student_by_username(USERNAME)
+    assert row is not None, "seeding the demo student failed"
+    return row["id"]
 
 
 if __name__ == "__main__":

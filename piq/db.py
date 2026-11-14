@@ -48,6 +48,15 @@ STUDENT_ADDED = (
     ("must_change_password", "INTEGER NOT NULL DEFAULT 0"),
     ("phone", "TEXT"),
     ("batch_year", "TEXT"),
+    ("email_verified", "INTEGER NOT NULL DEFAULT 0"),
+)
+# Device columns sessions gained (the student's list of signed-in devices).
+SESSION_ADDED = (
+    ("device_hash", "TEXT NOT NULL DEFAULT ''"),
+    ("user_agent", "TEXT NOT NULL DEFAULT ''"),
+    ("ip", "TEXT NOT NULL DEFAULT ''"),
+    ("location", "TEXT NOT NULL DEFAULT ''"),
+    ("last_seen", "REAL NOT NULL DEFAULT 0"),
 )
 
 
@@ -67,6 +76,11 @@ def _migrate(c: sqlite3.Connection) -> None:
         for name, ddl in STUDENT_ADDED:
             if name not in cols:
                 c.execute(f"ALTER TABLE students ADD COLUMN {name} {ddl}")  # fixed identifiers
+    session_cols = {r["name"] for r in c.execute("PRAGMA table_info(sessions)")}
+    if session_cols:
+        for name, ddl in SESSION_ADDED:
+            if name not in session_cols:
+                c.execute(f"ALTER TABLE sessions ADD COLUMN {name} {ddl}")  # fixed identifiers
 
 
 def init_db() -> None:
@@ -124,7 +138,7 @@ def save_profile(student_id: str, profile: StudentProfile, at: str | None = None
 _STUDENT = (
     "SELECT s.id, s.name, s.username, s.email, s.target_role, s.readiness_score, s.org_id, "
     "s.main_domain, s.subdomain, s.account_status, s.must_change_password, s.phone, "
-    "s.batch_year, s.created_at, o.org_code, o.name AS org_name "
+    "s.batch_year, s.created_at, s.email_verified, o.org_code, o.name AS org_name "
     "FROM students s LEFT JOIN organizations o ON o.id = s.org_id "
 )
 
@@ -238,12 +252,185 @@ def delete_code(student_id: str, purpose: str) -> None:
         )
 
 
-def create_session(token_hash: str, student_id: str, expires_at: float) -> None:
+def create_session(
+    token_hash: str,
+    student_id: str,
+    expires_at: float,
+    *,
+    device_hash: str = "",
+    user_agent: str = "",
+    ip: str = "",
+    location: str = "",
+    now: float = 0.0,
+) -> None:
     with tx() as c:
         c.execute(
-            "INSERT INTO sessions (token_hash, student_id, expires_at) VALUES (?, ?, ?)",
-            (token_hash, student_id, expires_at),
+            """INSERT INTO sessions (token_hash, student_id, expires_at, device_hash, user_agent,
+                 ip, location, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (token_hash, student_id, expires_at, device_hash, user_agent[:400], ip, location, now),
         )
+
+
+def touch_session(token_hash: str, now: float, every: float) -> None:
+    """Record activity on a session, at most once per `every` seconds."""
+    with tx() as c:
+        c.execute(
+            "UPDATE sessions SET last_seen = ? WHERE token_hash = ? AND last_seen < ?",
+            (now, token_hash, now - every),
+        )
+
+
+def student_sessions(student_id: str, now: float) -> list[sqlite3.Row]:
+    """The student's live sessions, most recently active first."""
+    with tx() as c:
+        return c.execute(
+            """SELECT token_hash, created_at, last_seen, user_agent, ip, location, device_hash
+               FROM sessions WHERE student_id = ? AND expires_at > ?
+               ORDER BY last_seen DESC, created_at DESC""",
+            (student_id, now),
+        ).fetchall()
+
+
+def delete_student_session(student_id: str, token_hash: str) -> bool:
+    with tx() as c:
+        cur = c.execute(
+            "DELETE FROM sessions WHERE student_id = ? AND token_hash = ?",
+            (student_id, token_hash),
+        )
+        return cur.rowcount > 0
+
+
+def delete_other_sessions(student_id: str, keep_hash: str) -> int:
+    with tx() as c:
+        return c.execute(
+            "DELETE FROM sessions WHERE student_id = ? AND token_hash != ?",
+            (student_id, keep_hash),
+        ).rowcount
+
+
+def remember_device(student_id: str, device_hash: str, now: float) -> bool:
+    """Record a device for the student; True when it had never been seen for them before."""
+    with tx() as c:
+        known = c.execute(
+            "SELECT 1 FROM known_devices WHERE student_id = ? AND device_hash = ?",
+            (student_id, device_hash),
+        ).fetchone()
+        if known:
+            c.execute(
+                "UPDATE known_devices SET last_seen = ? WHERE student_id = ? AND device_hash = ?",
+                (now, student_id, device_hash),
+            )
+            return False
+        c.execute(
+            "INSERT INTO known_devices (student_id, device_hash, first_seen, last_seen) "
+            "VALUES (?, ?, ?, ?)",
+            (student_id, device_hash, now, now),
+        )
+        return True
+
+
+def known_device_count(student_id: str) -> int:
+    with tx() as c:
+        return c.execute(
+            "SELECT COUNT(*) FROM known_devices WHERE student_id = ?", (student_id,)
+        ).fetchone()[0]
+
+
+def set_email_verified(student_id: str) -> None:
+    with tx() as c:
+        c.execute("UPDATE students SET email_verified = 1 WHERE id = ?", (student_id,))
+
+
+def student_count() -> int:
+    with tx() as c:
+        return c.execute("SELECT COUNT(*) FROM students").fetchone()[0]
+
+
+def prefs(student_id: str) -> str | None:
+    with tx() as c:
+        row = c.execute(
+            "SELECT prefs_json FROM student_prefs WHERE student_id = ?", (student_id,)
+        ).fetchone()
+    return row["prefs_json"] if row else None
+
+
+def save_prefs(student_id: str, prefs_json: str) -> None:
+    with tx() as c:
+        c.execute(
+            """INSERT INTO student_prefs (student_id, prefs_json) VALUES (?, ?)
+               ON CONFLICT(student_id) DO UPDATE SET prefs_json = excluded.prefs_json,
+                 updated_at = CURRENT_TIMESTAMP""",
+            (student_id, prefs_json),
+        )
+
+
+def log_auth_event(
+    at: float,
+    kind: str,
+    *,
+    student_id: str | None = None,
+    identifier: str = "",
+    ip: str = "",
+    user_agent: str = "",
+    location: str = "",
+    detail: str = "",
+) -> None:
+    with tx() as c:
+        c.execute(
+            """INSERT INTO auth_events (at, student_id, kind, identifier, ip, user_agent, location,
+                 detail) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (at, student_id, kind, identifier[:254], ip, user_agent[:400], location, detail[:400]),
+        )
+
+
+def auth_events(limit: int = 200) -> list[sqlite3.Row]:
+    with tx() as c:
+        return c.execute(
+            """SELECT e.at, e.kind, e.identifier, e.ip, e.user_agent, e.location, e.detail,
+                      s.username, s.name
+               FROM auth_events e LEFT JOIN students s ON s.id = e.student_id
+               ORDER BY e.id DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+
+
+def all_sessions(now: float) -> list[sqlite3.Row]:
+    with tx() as c:
+        return c.execute(
+            """SELECT s.username, s.name, x.created_at, x.last_seen, x.user_agent, x.ip, x.location
+               FROM sessions x JOIN students s ON s.id = x.student_id
+               WHERE x.expires_at > ? ORDER BY x.last_seen DESC""",
+            (now,),
+        ).fetchall()
+
+
+def ops_students() -> list[sqlite3.Row]:
+    """Every account with what the operations view shows about it."""
+    with tx() as c:
+        return c.execute(
+            """SELECT s.id, s.name, s.username, s.email, s.target_role, s.readiness_score,
+                      s.created_at, s.account_status, s.email_verified, s.org_id,
+                      (SELECT COUNT(*) FROM sessions x WHERE x.student_id = s.id) AS sessions,
+                      (SELECT MAX(at) FROM auth_events e WHERE e.student_id = s.id
+                         AND e.kind IN ('sign_in', 'sign_up')) AS last_sign_in,
+                      (SELECT COUNT(*) FROM quiz_attempts q WHERE q.student_id = s.id) AS quizzes,
+                      c.failures, c.locked_until
+               FROM students s LEFT JOIN credentials c ON c.student_id = s.id
+               ORDER BY s.created_at DESC"""
+        ).fetchall()
+
+
+def agent_usage() -> list[sqlite3.Row]:
+    """AI calls per agent and model: count, tokens, latency, critic rejections."""
+    with tx() as c:
+        return c.execute(
+            """SELECT agent_name, model_used, COUNT(*) AS calls,
+                      COALESCE(SUM(input_tokens), 0) AS input_tokens,
+                      COALESCE(SUM(output_tokens), 0) AS output_tokens,
+                      CAST(AVG(latency_ms) AS INTEGER) AS avg_ms,
+                      SUM(CASE WHEN critic_approved = 0 THEN 1 ELSE 0 END) AS rejected
+               FROM agent_logs GROUP BY agent_name, model_used ORDER BY calls DESC"""
+        ).fetchall()
 
 
 def session_student(token_hash: str, now: float) -> str | None:
@@ -581,10 +768,12 @@ def reset_org_student_credentials(
     sent_at: float,
 ) -> bool:
     """A new temporary password and welcome code, one transaction: the old password stops
-    working, the lockout clears, every session ends, and the student must change the password."""
+    working, the lockout clears, every session ends, and the student must change the password.
+    The next sign-in asks for the code again (the emailed details went to an inbox once more)."""
     with tx() as c:
         cur = c.execute(
-            "UPDATE students SET must_change_password = 1 WHERE id = ? AND org_id = ?",
+            "UPDATE students SET must_change_password = 1, email_verified = 0 "
+            "WHERE id = ? AND org_id = ?",
             (student_id, org_id),
         )
         if cur.rowcount != 1:

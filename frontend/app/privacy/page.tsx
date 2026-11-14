@@ -120,9 +120,23 @@ export default function Privacy() {
 
       <Clause title="This web app and its API">
         <p>
-          The web front end has no sign-in of its own: choosing a profile reads records from the app&apos;s local API,
-          which is meant to run on <code>localhost</code> only. Do not expose it on a shared network without your own
-          authentication in front of it.
+          A new account is confirmed with a 9-digit code sent to your email; after that you sign in with your
+          username or email and your password, and the code is asked again only when something looks off (more than
+          two wrong tries in a row). The API returns a student&apos;s records only to that student&apos;s own signed-in
+          session; there is no public list of students. Signing in sets one session cookie that keeps you signed in;
+          it is not readable by page scripts and is removed when you sign out.
+        </p>
+      </Clause>
+
+      <Clause title="Devices and sign-in alerts">
+        <p>
+          To show you where your account is signed in and to warn you about a sign-in you did not make, each sign-in
+          records the browser and operating system (read from what your browser sends), the IP address, an
+          approximate location when the hosting network provides one (city and country, never GPS), and a random
+          device identifier kept in a cookie. A sign-in on a device your account has not used before is emailed to
+          you; you can turn these emails off in Settings. You can see every signed-in device in Settings and sign
+          out any of them. The same details are kept in a sign-in log for the people who run this service, to look
+          into misuse; they are never sold or shared.
         </p>
       </Clause>
 

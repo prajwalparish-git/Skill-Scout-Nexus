@@ -54,7 +54,7 @@ function nextAction(d: DashboardPayload, mastery: Mastery[]): { text: string; ct
 }
 
 export default function DashboardPage() {
-  const { candidate, students, choose, loading: candidateLoading } = useCandidate();
+  const { candidate, loading: candidateLoading } = useCandidate();
   const [d, setD] = useState<DashboardPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -85,15 +85,6 @@ export default function DashboardPage() {
       <>
         <PageHeader eyebrow="Dashboard" title="Your progress, in one place" lead="Readiness, topic mastery and score trends." />
         <NeedsCandidate />
-        {students.length > 0 && (
-          <p className="mt-4 text-center text-sm text-muted">
-            Demonstrating this project?{" "}
-            <button type="button" className="font-medium text-primary-ink underline underline-offset-2" onClick={() => choose(students[0].id)}>
-              Load sample candidate data
-            </button>
-            {" "}to see a filled-in dashboard instantly — it opens {students[0].name}'s real profile from this database.
-          </p>
-        )}
       </>
     );
 

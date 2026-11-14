@@ -197,7 +197,7 @@ function Builder() {
       URL.revokeObjectURL(url);
       setPdfDone(true);
     } catch (e) {
-      setError(e instanceof TypeError ? `Cannot reach the API at ${API}.` : (e as Error).message);
+      setError(e instanceof TypeError ? "Cannot reach the server. Is the API running?" : (e as Error).message);
     } finally {
       setPdfBusy(false);
     }

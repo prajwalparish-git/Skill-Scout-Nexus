@@ -37,6 +37,10 @@ AUTH_CODE_MAX_ATTEMPTS = 5  # wrong tries before a code is void
 AUTH_CODE_RESEND_S = 30  # a new code is sent at most this often
 SESSION_TTL_S = 7 * 24 * 3600  # how long "stay signed in" lasts (the browser cookie too)
 SESSION_COOKIE = "piq_session"
+DEVICE_COOKIE = "piq_device"  # a random id per browser: a sign-in from a new one is emailed
+DEVICE_COOKIE_TTL_S = 400 * 24 * 3600
+CODE_AFTER_FAILURES = 3  # wrong sign-ins in a row (account or browser) before a code is asked
+SESSION_TOUCH_S = 300  # a session's "last active" is written at most this often
 DEMO_USERNAME = "demo"  # the 1-click demo account (scripts/seed.py); it has no password
 SMTP_HOST, SMTP_PORT = "smtp.gmail.com", 587  # 465 also works (implicit TLS)
 SMTP_TIMEOUT_S = 15
@@ -277,7 +281,6 @@ class Settings:
     db_path: Path
     max_critic_retries: int
     mock_mode: bool
-    seed_demo: bool = False  # recreate the demo student on start when the DB is empty
     # GROQ_API_KEYS (comma-separated) plus GROQ_API_KEY and the older GROQ_API_KEY_1/_2: one
     # round-robin pool (core/key_pool.py).
     groq_api_keys: tuple[str, ...] = field(default=(), repr=False)
@@ -321,11 +324,33 @@ class Settings:
     smtp_host: str = SMTP_HOST
     smtp_port: int = SMTP_PORT
     mail_outbox_path: Path = DATA_DIR / ".mail_outbox.log"
+    app_url: str = "http://localhost:3000"  # the links in every email (core/mailer.py)
+    support_email: str = ""  # shown in the email footer when set
     # core/auth.py: an optional secret mixed into every password hash (never stored in the DB).
     auth_pepper: str = field(default="", repr=False)
+    # One student, password only, no emails: a laptop with no SMTP and no cloud database
+    # (LOCAL_MODE=auto), or forced with LOCAL_MODE=true / false.
+    local_mode: bool = False
+    # Signing in with this as the password (any username or email) opens the operations view.
+    dev_secret: str = field(default="", repr=False)
     # app.py shows a friendly message for a crashed page; tests set PIQ_RAISE_ERRORS=1 so
     # AppTest sees the exception instead.
     raise_page_errors: bool = False
+
+
+def _local_mode() -> bool:
+    forced = os.getenv("LOCAL_MODE", "auto").strip().lower()
+    if forced in {"1", "true", "yes"}:
+        return True
+    if forced in {"0", "false", "no"}:
+        return False
+    has_mail = bool(
+        os.getenv("SMTP_EMAIL", "").strip() and os.getenv("SMTP_APP_PASSWORD", "").strip()
+    )
+    has_cloud = bool(
+        os.getenv("DATABASE_URL", "").strip() or os.getenv("SUPABASE_DB_URL", "").strip()
+    )
+    return not has_mail and not has_cloud
 
 
 def _flag(name: str, default: str) -> bool:
@@ -375,7 +400,6 @@ def settings() -> Settings:
         db_path=Path(os.getenv("DB_PATH", str(DATA_DIR / "placementiq.db"))),
         max_critic_retries=int(os.getenv("MAX_CRITIC_RETRIES", "2")),
         mock_mode=_flag("MOCK_MODE", "true"),
-        seed_demo=_flag("SEED_DEMO", "false"),
         # SUPABASE_DB_URL is a hosted PostgreSQL URL by another name; DATABASE_URL wins.
         database_url=(os.getenv("DATABASE_URL", "") or os.getenv("SUPABASE_DB_URL", "")).strip(),
         telemetry_db_path=Path(
@@ -411,7 +435,11 @@ def settings() -> Settings:
         smtp_host=os.getenv("SMTP_HOST", "").strip() or SMTP_HOST,
         smtp_port=_number("SMTP_PORT", SMTP_PORT),
         mail_outbox_path=Path(os.getenv("MAIL_OUTBOX_PATH", str(DATA_DIR / ".mail_outbox.log"))),
+        app_url=(os.getenv("APP_URL", "").strip() or "http://localhost:3000").rstrip("/"),
+        support_email=os.getenv("SUPPORT_EMAIL", "").strip(),
         auth_pepper=os.getenv("AUTH_PEPPER", ""),
+        local_mode=_local_mode(),
+        dev_secret=os.getenv("DEV_SECRET", "").strip(),
         raise_page_errors=_flag("PIQ_RAISE_ERRORS", "false"),
     )
     if not s.mock_mode:

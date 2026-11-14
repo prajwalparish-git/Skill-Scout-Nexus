@@ -207,10 +207,9 @@ export function OrgHero() {
             Create your organization
             <ArrowUpRight size={16} className="transition-transform duration-200 group-hover:-translate-y-0.5 group-hover:translate-x-0.5" aria-hidden />
           </ExternalCta>
-          <ExternalCta className="btn-hair h-11 px-6 text-[15px]">Try the demo organization</ExternalCta>
         </motion.div>
         <p className="mt-4 text-xs text-muted">
-          Both open the main app. The demo is on its sign-in page: <span className="font-medium text-ink">Try demo organization admin</span>.
+          Opens the main app, where setup is one form and an email code.
         </p>
       </div>
       <PortalPreview />
@@ -421,15 +420,11 @@ export function OrgCta() {
               Get your next batch placement-ready.
             </h2>
             <p className="mx-auto mt-5 max-w-xl text-lg text-bg/80">
-              Setting up is one form and an email code. Explore the demo organization first if you like: two dozen
-              fictional students across four streams.
+              Setting up is one form and an email code.
             </p>
             <div className="mt-8 flex flex-wrap justify-center gap-3">
               <ExternalCta className="btn h-11 rounded-full bg-bg px-6 text-ink hover:bg-bg/90">
                 Create your organization <ArrowUpRight size={16} aria-hidden />
-              </ExternalCta>
-              <ExternalCta className="btn h-11 rounded-full border border-bg/40 px-6 text-bg hover:bg-bg/10">
-                Try the demo organization
               </ExternalCta>
             </div>
           </div>

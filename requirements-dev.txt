@@ -1,5 +1,4 @@
 -r requirements.txt
 pytest==9.1.1
 ruff==0.17.1
-playwright==1.64.0  # dev only: screenshot-based UI review (scripts/screenshots.py); CI never launches a browser
-pillow==12.3.0  # dev only: compress screenshots; the version Streamlit already installs
+playwright==1.64.0  # dev only: renders the summary PDF (scripts/summary_pdf.py); CI never launches a browser

@@ -45,7 +45,8 @@ CREATE TABLE IF NOT EXISTS students (
                          CHECK (account_status IN ('active', 'invited', 'suspended')),
     must_change_password INTEGER NOT NULL DEFAULT 0,
     phone                TEXT,
-    batch_year           TEXT
+    batch_year           TEXT,
+    email_verified       INTEGER NOT NULL DEFAULT 0  -- a code sent to the email was typed
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_students_email ON students (email);
@@ -74,14 +75,53 @@ CREATE TABLE IF NOT EXISTS auth_codes (
 );
 
 -- "Stay signed in": the SHA-256 of the browser cookie's token, never the token itself.
+-- Each also says which device it is on (piq/devices.py), for the student's list of signed-in
+-- devices: browser and OS from the User-Agent, the IP, and a location when the host provides one.
 CREATE TABLE IF NOT EXISTS sessions (
-    token_hash TEXT PRIMARY KEY,
-    student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
-    expires_at REAL NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    token_hash  TEXT PRIMARY KEY,
+    student_id  TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    expires_at  REAL NOT NULL,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    device_hash TEXT NOT NULL DEFAULT '',
+    user_agent  TEXT NOT NULL DEFAULT '',
+    ip          TEXT NOT NULL DEFAULT '',
+    location    TEXT NOT NULL DEFAULT '',
+    last_seen   REAL NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_student ON sessions (student_id);
+
+-- The devices (hashed browser ids) a student has signed in on: a sign-in from any other is new.
+CREATE TABLE IF NOT EXISTS known_devices (
+    student_id  TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    device_hash TEXT NOT NULL,
+    first_seen  REAL NOT NULL,
+    last_seen   REAL NOT NULL,
+    PRIMARY KEY (student_id, device_hash)
+);
+
+-- A student's own settings (piq/prefs.py), as JSON; missing keys take the defaults.
+CREATE TABLE IF NOT EXISTS student_prefs (
+    student_id TEXT PRIMARY KEY REFERENCES students(id) ON DELETE CASCADE,
+    prefs_json TEXT NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- What happened at sign-in (sign-ups, sign-ins, wrong passwords, codes, new devices, sign-outs),
+-- for the operations view. student_id is NULL when no account matched.
+CREATE TABLE IF NOT EXISTS auth_events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    at         REAL NOT NULL,
+    student_id TEXT REFERENCES students(id) ON DELETE SET NULL,
+    kind       TEXT NOT NULL,
+    identifier TEXT NOT NULL DEFAULT '',
+    ip         TEXT NOT NULL DEFAULT '',
+    user_agent TEXT NOT NULL DEFAULT '',
+    location   TEXT NOT NULL DEFAULT '',
+    detail     TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_events_at ON auth_events (at);
 
 -- The same two for an organization's admin: the code that proves the admin's email when the
 -- organization is created, and "stay signed in" (hashes only, as above).

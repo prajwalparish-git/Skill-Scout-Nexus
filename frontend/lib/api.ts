@@ -1,6 +1,13 @@
-// Typed client for server.py. Every call goes to NEXT_PUBLIC_API_URL (default localhost:8000).
+// Typed client for server.py. Calls go to this site's own /api/*, which next.config.mjs proxies to
+// the API (API_ORIGIN): the session cookie is then first-party, with no CORS, here and when deployed.
 
-export const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+export const API = "";
+
+/** Fired when a call comes back 401: the session ended, so the app drops the signed-in student. */
+export const SIGNED_OUT = "ssn:signed-out";
+const signedOut = () => {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(SIGNED_OUT));
+};
 
 export class ApiError extends Error {
   constructor(
@@ -30,11 +37,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     });
   } catch (e) {
     if (e instanceof DOMException && e.name === "AbortError") {
-      throw new ApiError(`The API at ${API} took too long to respond.`, 0);
+      throw new ApiError("The server took too long to respond.", 0);
     }
-    throw new ApiError(`Cannot reach the API at ${API}. Is server.py running?`, 0);
+    throw new ApiError("Cannot reach the server. Is the API running?", 0);
   }
   if (!res.ok) {
+    if (res.status === 401) signedOut();
     const body = await res.json().catch(() => ({}));
     throw new ApiError(body.detail ?? `Request failed (${res.status})`, res.status);
   }
@@ -79,12 +87,13 @@ export async function postStream(
   } catch (e) {
     clearTimeout(idle);
     if (e instanceof DOMException && e.name === "AbortError") {
-      throw new ApiError(`The API at ${API} took too long to respond.`, 0);
+      throw new ApiError("The server took too long to respond.", 0);
     }
-    throw new ApiError(`Cannot reach the API at ${API}. Is server.py running?`, 0);
+    throw new ApiError("Cannot reach the server. Is the API running?", 0);
   }
   if (!res.ok || !res.body) {
     clearTimeout(idle);
+    if (res.status === 401) signedOut();
     const err = await res.json().catch(() => ({}));
     throw new ApiError(err.detail ?? `Request failed (${res.status})`, res.status);
   }
@@ -151,7 +160,24 @@ export type Student = {
   username: string;
   target_role: string;
   readiness_score: number;
+  /** An organization's student on the temporary password they were sent. */
+  must_change_password: boolean;
 };
+/** How this install signs in: local = one student, password only (no email). */
+export type AuthMode = { local: boolean; signup_open: boolean };
+/** One of the student's signed-in devices. */
+export type DeviceSession = {
+  id: string;
+  browser: string;
+  os: string;
+  ip: string;
+  location: string;
+  created_at: string;
+  last_seen: number | null;
+  current: boolean;
+};
+export type Prefs = { preload: boolean; login_alerts: boolean };
+export type SettingsPayload = { prefs: Prefs; preload_allowed: boolean };
 export type RoleFit = {
   role: string;
   domain_id: string;

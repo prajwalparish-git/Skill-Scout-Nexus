@@ -11,8 +11,16 @@ from functools import lru_cache
 import streamlit as st
 from streamlit.delta_generator import DeltaGenerator
 
-from piq import accounts, formatter, journey, orgs, services
-from piq.config import SESSION_COOKIE, SESSION_TTL_S, STATIC_DIR
+from piq import accounts, devices, formatter, journey, orgs, prefs, services
+from piq.config import (
+    CODE_AFTER_FAILURES,
+    DEVICE_COOKIE,
+    DEVICE_COOKIE_TTL_S,
+    SESSION_COOKIE,
+    SESSION_TTL_S,
+    STATIC_DIR,
+    settings,
+)
 from piq.graph import CriticRejected, OnEvent
 from piq.llm import LLMError
 from piq.resume import ResumeError
@@ -82,6 +90,8 @@ def set_student(
 
 TOKEN = "session_token"  # this browser's session token
 COOKIE_SET = "cookie_set"  # a cookie change for the browser, written on the next render
+DEVICE_SET = "device_cookie_set"  # this browser's new device id, written on the next render
+WRONG_TRIES = "auth_wrong_tries"  # wrong sign-ins in this browser session (cleared on sign-in)
 SUSPENDED_NOTICE = "auth_suspended"  # the sign-in page says why a student was signed out
 _TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{20,128}$")
 
@@ -159,11 +169,36 @@ def signed_in_student() -> dict | None:
     return st.session_state["student"]
 
 
+def current_device() -> devices.Device:
+    """This browser as a Device (piq/devices.py); one without a device id is given one, written
+    with the next cookie change."""
+    try:
+        did = st.context.cookies.get(DEVICE_COOKIE)
+        headers = {str(k).lower(): v for k, v in st.context.headers.items() if isinstance(v, str)}
+        ip = st.context.ip_address
+    except Exception:  # no browser behind the session (tests, bare mode)
+        return devices.Device()
+    ip = ip if isinstance(ip, str) else ""
+    if not devices.valid_id(did):
+        did = st.session_state.get(DEVICE_SET) or devices.new_id()
+        st.session_state[DEVICE_SET] = did
+    return devices.from_headers(headers, did, ip)
+
+
+def risky_browser() -> bool:
+    """More than CODE_AFTER_FAILURES - 1 wrong sign-ins here: the next one asks the code too."""
+    return st.session_state.get(WRONG_TRIES, 0) >= CODE_AFTER_FAILURES
+
+
+def count_wrong_try() -> None:
+    st.session_state[WRONG_TRIES] = st.session_state.get(WRONG_TRIES, 0) + 1
+
+
 def sign_in(student_id: str) -> None:
     """Start a session for the student (and remember this browser), then show their journey."""
     _drop_admin()
     st.session_state.pop(PW_LATER, None)  # the password banner shows again for this student
-    token = accounts.create_session(student_id)
+    token = accounts.create_session(student_id, current_device())
     st.session_state[TOKEN] = token
     st.session_state[COOKIE_SET] = token
     set_student(student_id, fresh=True)
@@ -196,7 +231,7 @@ def sign_out() -> None:
     """End this browser's session, student's or admin's (button callback): the cookie goes on
     the next render."""
     token = st.session_state.pop(TOKEN, None)
-    accounts.end_session(token)
+    accounts.end_session(token, current_device())
     orgs.end_session(token)
     _drop_admin()
     set_student(None)
@@ -209,14 +244,23 @@ def flush_cookie() -> None:
     """Write a pending cookie change in the browser: a session token after sign-in, or an
     expired cookie after sign-out. A token-only value (checked) and fixed attributes, so the
     script cannot be steered by input."""
-    if COOKIE_SET not in st.session_state:
+    cookies = []
+    if COOKIE_SET in st.session_state:
+        token = st.session_state.pop(COOKIE_SET)
+        value, age = (token, SESSION_TTL_S) if token and _TOKEN_RE.match(token) else ("", 0)
+        cookies.append(f"{SESSION_COOKIE}={value}; Path=/; Max-Age={age}; SameSite=Strict")
+    device_id = st.session_state.pop(DEVICE_SET, None)
+    if device_id and devices.valid_id(device_id):
+        cookies.append(
+            f"{DEVICE_COOKIE}={device_id}; Path=/; Max-Age={DEVICE_COOKIE_TTL_S}; SameSite=Strict"
+        )
+    if not cookies:
         return
-    token = st.session_state.pop(COOKIE_SET)
-    value, age = (token, SESSION_TTL_S) if token and _TOKEN_RE.match(token) else ("", 0)
+    secure = " + (location.protocol === 'https:' ? '; Secure' : '')"
     st.html(
-        "<script>document.cookie = "
-        + json.dumps(f"{SESSION_COOKIE}={value}; Path=/; Max-Age={age}; SameSite=Strict")
-        + " + (location.protocol === 'https:' ? '; Secure' : '');</script>",
+        "<script>"
+        + "".join(f"document.cookie = {json.dumps(c)}{secure};" for c in cookies)
+        + "</script>",
         unsafe_allow_javascript=True,
     )
 
@@ -234,7 +278,52 @@ def account_sidebar(student: dict) -> None:
                     student["org_name"], student.get("main_domain"), student.get("subdomain")
                 )
             )
+        _settings(student)
         st.button("Sign out", icon=":material/logout:", on_click=sign_out, key="sign_out")
+
+
+def _settings(student: dict) -> None:
+    """The student's own settings and their signed-in devices."""
+    sid = student["id"]
+    with st.popover("Settings", icon=":material/settings:", width="stretch"):
+        current = prefs.get(sid)
+        allowed = settings().preload
+        preload = st.toggle(
+            "Prepare my next steps in the background",
+            value=current["preload"] and allowed,
+            disabled=not allowed,
+            help="After a resume scan or while a quiz or voice question is open, write the "
+            "roadmap, the next quiz and the next question ahead of time so they open at once. "
+            "It uses AI quota, so it is off unless you turn it on.",
+            key="pref_preload",
+        )
+        alerts = st.toggle(
+            "Email me when my account signs in on a new device",
+            value=current["login_alerts"],
+            key="pref_login_alerts",
+        )
+        wanted = {"preload": preload if allowed else current["preload"], "login_alerts": alerts}
+        if wanted != current:
+            prefs.update(sid, wanted)
+        st.markdown("**Signed-in devices**")
+        here = st.session_state.get(TOKEN)
+        rows = accounts.sessions(sid, here)
+        for s in rows:
+            where = " · ".join(x for x in (s["ip"], s["location"]) if x) or "unknown network"
+            left, right = st.columns([3, 1], vertical_alignment="center")
+            left.markdown(
+                f"{formatter.md_escape(s['browser'])} on {formatter.md_escape(s['os'])}"
+                + (" :green-badge[This device]" if s["current"] else "")
+                + f"  \n:gray[{formatter.md_escape(where)} · since {s['created_at']}]"
+            )
+            if not s["current"] and right.button("Sign out", key=f"revoke_{s['id']}"):
+                accounts.end_session_id(sid, s["id"], current_device())
+                st.rerun()
+        if len(rows) > 1 and st.button(
+            "Sign out all other devices", icon=":material/devices:", key="revoke_others"
+        ):
+            accounts.end_other_sessions(sid, here or "", current_device())
+            st.rerun()
 
 
 def admin_sidebar(org: orgs.Organization) -> None:

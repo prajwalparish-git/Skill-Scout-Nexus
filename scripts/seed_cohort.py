@@ -1,11 +1,11 @@
-"""Demo organization for the admin portal: a fictional placement cell with two dozen students
-across Engineering, Commerce, Law and Management, each with a resume scan, a roadmap, quiz
-attempts over six weeks and voice sessions.
+"""Test and CI fixture: a demo organization for the admin portal, a fictional placement cell with
+two dozen students across Engineering, Commerce, Law and Management, each with a resume scan, a
+roadmap, quiz attempts over six weeks and voice sessions.
 
     python -m scripts.seed_cohort            # adds the demo organization (once)
     python -m scripts.seed_cohort --replace  # first deletes the earlier one
 
-"Try demo organization admin" on the sign-in page seeds it on first use. The organization
+Nothing in the app calls this; run it by hand or from a test. The organization
 (DEMO_ORG_CODE) and every student (username starting "cohort", named "Demo student NN") are
 fictional. Their accounts and the organization live in the app database; their results live in
 the telemetry database, written inside `local_only()` so none of it is ever sent to the cloud
@@ -247,6 +247,16 @@ def _telemetry(
             )
 
     get_manager().run(add_activity)
+
+
+def ensure_org() -> int:
+    """The demo organization's id, seeding it first when it does not exist yet."""
+    row = db.organization_by_code(DEMO_ORG_CODE)
+    if row is None:
+        main([])
+        row = db.organization_by_code(DEMO_ORG_CODE)
+    assert row is not None, "seeding the demo organization failed"
+    return row["id"]
 
 
 if __name__ == "__main__":

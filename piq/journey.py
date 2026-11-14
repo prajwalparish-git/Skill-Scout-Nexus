@@ -39,7 +39,7 @@ from core import ai_router, preloader, speech_router
 from core.speech_router import Speech
 from database import crud
 from database.connection import get_manager
-from piq import cohort, db, syllabus
+from piq import cohort, db, prefs, syllabus
 from piq.config import CRITIC_QUIZ_SIZES, DIFFICULTIES, settings
 from piq.services import MAX_ANSWER_CHARS, SAMPLES_DIR, ServiceError, sample_resumes
 
@@ -352,7 +352,10 @@ def quiz_skills(student_id: str) -> list[str]:
 def preload_next_steps(student_id: str) -> list[str]:
     """After onboarding or a scan: start the roadmap, the first quiz and the voice questions
     with exactly the inputs those pages preselect. Returns the task keys started; never
-    raises (a page with nothing preloaded generates as before)."""
+    raises (a page with nothing preloaded generates as before). Only for a student who turned
+    preloading on in their settings (prefs.preload_on): it spends AI quota ahead of time."""
+    if not prefs.preload_on(student_id):
+        return []
     try:
         s = student(student_id)
         gaps, _ = latest_gaps(student_id)
@@ -367,6 +370,8 @@ def preload_next_steps(student_id: str) -> list[str]:
 
 def preload_next_quiz(student_id: str, batch: QuizBatch) -> list[str]:
     """While a quiz is open: write the next set on the same skill, difficulty and size."""
+    if not prefs.preload_on(student_id):
+        return []
     try:
         s = student(student_id)
         return preloader.get_preloader().trigger_quiz_next_batch_preload(
@@ -383,6 +388,8 @@ def next_category(category: Category) -> Category:
 
 def preload_next_voice(student_id: str, stream: str, category: Category) -> list[str]:
     """While a voice question is open: ready the next type's question and synthesise it."""
+    if not prefs.preload_on(student_id):
+        return []
     try:
         s = student(student_id)
         return preloader.get_preloader().preload_voice_question(

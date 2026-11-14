@@ -7,7 +7,9 @@ export const metadata: Metadata = { title: "Cookies" };
 const ROWS: [string, string, string, string, string][] = [
   ["piq_session", "Cookie · main app", "Essential", "Keeps you signed in. Only a hash of it is stored on the server.", "Up to 7 days"],
   ["Streamlit cookies", "Cookie · main app", "Essential", "Set by the Streamlit framework to protect requests.", "Session"],
-  ["ssn.candidate", "Local storage · web app", "Essential", "Remembers which profile you chose (your study progress lives with it).", "Until you clear it"],
+  ["ssn_device", "Cookie · web app", "Essential", "A random id for this browser, so a sign-in from a new device can be spotted and emailed to you. Page scripts cannot read it.", "Up to 400 days"],
+  ["piq_device", "Cookie · main app", "Essential", "The same random browser id for the main app.", "Up to 400 days"],
+  ["ssn_session", "Cookie · web app", "Essential", "Keeps you signed in. Page scripts cannot read it, and only a hash of it is stored on the server.", "Up to 7 days, or until you sign out"],
   ["ssn.consent", "Local storage · web app", "Essential", "Remembers the choice you made in the cookie banner.", "Until you clear it"],
   ["ssn.feedback", "Local storage · web app", "Optional", "A copy of the feedback you send, only if you turn on “feedback notes”.", "Until you turn it off"],
 ];
@@ -68,7 +70,7 @@ export default function Cookies() {
       <Clause title="Clearing everything">
         <p>
           You can clear all of it in your browser&apos;s site settings. You will be signed out, and the web app will
-          forget your chosen profile, your cookie choice and any saved feedback notes.
+          forget your cookie choice and any saved feedback notes.
         </p>
       </Clause>
     </LegalPage>

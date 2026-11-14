@@ -13,8 +13,18 @@ services:
     envVars:
       - key: MOCK_MODE
         value: "false"
-      # The Vercel URL(s) allowed to call this API (comma-separated, no trailing slash).
+      - key: LOCAL_MODE
+        value: "false"
+      # Vercel forwards /api/* here, so no CORS list is needed. Only for a browser that calls this
+      # API directly from another origin (comma-separated, no trailing slash).
       - key: FRONTEND_ORIGINS
+        sync: false
+      # The Vercel site's URL: the buttons and Terms / Privacy links in emails point at it.
+      - key: APP_URL
+        sync: false
+      # Keep it secret and unchanged across deploys: it is mixed into every password hash and
+      # signs the sign-in steps (changing it signs every student out and locks them out).
+      - key: AUTH_PEPPER
         sync: false
       - key: GROQ_API_KEYS
         sync: false

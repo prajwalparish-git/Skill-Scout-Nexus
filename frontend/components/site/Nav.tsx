@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useMotionValueEvent, useScroll } from "motion/react";
 import { ArrowRight, Menu, X } from "lucide-react";
+import { useCandidate } from "@/lib/candidate";
 import { PAGES, SECTIONS, SPRING } from "@/lib/site";
 import { Brand } from "./Brand";
 import { useAuth } from "./auth";
@@ -13,6 +14,7 @@ import { useAuth } from "./auth";
 export function SiteNav() {
   const path = usePathname();
   const { open } = useAuth();
+  const { candidate, loading } = useCandidate();
   const { scrollY } = useScroll();
   const [scrolled, setScrolled] = useState(false);
   const [hovered, setHovered] = useState<string | null>(null);
@@ -87,13 +89,22 @@ export function SiteNav() {
         </ul>
 
         <div className="ml-auto hidden items-center gap-1.5 md:flex">
-          <button type="button" className="btn rounded-full px-3.5 text-ink hover:bg-ink/[0.06]" onClick={() => open("signin")}>
-            Sign in
-          </button>
-          <button type="button" className="btn-ink group" onClick={() => open("signup")}>
-            Get started
-            <ArrowRight size={15} className="transition-transform duration-200 group-hover:translate-x-0.5" aria-hidden />
-          </button>
+          {loading ? null : candidate ? (
+            <Link href="/dashboard" className="btn-ink group">
+              Open dashboard
+              <ArrowRight size={15} className="transition-transform duration-200 group-hover:translate-x-0.5" aria-hidden />
+            </Link>
+          ) : (
+            <>
+              <button type="button" className="btn rounded-full px-3.5 text-ink hover:bg-ink/[0.06]" onClick={() => open("signin")}>
+                Sign in
+              </button>
+              <button type="button" className="btn-ink group" onClick={() => open("signup")}>
+                Get started
+                <ArrowRight size={15} className="transition-transform duration-200 group-hover:translate-x-0.5" aria-hidden />
+              </button>
+            </>
+          )}
         </div>
 
         <button
@@ -145,26 +156,34 @@ export function SiteNav() {
               ))}
             </ul>
             <div className="mt-2 grid grid-cols-2 gap-2 border-t border-hair p-2 pt-3">
-              <button
-                type="button"
-                className="btn-hair"
-                onClick={() => {
-                  setMenu(false);
-                  open("signin");
-                }}
-              >
-                Sign in
-              </button>
-              <button
-                type="button"
-                className="btn-ink"
-                onClick={() => {
-                  setMenu(false);
-                  open("signup");
-                }}
-              >
-                Get started
-              </button>
+              {candidate ? (
+                <Link href="/dashboard" className="btn-ink col-span-2" onClick={() => setMenu(false)}>
+                  Open dashboard
+                </Link>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="btn-hair"
+                    onClick={() => {
+                      setMenu(false);
+                      open("signin");
+                    }}
+                  >
+                    Sign in
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-ink"
+                    onClick={() => {
+                      setMenu(false);
+                      open("signup");
+                    }}
+                  >
+                    Get started
+                  </button>
+                </>
+              )}
             </div>
           </motion.div>
         )}

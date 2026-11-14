@@ -80,8 +80,8 @@ export function NeedsCandidate() {
       <div className="max-w-md">
         <h2 className="h2">Sign in to see your own progress</h2>
         <p className="mt-2 text-sm text-muted">
-          Choose your profile to continue. New students create an account in the main app (sign up, then upload a
-          resume), or choose a candidate in the menu.
+          Sign in to continue, or create a free account in a minute. Your quizzes, study plan and interviews are
+          saved to it.
         </p>
       </div>
       <div className="flex flex-wrap justify-center gap-2">

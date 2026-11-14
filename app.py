@@ -5,7 +5,7 @@ import logging
 import streamlit as st
 
 from piq import db, formatter, journey, services
-from piq.config import BRAND_DIR, DEMO_ORG_CODE, ConfigError, settings
+from piq.config import BRAND_DIR, ConfigError, settings
 from piq.ui import (
     account_sidebar,
     admin_sidebar,
@@ -16,8 +16,6 @@ from piq.ui import (
     signed_in_admin,
     signed_in_student,
 )
-from scripts.seed import main as seed_demo
-from scripts.seed_cohort import main as seed_cohort
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 st.set_page_config(
@@ -36,10 +34,6 @@ except ConfigError as e:
 @st.cache_resource
 def _startup() -> None:
     db.init_db()
-    if cfg.seed_demo and not db.list_students():  # hosted disks reset on every restart
-        seed_demo()
-    if cfg.seed_demo and db.organization_by_code(DEMO_ORG_CODE) is None:  # the demo organization
-        seed_cohort([])
     journey.start_sync()  # records made while offline go to the cloud copy, in the background
     logging.getLogger("piq").info(
         "mock_mode=%s large=%s small=%s db=%s",
