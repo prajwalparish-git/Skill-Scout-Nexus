@@ -23,8 +23,10 @@ repository proves the product itself works.
    reported and AI practice kept apart), the open question bank (every question with its source,
    licence and a verified answer, general practice never claimed as a company's, an offline
    import that keeps the seed), interview process reports (validated, cleaned, summarised
-   under anonymous labels, gone with the account), and the refusals (signed out, another
-   student, the operations view, an invalid body).
+   under anonymous labels, gone with the account), contributed questions (a contributor
+   account kept out of the student tools, CC BY 4.0 recorded, limited, moderated, credited
+   only when opted in), and the refusals (signed out, another student, the operations
+   view, an invalid body).
 4. The app starts: every page renders headless (Streamlit AppTest) in mock mode, with no
    student and with the demo student, on throwaway databases. No network, no secrets.
 
@@ -80,6 +82,7 @@ def compile_all() -> None:
         "server_drive.py",
         "server_proctor.py",
         "server_handsfree.py",
+        "server_contribute.py",
         "bootstrap.py",
     ):
         check(bool(compileall.compile_file(ROOT / name, quiet=1)), f"{name} compiles")
@@ -210,6 +213,7 @@ def api() -> None:
             company_questions(c, sid)
             open_questions_checks(c, sid)
             process_checks(c, sid)
+            contribute_checks(c)
             drive(c, sid)
             proctoring_checks(c, sid)
             handsfree_checks(c, sid)
@@ -829,6 +833,164 @@ def process_checks(c: "TestClient", sid: str) -> None:
     check(
         left == 0 and c.get("/api/companies/wipro").json()["process"]["reports"] == 3,
         "Process: a report goes with the student's account",
+    )
+
+
+def contribute_checks(c: "TestClient") -> None:
+    """Contributed questions: a contributor account (no role, resume or score, kept out of the
+    student tools), contributions cleaned, limited and licensed CC BY 4.0, routed to the right
+    moderator, joining the bank and the interviews once approved, credited only when the author
+    opts in, and gone with the account."""
+    from fastapi.testclient import TestClient
+
+    import server_companies
+    from piq import contributions, db, experiences, question_bank, services
+    from piq.checks import text_hash
+    from piq.db import tx
+
+    students_before = db.student_count()
+    k = TestClient(c.app)  # the contributor's own browser (its own session cookie)
+    signed = k.post(
+        "/api/auth/signup-contributor",
+        json={
+            "name": "Ci Contributor", "username": "cicontrib", "email": "ci.contrib@example.com",
+            "password": "contrib123x", "confirm": "contrib123x", "company_joined": "Zoho",
+            "batch_year": "2023",
+        },
+    )  # fmt: skip
+    who = (signed.json().get("student") or {}) if signed.status_code == 200 else {}
+    kid = who.get("id")
+    row = db.student(kid) if kid else None
+    check(
+        kid is not None
+        and who.get("account_kind") == "contributor"
+        and row["target_role"] == ""
+        and row["readiness_score"] is None
+        and row["batch_year"] == "2023"
+        and db.contributor(kid)["company_joined"] == "Zoho"
+        and db.student_count() == students_before,
+        f"Contributor sign-up: name, email, company, batch year; not a student{_why(signed)}",
+    )
+    if kid is None:
+        return
+    check(
+        k.get(f"/api/plan/{kid}").status_code == 403
+        and k.get(f"/api/dashboard/{kid}").status_code == 403
+        and k.get("/api/companies/tcs").status_code == 200
+        and k.get("/api/auth/sessions").status_code == 200,
+        "Contributor: student tools refused (403); companies and account settings open",
+    )
+
+    server_companies._posts.clear()
+    mcq = {
+        "kind": "mcq", "round": "aptitude", "topic": "Aptitude", "difficulty": "easy",
+        "text": "A pen costs 40 rupees after a 20% discount. What was its marked price?",
+        "options": ["45", "50", "48", "60"], "correct_index": 1,
+        "explanation": "0.8 x = 40, so x = 50. Questions? mail ci.c@example.com or 9845012345",
+        "licence_accepted": True,
+    }  # fmt: skip
+    sent = k.post("/api/contribute", json=mcq)
+    cid = sent.json().get("id") if sent.status_code == 200 else None
+    stored = db.contribution(cid) if cid else None
+    check(
+        stored is not None
+        and stored["status"] == "pending"
+        and stored["licence"] == "CC-BY-4.0"
+        and stored["licence_accepted_at"]
+        and stored["org_id"] is None
+        and "[email]" in stored["explanation"]
+        and "[phone]" in stored["explanation"]
+        and any("critic" in f for f in json.loads(stored["flags"])),
+        f"Contribution: pending, CC BY 4.0 recorded, personal data removed{_why(sent)}",
+    )
+    own_text = question_bank.draw("DBMS", "easy", 1, [], "ci-contrib")[0]
+    bad = {
+        "repeated options": {**mcq, "text": mcq["text"] + " (a)", "options": ["1", "1", "2", "3"]},
+        "no explanation": {**mcq, "text": mcq["text"] + " (b)", "explanation": ""},
+        "no licence": {**mcq, "text": mcq["text"] + " (c)", "licence_accepted": False},
+        "abuse": {**mcq, "text": "What does this bastard formula give for 2 + 2 here?"},
+        "HR as MCQ": {**mcq, "round": "hr", "topic": "HR", "text": mcq["text"] + " (d)"},
+        "open without answer": {"kind": "open", "round": "hr", "difficulty": "easy",
+                                "text": "Why do you want to join a startup now?",
+                                "model_answer": "Growth.", "licence_accepted": True},
+        "already in the bank": {**mcq, "topic": "Aptitude", "text": own_text.text,
+                                "options": own_text.options,
+                                "correct_index": own_text.correct_index},
+        "repeat": mcq,
+    }  # fmt: skip
+    codes = {name: k.post("/api/contribute", json=body).status_code for name, body in bad.items()}
+    check(
+        all(code == 400 for code in codes.values()),
+        f"Contribution: invalid, unlicensed, abusive and repeated questions refused ({codes})",
+    )
+    server_companies._posts.clear()
+    opens = [
+        {"kind": "open", "round": "hr", "difficulty": "medium",
+         "text": f"Describe a time you changed your mind after feedback, case {i}.",
+         "model_answer": "Situation, task, action, result: say what the feedback was, why it "
+         "convinced you, what you changed and what happened next, with one concrete number.",
+         "licence_accepted": True}
+        for i in range(5)
+    ]  # fmt: skip
+    limited = [k.post("/api/contribute", json=o).status_code for o in opens]
+    check(
+        limited[:4] == [200] * 4 and limited[4] == 429,
+        f"Contribution: more than five a day is refused (429) {limited}",
+    )
+
+    queue = {x["id"] for x in contributions.review_queue(contributions.OPS)}
+    with tx() as conn:
+        some_org = conn.execute("SELECT id FROM organizations LIMIT 1").fetchone()
+    refused = False
+    if some_org:
+        try:
+            contributions.review(some_org[0], cid, True)
+        except services.ServiceError:
+            refused = True
+    check(
+        cid in queue and (refused or not some_org),
+        "Contribution: a contributor's question goes to the operations view, not an org",
+    )
+    open_id = next(x["id"] for x in contributions.mine(kid) if x["kind"] == "open")
+    contributions.review(contributions.OPS, cid, True)
+    contributions.review(contributions.OPS, open_id, True)
+    qid = text_hash(stored["text"])
+    found = question_bank.get(qid)
+    open_text = db.contribution(open_id)["text"]
+    check(
+        found is not None
+        and found[0] == "Aptitude"
+        and question_bank.source(qid) == ("contrib", False)
+        and question_bank.credit(qid) == "Community · CC-BY-4.0 · by an anonymous contributor"
+        and any(q["text"] == open_text for q in experiences.interview_pool("hr")),
+        "Contribution: approved MCQs join the quiz bank, open ones the interviews, anonymously",
+    )
+    board = c.get("/api/contribute/leaderboard").json()
+    credited = k.post(
+        "/api/contribute/credit", json={"credit_opt_in": True, "display_name": "CI Alum"}
+    ).json()
+    board_after = c.get("/api/contribute/leaderboard").json()
+    check(
+        not any(t["name"] == "CI Alum" for t in board["top"])
+        and credited.get("badge")
+        and credited.get("shown_as") == "CI Alum"
+        and {"name": "CI Alum", "approved": 2} in board_after["top"]
+        and question_bank.credit(qid).endswith("by CI Alum")
+        and k.post("/api/contribute/credit",
+                   json={"credit_opt_in": True, "display_name": "me@x.com"}).status_code == 400,
+        "Contribution: credit only when opted in; the badge and the season's top contributors",
+    )  # fmt: skip
+    sources = {s["key"] for s in c.get("/api/question-sources").json()["sources"]}
+    check("contrib" in sources, "Credits list community contributions (CC BY 4.0)")
+    services.delete_student(kid, "cicontrib")
+    question_bank.clear_cache()  # another process sees it within question_bank.VERSION_TTL_S
+    with tx() as conn:
+        left = conn.execute(
+            "SELECT COUNT(*) FROM contributed_questions WHERE author_id = ?", (kid,)
+        ).fetchone()[0]
+    check(
+        left == 0 and question_bank.get(qid) is None,
+        "Contribution: a contributor's questions go with their account",
     )
 
 
