@@ -579,7 +579,7 @@ class BulletRequest(BaseModel):
     role: str
 
 
-@app.post("/api/resume/enhance-bullet", dependencies=[Depends(require_student)])
-def enhance_bullet(body: BulletRequest) -> dict:
+@app.post("/api/resume/enhance-bullet")
+def enhance_bullet(body: BulletRequest, sid: str = Depends(require_student)) -> dict:
     """One bullet in XYZ form (interactive lane: Groq key 1); numbers are never invented."""
-    return {"bullet": services.enhance_bullet(body.text, body.role)}
+    return {"bullet": services.enhance_bullet(body.text, body.role, student_id=sid)}

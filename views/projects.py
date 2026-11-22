@@ -207,7 +207,7 @@ with list_col:
                     else:
                         st.session_state["gh_readme_raw"] = readme
                         with st.spinner("Extracting project intelligence …"):
-                            intel = gh.extract_github_intelligence(readme)
+                            intel = gh.extract_github_intelligence(readme, student_id=sid)
                         if intel.is_empty:
                             st.warning(
                                 "README fetched but structured extraction failed. "

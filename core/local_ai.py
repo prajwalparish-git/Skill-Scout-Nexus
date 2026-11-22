@@ -25,7 +25,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from core.ai_router import Completion, Messages, Ollama, ProviderError
+from core.ai_router import Completion, Messages, Ollama, ProviderError, breaker
 from piq import db
 from piq.config import (
     LOCAL_AI_CONNECT_TIMEOUT_S,
@@ -278,7 +278,9 @@ def save(
     if not 1 <= len(model) <= LOCAL_AI_MODEL_MAX or _BAD_CHARS.search(model.replace(" ", "")):
         raise LocalAIError("Choose a model (use Test connection to list them).")
     db.save_local_ai(student_id, provider, base, model, bool(preferred))
-    return LocalModel(student_id, provider, base, model, bool(preferred))
+    saved = LocalModel(student_id, provider, base, model, bool(preferred))
+    breaker(saved.breaker_key).success()  # a model they just started is tried at once
+    return saved
 
 
 def remove(student_id: str) -> None:

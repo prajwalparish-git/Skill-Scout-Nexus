@@ -65,6 +65,7 @@ def _profile_gen(inp: dict, reasons: list[str], _prev: object) -> tuple[ProfileE
         context=ctx,
         size="small",
         temperature=0.1,
+        student_id=inp.get("student_id"),
     )
 
 
@@ -76,13 +77,15 @@ PROFILE_TASK = Task(
 
 
 def create_profile(
-    resume_text: str, target_role: str, on_event: OnEvent | None = None
+    resume_text: str,
+    target_role: str,
+    on_event: OnEvent | None = None,
+    student_id: str | None = None,
 ) -> StudentProfile:
     if target_role not in roles():
         raise ValueError(f"unknown target role {target_role!r}")
-    ext: ProfileExtraction = run_or_raise(
-        PROFILE_TASK, {"resume_text": resume_text, "target_role": target_role}, on_event
-    )
+    inp = {"resume_text": resume_text, "target_role": target_role, "student_id": student_id}
+    ext: ProfileExtraction = run_or_raise(PROFILE_TASK, inp, on_event)
     skill_topics = roles()[target_role]
     required = list(skill_topics)
     canon = {s.lower(): s for s in required}
@@ -448,6 +451,7 @@ def _bullet_gen(inp: dict, reasons: list[str], _prev: object) -> tuple[BulletRew
         context=inp,
         size="small",
         temperature=0.3,
+        student_id=inp.get("student_id"),
     )
 
 
@@ -456,7 +460,10 @@ BULLET_TASK = Task(
 )
 
 
-def enhance_bullet(text: str, role: str, on_event: OnEvent | None = None) -> str:
+def enhance_bullet(
+    text: str, role: str, on_event: OnEvent | None = None, student_id: str | None = None
+) -> str:
     """One bullet in XYZ form, with no number the student did not write."""
-    out: BulletRewrite = run_or_raise(BULLET_TASK, {"text": text, "role": role}, on_event)
+    inp = {"text": text, "role": role, "student_id": student_id}
+    out: BulletRewrite = run_or_raise(BULLET_TASK, inp, on_event)
     return out.bullet.strip().lstrip("-*• ").strip()

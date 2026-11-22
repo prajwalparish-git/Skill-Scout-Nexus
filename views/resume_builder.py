@@ -239,7 +239,7 @@ with st.expander("Import project from GitHub URL", icon=":material/hub:", expand
             else:
                 role_kws = role_info.get("ats_keywords", [])
                 with st.spinner("Extracting project intelligence …"):
-                    intel = gh.extract_github_intelligence(readme, role_kws)
+                    intel = gh.extract_github_intelligence(readme, role_kws, student_id=sid)
                 if intel.is_empty:
                     st.warning(
                         "README fetched but the AI could not parse structured information. "

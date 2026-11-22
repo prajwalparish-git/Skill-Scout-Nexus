@@ -239,7 +239,7 @@ def onboard(
         raise ServiceError(
             f"This student's domain is locked to {lock.domain.name}: choose one of its roles."
         )
-    profile = agents.create_profile(resume_text, target_role, on_event)
+    profile = agents.create_profile(resume_text, target_role, on_event, student_id)
     return db.save_profile(student_id, profile), profile
 
 
@@ -1401,7 +1401,9 @@ def save_resume(
     return sid, len(db.resume_versions(sid))
 
 
-def enhance_bullet(text: str, role: str, on_event: OnEvent | None = None) -> str:
+def enhance_bullet(
+    text: str, role: str, on_event: OnEvent | None = None, student_id: str | None = None
+) -> str:
     """One resume bullet rewritten in XYZ form by the LLM; numbers are never invented."""
     text = (text or "").strip()
     if len(text) < 5:
@@ -1410,7 +1412,7 @@ def enhance_bullet(text: str, role: str, on_event: OnEvent | None = None) -> str
         raise ServiceError(f"A bullet is limited to {BULLET_MAX_CHARS} characters.")
     if resume_builder.get_role_info(role) is None and role not in syllabus.role_skills():
         raise ServiceError(f"Unknown role {role!r}.")
-    return agents.enhance_bullet(text, role, on_event)
+    return agents.enhance_bullet(text, role, on_event, student_id)
 
 
 def check_resume_dates(resume: Mapping) -> None:
