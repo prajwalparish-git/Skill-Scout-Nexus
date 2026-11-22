@@ -20,7 +20,9 @@ repository proves the product itself works.
    address in a saved version), company interview experiences (personal data removed, abuse
    refused, copied text flagged, pending until the right moderator approves, labelled never
    named, the college only for batches of five, 429 past the daily limit, reports hide a post,
-   reported and AI practice kept apart), and the refusals (signed out, another student, the
+   reported and AI practice kept apart), the open question bank (every question with its source,
+   licence and a verified answer, general practice never claimed as a company's, an offline
+   import that keeps the seed), and the refusals (signed out, another student, the
    operations view, an invalid body).
 4. The app starts: every page renders headless (Streamlit AppTest) in mock mode, with no
    student and with the demo student, on throwaway databases. No network, no secrets.
@@ -29,11 +31,13 @@ Exit code 0 when everything passes, 1 otherwise (each failure is printed).
 """
 
 import compileall
+import contextlib
 import csv
 import json
 import os
 import sys
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -203,6 +207,7 @@ def api() -> None:
             adaptive_quiz(c, sid)
             resume_templates(c, sid)
             company_questions(c, sid)
+            open_questions_checks(c, sid)
             drive(c, sid)
             proctoring_checks(c, sid)
             handsfree_checks(c, sid)
@@ -471,6 +476,222 @@ def drive(c: "TestClient", sid: str) -> None:
             os.environ.pop(key, None)
         settings.cache_clear()
     check(c.get("/api/drive").json()["enabled"] is False, "Drive: off again without keys")
+
+
+def open_questions_checks(c: "TestClient", sid: str) -> None:
+    """The open question bank, offline from the committed seed: every question has a recorded
+    source and licence (the licence texts in LICENSES.md match their pinned checksums), a
+    verified answer and nothing from a forbidden site; it covers aptitude, reasoning and a CS
+    topic at every level; company pages offer it as general practice and never as the company's
+    questions; open practice is graded apart from the syllabus; the credits API lists every
+    source; and an import without network leaves the seed as it was."""
+    import hashlib
+    import re
+    import subprocess
+    from urllib.parse import urlparse
+
+    from piq import db, experience_checks, experiences, question_bank
+    from piq import open_questions as oq
+
+    reg = oq.registry()
+    sources, licences = reg["sources"], reg["licences"]
+    md = oq.LICENSES.read_text(encoding="utf-8").replace("\r\n", "\n")
+    blocks = {
+        hashlib.sha256(b.encode()).hexdigest() for b in re.findall(r"```text\n(.*?)```", md, re.S)
+    }
+    pinned = {s["licence_file"]["sha256"] for k, s in sources.items() if "licence_file" in s}
+    pinned |= {lic["sha256"] for lic in licences.values() if lic.get("full_text_file")}
+    check(
+        pinned <= blocks
+        and all(s["licence_id"] in licences or k == "own" for k, s in sources.items()),
+        "Open bank: every source has a known licence; LICENSES.md holds each pinned licence text",
+    )
+    urls = [s.get("homepage", "") for s in sources.values()]
+    urls += [f["url"] for s in sources.values() for f in s.get("files", {}).values()]
+    check(
+        not any(oq.forbidden_in(u) for u in urls),
+        "Open bank: no source comes from Quora, Medium, LinkedIn, Glassdoor, PracHub or LeetCode",
+    )
+
+    with oq.OPEN_BANK.open(encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f))
+    topics = question_bank.topic_map()
+    bad = []
+    for r in rows:
+        src = sources.get(r["source"])
+        correct = r.get(f"option_{(r['correct_option'] or 'x').lower()}", "")
+        why = (
+            "unknown source" if src is None or r["source"] == "own"
+            else "licence differs from its source" if r["licence"] != src["licence_id"]
+            else "modified flag" if r["modified"] not in ("0", "1")
+            else question_bank.problems(r)
+            or ("topic unmapped" if not topics.get(r["topic"]) else None)
+            or ("forbidden site" if oq.forbidden_in(r["question"] + r["explanation"]) else None)
+            or (
+                "answer not in its explanation"
+                if r["source"] == "aqua_rat"
+                and not r["explanation"].endswith(f"Answer: {correct}.")
+                else None
+            )
+        )  # fmt: skip
+        if why:
+            bad.append(f"{r['id']}: {why}")
+    check(
+        len(rows) >= 1000 and not bad,
+        f"Open bank: {len(rows)} multiple-choice questions, each with its source, licence and a "
+        f"verified answer{(': ' + '; '.join(bad[:3])) if bad else ''}",
+    )
+    interview = oq.interview_questions()
+    check(
+        len(oq.for_round("hr")) >= 40
+        and all(
+            q["source"] in sources
+            and q["licence"] == sources[q["source"]]["licence_id"]
+            and len(q["model_answer"]) >= 80
+            and q["round"] in oq.INTERVIEW_ROUNDS
+            and not oq.forbidden_in(q["text"] + q["model_answer"])
+            for q in interview
+        ),
+        f"Open bank: {len(interview)} interview questions, each with its source and a model answer",
+    )
+    counts = question_bank.counts()
+    check(
+        all(counts.get(t, {}).get(d, 0) >= 20 for t in ("Aptitude", "Reasoning", "DSA")
+            for d in ("easy", "medium", "hard") if not (t == "DSA" and d == "easy")),
+        "Open bank: aptitude, reasoning and DSA have questions at every level",
+    )  # fmt: skip
+
+    # Company pages: general practice, never the company's questions.
+    quiet = next(co["slug"] for co in experiences.companies_overview() if not co["posts"])
+    detail = c.get(f"/api/companies/{quiet}").json()
+    practice = detail.get("open_practice") or {}
+    name = detail.get("name", "")
+    check(
+        practice.get("label") == oq.OPEN_LABEL
+        and practice.get("note", "").startswith(f"Not questions asked at {name}")
+        and min(practice.get("rounds", {}).values() or [0]) > 0
+        and detail.get("posts") == []
+        and "eported" not in json.dumps(practice),
+        f"Open bank: a company without reports ({name}) offers general practice by round, "
+        "never claimed as its own questions",
+    )
+    levels, history = db.topic_levels(sid), len(db.quiz_history(sid))
+    quiz = c.get(
+        f"/api/companies/{quiet}/practice", params={"round": "aptitude", "source": "open"}
+    ).json()
+    answers = [
+        {"id": q["id"], "choice": question_bank.get(q["id"])[2].correct_index}
+        for q in quiz.get("questions", [])
+    ]
+    graded = c.post(
+        f"/api/companies/{quiet}/practice/submit",
+        json={"round": "aptitude", "source": "open", "answers": answers},
+    ).json()
+    with db.tx() as conn:
+        kept = conn.execute(
+            "SELECT COUNT(*) FROM company_practice WHERE student_id = ? AND source = 'open'",
+            (sid,),
+        ).fetchone()[0]
+    check(
+        quiz.get("source") == "open"
+        and quiz.get("label") == oq.OPEN_LABEL
+        and quiz.get("notes", [""])[0].startswith("Not questions asked at")
+        and len(answers) == 10
+        and graded.get("score_pct") == 100
+        and all(r.get("credit") for r in graded.get("review", []))
+        and kept == 1
+        and db.topic_levels(sid) == levels
+        and len(db.quiz_history(sid)) == history,
+        "Open bank: an open aptitude quiz is graded with credits, apart from the syllabus",
+    )
+    ours = next(
+        question_bank.qid(x)
+        for x in question_bank.draw("DBMS", "easy", 50, [], "ci-own")
+        if not question_bank.is_open(question_bank.qid(x))
+    )
+    check(
+        c.get(f"/api/companies/{quiet}/practice", params={"round": "hr", "source": "open"})
+        .status_code == 400
+        and c.post(f"/api/companies/{quiet}/practice/submit", json={
+            "round": "aptitude", "source": "open", "answers": [{"id": ours, "choice": 0}],
+        }).status_code == 400,
+        "Open bank: HR is an interview, not a quiz; our own bank's questions are not open practice",
+    )  # fmt: skip
+    hr = {q["text"] for q in oq.for_round("hr")}
+    out = {}
+    r = c.post(
+        "/api/interview/turn",
+        json={"candidate_id": sid, "company": quiet, "round": "hr", "open": True},
+    )
+    for block in r.text.split("\n\n"):
+        kind, _, data = block.partition("\ndata: ")
+        if kind == "event: result":
+            out = json.loads(data)
+    session = out.get("session") or {}
+    check(
+        session.get("interview_type", "").startswith("General practice - HR")
+        and name not in session.get("interview_type", "")
+        and (session.get("current") or {}).get("question") in hr,
+        "Open bank: a general-practice HR interview asks open questions, not the company's",
+    )  # fmt: skip
+    reported = c.get("/api/companies/tcs").json()
+    check(
+        reported.get("posts") and reported.get("open_practice", {}).get("label") == oq.OPEN_LABEL,
+        "Open bank: a company with reports keeps them, general practice offered separately",
+    )
+    patterns = [co for co in experience_checks.companies() if co.get("test_pattern")]
+    check(
+        all(
+            urlparse(co["test_pattern"].get("source_url", "")).hostname
+            and urlparse(co.get("careers_url", "")).hostname
+            and urlparse(co["test_pattern"]["source_url"]).hostname.endswith(
+                ".".join(urlparse(co["careers_url"]).hostname.split(".")[-2:])
+            )
+            for co in patterns
+        )
+        and all(
+            experiences.company_detail(co["slug"])["test_pattern"] is None
+            for co in experience_checks.companies()
+            if not co.get("test_pattern")
+        ),
+        f"Company test patterns only from the company's own site ({len(patterns)} stated)",
+    )
+
+    # Quiz review credit lines, the credits API and setup without network.
+    q = c.get("/api/quiz", params={"topic": "Aptitude", "difficulty": "easy", "candidate_id": sid})
+    q = q.json()
+    graded = c.post("/api/quiz/submit", json={
+        "candidate_id": sid, "topic": "Aptitude", "difficulty": "easy",
+        "answers": [{"id": x["id"], "choice": 0} for x in q.get("questions", [])],
+    }).json()  # fmt: skip
+    credits = [r.get("credit", "") for r in graded.get("review", [])]
+    check(
+        any(credits) and all(x.endswith(("modified", "MIT", "Apache-2.0")) for x in credits if x),
+        "Open bank: quiz explanations name the source and licence of open questions",
+    )
+    listed = c.get("/api/question-sources").json()
+    check(
+        {s["key"] for s in listed.get("sources", [])} == set(sources)
+        and all(s["licence_name"] for s in listed["sources"]),
+        "GET /api/question-sources lists every source with its licence",
+    )
+    before = hashlib.sha256(oq.OPEN_BANK.read_bytes()).hexdigest()
+    empty = tempfile.mkdtemp(prefix="ci-openq-")
+    ran = subprocess.run(
+        [sys.executable, "-m", "scripts.import_open_questions"],
+        cwd=ROOT,
+        env={**os.environ, "OPEN_Q_CACHE": empty, "OPEN_Q_BASE": "http://127.0.0.1:9",
+             "PYTHONIOENCODING": "utf-8"},
+        capture_output=True, text=True, timeout=120, check=False,
+    )  # fmt: skip
+    check(
+        ran.returncode == 0
+        and "warning" in ran.stdout
+        and hashlib.sha256(oq.OPEN_BANK.read_bytes()).hexdigest() == before
+        and "import_open_questions" not in (ROOT / "bootstrap.py").read_text(encoding="utf-8"),
+        "Open bank: without network the import warns, exits 0 and keeps the seed; setup never "
+        "runs it",
+    )
 
 
 def proctoring_checks(c: "TestClient", sid: str) -> None:
@@ -1059,6 +1280,23 @@ def local_model(c: "TestClient", sid: str) -> None:
     check(gone.status_code == 200 and gone.json()["config"] is None, "local model removed")
 
 
+@contextlib.contextmanager
+def own_bank_only() -> "Iterator[None]":
+    """Our own question bank alone, the open question bank hidden (for checks about thin
+    topics, which the open bank no longer leaves)."""
+    from piq import open_questions, question_bank
+
+    saved = open_questions.OPEN_BANK, open_questions.OPEN_BANK_FULL
+    missing = Path(tempfile.mkdtemp(prefix="ci-no-open-")) / "absent.csv"
+    open_questions.OPEN_BANK = open_questions.OPEN_BANK_FULL = missing
+    question_bank.clear_cache()
+    try:
+        yield
+    finally:
+        open_questions.OPEN_BANK, open_questions.OPEN_BANK_FULL = saved
+        question_bank.clear_cache()
+
+
 def adaptive_quiz(c: "TestClient", sid: str) -> None:
     """Each topic's level: the rule, a quiz at the level, up after a perfect score, down after
     none right, a miss coming back flagged, the nearest-level fallback when the bank runs out,
@@ -1115,17 +1353,26 @@ def adaptive_quiz(c: "TestClient", sid: str) -> None:
         "a missed question comes back in a later quiz, flagged review",
     )
 
-    thin = next((t for t, n in question_bank.counts().items() if 0 < n.get("hard", 0) < 5), None)
-    domain = services.student_syllabus(sid, services.current_profile(sid)).domain
-    if thin and thin in domain.topics:
-        db.set_topic_levels(sid, {thin: "hard"})
-        quiz, graded = take(thin)
-        kinds = {q.get("difficulty") for q in quiz.get("questions", [])}
-        check(
-            len(quiz.get("questions", [])) == 5 and kinds - {"hard"},
-            f"too few hard {thin} questions: nearest-level ones fill the quiz (mock mode)",
+    with own_bank_only():  # the open bank fills every level; our own bank still has thin ones
+        domain = services.student_syllabus(sid, services.current_profile(sid)).domain
+        thin = next(
+            (
+                t
+                for t, n in question_bank.counts().items()
+                if 0 < n.get("hard", 0) < 5 and t in domain.topics
+            ),
+            None,
         )
-        check("score_pct" in graded, "a mixed-difficulty quiz is graded")
+        check(thin is not None, "our own bank has a thin hard topic to test the fallback on")
+        if thin:
+            db.set_topic_levels(sid, {thin: "hard"})
+            quiz, graded = take(thin)
+            kinds = {q.get("difficulty") for q in quiz.get("questions", [])}
+            check(
+                len(quiz.get("questions", [])) == 5 and kinds - {"hard"},
+                f"too few hard {thin} questions: nearest-level ones fill the quiz (mock mode)",
+            )
+            check("score_pct" in graded, "a mixed-difficulty quiz is graded")
 
     manual = c.get("/api/quiz", params={"topic": "OS", "difficulty": "easy", "candidate_id": sid})
     check(
