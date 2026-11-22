@@ -1,5 +1,5 @@
 {
-  "_comment": "Question bank topic (data/questions/mcq_bank.csv) -> the syllabus topic its questions are drawn for (a topic in career_catalog.json), or null when no domain teaches it.",
+  "_comment": "Question bank topic (data/questions/mcq_bank.csv) -> the syllabus topic its questions are drawn for (a topic in career_catalog.json), or null when no domain teaches it. The Aptitude_* and MMLU_* topics come from the open question bank (data/questions/open_bank.csv).",
   "topics": {
     "ADC_DAC_Interfacing": "Analog Electronics",
     "API_Testing": "Web Development",
@@ -289,6 +289,28 @@
     "Web_Performance": "Web Development",
     "Wind_Turbine_Generators": "Renewable Energy",
     "Wireless_Protocols_MQTT_BLE": "Communication Protocols",
-    "Working_Capital_Management": "Financial Modelling"
+    "Working_Capital_Management": "Financial Modelling",
+    "Aptitude_Ages": "Aptitude",
+    "Aptitude_Averages": "Aptitude",
+    "Aptitude_Interest": "Aptitude",
+    "Aptitude_Mensuration": "Aptitude",
+    "Aptitude_Mixtures": "Aptitude",
+    "Aptitude_Number_System": "Aptitude",
+    "Aptitude_Percentages": "Aptitude",
+    "Aptitude_Permutation_Probability": "Aptitude",
+    "Aptitude_Profit_Loss": "Aptitude",
+    "Aptitude_Ratio_Proportion": "Aptitude",
+    "Aptitude_Speed_Distance": "Aptitude",
+    "Aptitude_Time_Work": "Aptitude",
+    "Aptitude_Number_Series": "Reasoning",
+    "MMLU_CS_Algorithms": "DSA",
+    "MMLU_CS_Databases": "DBMS",
+    "MMLU_CS_Networks": "CN",
+    "MMLU_CS_OOP": "OOP",
+    "MMLU_CS_Operating_Systems": "OS",
+    "MMLU_Elementary_Mathematics": "Aptitude",
+    "MMLU_Formal_Logic": "Reasoning",
+    "MMLU_High_School_Mathematics": "Aptitude",
+    "MMLU_Machine_Learning": "ML & Data Science"
   }
 }
