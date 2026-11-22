@@ -22,12 +22,19 @@ from functools import lru_cache
 from piq.checks import text_hash
 from piq.config import (
     DATA_DIR,
+    DIFFICULTIES,
     EXPERIENCE_MAX_QUESTIONS,
     EXPERIENCE_QUESTION_MAX,
     EXPERIENCE_QUESTION_MIN,
     EXPERIENCE_ROUNDS,
     EXPERIENCE_TEXT_MAX,
     EXPERIENCE_TIP_MAX,
+    PROCESS_MAX_ROUNDS,
+    PROCESS_MINUTES,
+    PROCESS_RESULTS,
+    PROCESS_ROUND_TYPES,
+    PROCESS_SUMMARY_MAX,
+    PROCESS_TO_ROUND,
 )
 
 COMPANIES = DATA_DIR / "companies.json"
@@ -78,15 +85,26 @@ class Cleaned:
     questions: list[dict]
     flags: list[str] = field(default_factory=list)
     removed: list[str] = field(default_factory=list)  # kinds of personal data taken out
+    process: dict | None = None  # {rounds: [{type, minutes, difficulty}], result, summary}
 
     @property
     def content_hash(self) -> str:
-        return content_hash(self.company_slug, [q["text"] for q in self.questions])
+        return content_hash(self.company_slug, post_texts(self.questions, self.process))
 
 
 def content_hash(company_slug: str, texts: Sequence[str]) -> str:
     """Same company, same questions: the same post (a duplicate is refused)."""
     return text_hash(company_slug + "|" + "|".join(texts))
+
+
+def post_texts(questions: Sequence[Mapping], process: Mapping | None) -> list[str]:
+    """What makes a post itself: its questions, and its interview process (round order and
+    summary), so the same process shared twice is a duplicate too."""
+    texts = [q["text"] for q in questions]
+    if process:
+        order = ">".join(r["type"] for r in process["rounds"])
+        texts.append(f"process:{order}:{process['result']}:{process['summary']}")
+    return texts
 
 
 # --- companies -----------------------------------------------------------------------------
@@ -219,8 +237,50 @@ def _clean_text(value: str, what: str, own: Sequence[str], found: set[str]) -> s
     return s
 
 
+def _process(raw: Mapping, own: Sequence[str], found: set[str], flags: list[str]) -> dict:
+    """The interview process: rounds in order (type, minutes or none, difficulty), the result
+    and a short summary, cleaned like the questions."""
+    rounds_in = list(raw.get("rounds") or [])
+    if not rounds_in:
+        raise ExperienceRejected("Your interview process: add the rounds you went through.")
+    if len(rounds_in) > PROCESS_MAX_ROUNDS:
+        raise ExperienceRejected(f"Your interview process: at most {PROCESS_MAX_ROUNDS} rounds.")
+    low, high = PROCESS_MINUTES
+    rounds = []
+    for n, r in enumerate(rounds_in, 1):
+        kind = str(r.get("type", ""))
+        if kind not in PROCESS_ROUND_TYPES:
+            raise ExperienceRejected(
+                f"Round {n}: choose its type ({', '.join(PROCESS_ROUND_TYPES.values())})."
+            )
+        difficulty = str(r.get("difficulty", ""))
+        if difficulty not in DIFFICULTIES:
+            raise ExperienceRejected(f"Round {n}: say whether it was easy, medium or hard.")
+        minutes = r.get("minutes")
+        if minutes in ("", None):
+            minutes = None
+        elif (
+            not isinstance(minutes, int) or isinstance(minutes, bool) or not low <= minutes <= high
+        ):
+            raise ExperienceRejected(f"Round {n}: give its length in minutes ({low}-{high}).")
+        rounds.append({"type": kind, "minutes": minutes, "difficulty": difficulty})
+    result = str(raw.get("result", ""))
+    if result not in PROCESS_RESULTS:
+        raise ExperienceRejected(
+            f"Your interview process: choose the result ({', '.join(PROCESS_RESULTS.values())})."
+        )
+    summary = _clean_text(str(raw.get("summary", "")), "The summary", own, found)
+    if len(summary) > PROCESS_SUMMARY_MAX:
+        raise ExperienceRejected(f"Keep the summary under {PROCESS_SUMMARY_MAX} characters.")
+    flags += [f"process summary: {s}" for s in copy_signals(summary)]
+    if _shouting(summary):
+        flags.append("process summary: mostly capitals")
+    return {"rounds": rounds, "result": result, "summary": summary}
+
+
 def clean_submission(form: Mapping, own: Sequence[str], today: date | None = None) -> Cleaned:
-    """Validate and clean a post. Raises ExperienceRejected with the reason."""
+    """Validate and clean a post: questions, an interview process, or both. Raises
+    ExperienceRejected with the reason."""
     today = today or date.today()
     found: set[str] = set()
     flags: list[str] = []
@@ -232,17 +292,22 @@ def clean_submission(form: Mapping, own: Sequence[str], today: date | None = Non
         raise ExperienceRejected(
             "Give the role you interviewed for (for example Systems Engineer)."
         )
-    round_ = str(form.get("round", ""))
-    if round_ not in EXPERIENCE_ROUNDS:
-        raise ExperienceRejected(f"Choose a round: {', '.join(EXPERIENCE_ROUNDS.values())}.")
     month = _month(str(form.get("interview_month", "")), today)
     tip = _clean_text(str(form.get("tip", "")), "The tip", own, found)
     if len(tip) > EXPERIENCE_TIP_MAX:
         raise ExperienceRejected(f"Keep the tip under {EXPERIENCE_TIP_MAX} characters.")
+    raw_process = form.get("process")
+    process = _process(raw_process, own, found, flags) if raw_process else None
 
     raw = list(form.get("questions") or [])
-    if not raw:
-        raise ExperienceRejected("Add at least one question you were asked.")
+    round_ = str(form.get("round", ""))
+    if not raw and process is None:
+        raise ExperienceRejected("Add at least one question you were asked, or your process.")
+    if not raw and round_ not in EXPERIENCE_ROUNDS:  # only a process: its first round
+        first = process["rounds"][0]["type"]
+        round_ = PROCESS_TO_ROUND.get(first, first)
+    if round_ not in EXPERIENCE_ROUNDS:
+        raise ExperienceRejected(f"Choose a round: {', '.join(EXPERIENCE_ROUNDS.values())}.")
     if len(raw) > EXPERIENCE_MAX_QUESTIONS:
         raise ExperienceRejected(f"One post holds at most {EXPERIENCE_MAX_QUESTIONS} questions.")
     questions = []
@@ -293,4 +358,5 @@ def clean_submission(form: Mapping, own: Sequence[str], today: date | None = Non
         questions,
         flags,
         sorted(found),
+        process,
     )

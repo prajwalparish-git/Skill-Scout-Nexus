@@ -228,6 +228,21 @@ EXPERIENCE_MAX_QUESTIONS = 20
 EXPERIENCE_QUESTION_MIN, EXPERIENCE_QUESTION_MAX = 15, 1000  # characters per question
 EXPERIENCE_TIP_MAX = 600
 EXPERIENCE_TEXT_MAX = 120  # company and role
+# The interview process a post may report, with or instead of questions: its rounds in order.
+PROCESS_ROUND_TYPES = {
+    "online_test": "Online test",
+    "aptitude": "Aptitude",
+    "coding": "Coding",
+    "technical": "Technical",
+    "managerial": "Managerial",
+    "hr": "HR",
+    "group_discussion": "Group discussion",
+}
+PROCESS_TO_ROUND = {"online_test": "aptitude", "managerial": "technical"}  # the post's round
+PROCESS_RESULTS = {"selected": "Selected", "not_selected": "Not selected", "waiting": "Waiting"}
+PROCESS_MAX_ROUNDS = 8
+PROCESS_MINUTES = (5, 480)  # a round's duration, when given
+PROCESS_SUMMARY_MAX = 600
 REPORTS_TO_HIDE = 2  # reports that hide an approved post until its moderator looks again
 LABEL_MIN_POSTERS = 5  # a college is named only once this many of a batch have approved posts
 TREND_STEP = 10  # points the latest quiz must beat (or miss) the ones before by to count as a trend

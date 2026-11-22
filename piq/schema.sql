@@ -395,6 +395,16 @@ CREATE TABLE IF NOT EXISTS experience_questions (
 
 CREATE INDEX IF NOT EXISTS idx_experience_questions ON experience_questions (experience_id, position);
 
+-- The interview process a post reports, with or instead of questions: the rounds in order
+-- ([{type, minutes or null, difficulty}]), the result and a short summary (cleaned like the
+-- questions). Goes with its post, and so with the student's account.
+CREATE TABLE IF NOT EXISTS experience_processes (
+    experience_id INTEGER PRIMARY KEY REFERENCES interview_experiences(id) ON DELETE CASCADE,
+    rounds_json   TEXT NOT NULL,
+    result        TEXT NOT NULL CHECK (result IN ('selected', 'not_selected', 'waiting')),
+    summary       TEXT NOT NULL DEFAULT ''
+);
+
 -- One report per student per post; enough reports hide a post until its moderator looks again.
 CREATE TABLE IF NOT EXISTS experience_reports (
     experience_id INTEGER NOT NULL REFERENCES interview_experiences(id) ON DELETE CASCADE,

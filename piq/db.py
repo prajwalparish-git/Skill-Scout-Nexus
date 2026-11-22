@@ -1579,8 +1579,12 @@ EXPERIENCE_FIELDS = (
 )
 
 
-def add_experience(fields: Mapping[str, object], questions: Sequence[Mapping[str, object]]) -> int:
-    """A cleaned, pending post and its questions, in one transaction."""
+def add_experience(
+    fields: Mapping[str, object],
+    questions: Sequence[Mapping[str, object]],
+    process: Mapping[str, object] | None = None,
+) -> int:
+    """A cleaned, pending post, its questions and its interview process, in one transaction."""
     with tx() as c:
         cur = c.execute(
             f"INSERT INTO interview_experiences ({', '.join(EXPERIENCE_FIELDS)}) "
@@ -1604,7 +1608,45 @@ def add_experience(fields: Mapping[str, object], questions: Sequence[Mapping[str
                 for i, q in enumerate(questions)
             ],
         )
+        if process is not None:
+            c.execute(
+                "INSERT INTO experience_processes (experience_id, rounds_json, result, summary) "
+                "VALUES (?, ?, ?, ?)",
+                (
+                    cur.lastrowid,
+                    json.dumps(process["rounds"]),
+                    process["result"],
+                    process.get("summary", ""),
+                ),
+            )
         return cur.lastrowid
+
+
+def experience_processes(experience_ids: Sequence[int]) -> dict[int, sqlite3.Row]:
+    """Each post's interview process, for the posts that report one."""
+    if not experience_ids:
+        return {}
+    marks = ", ".join("?" * len(experience_ids))
+    with tx() as c:
+        rows = c.execute(
+            f"SELECT * FROM experience_processes WHERE experience_id IN ({marks})",
+            list(experience_ids),
+        ).fetchall()
+    return {r["experience_id"]: r for r in rows}
+
+
+def approved_processes(company_slug: str) -> list[sqlite3.Row]:
+    """A company's approved posts that report an interview process, newest interview first,
+    with the post's fields (for its label) and the process."""
+    with tx() as c:
+        return c.execute(
+            """SELECT e.*, p.rounds_json, p.result, p.summary
+               FROM interview_experiences e
+               JOIN experience_processes p ON p.experience_id = e.id
+               WHERE e.status = 'approved' AND e.company_slug = ?
+               ORDER BY e.interview_month DESC, e.id DESC""",
+            (company_slug,),
+        ).fetchall()
 
 
 def experience_posts_since(student_id: str, since: str) -> int:
@@ -1721,16 +1763,28 @@ def report_experience(experience_id: int, student_id: str, hide_at: int) -> int:
 
 
 def approved_experience_counts() -> list[sqlite3.Row]:
-    """Per company and round: approved posts and their questions."""
+    """Per company and round: approved posts with questions, and their questions (a post that
+    reports only its interview process counts under the process, not a round)."""
     with tx() as c:
         return c.execute(
             """SELECT e.company_slug, e.company_name, e.round, COUNT(DISTINCT e.id) AS posts,
                       COUNT(q.id) AS questions
                FROM interview_experiences e
-               LEFT JOIN experience_questions q ON q.experience_id = e.id
+               JOIN experience_questions q ON q.experience_id = e.id
                WHERE e.status = 'approved'
                GROUP BY e.company_slug, e.company_name, e.round"""
         ).fetchall()
+
+
+def approved_process_counts() -> dict[str, int]:
+    """Company slug -> approved posts that report an interview process."""
+    with tx() as c:
+        rows = c.execute(
+            """SELECT e.company_slug, COUNT(*) AS n FROM interview_experiences e
+               JOIN experience_processes p ON p.experience_id = e.id
+               WHERE e.status = 'approved' GROUP BY e.company_slug"""
+        ).fetchall()
+    return {r["company_slug"]: r["n"] for r in rows}
 
 
 def approved_experiences(company_slug: str, round_: str | None = None) -> list[sqlite3.Row]:
