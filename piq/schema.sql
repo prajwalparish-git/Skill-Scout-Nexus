@@ -273,3 +273,20 @@ CREATE TABLE IF NOT EXISTS project_updates (
     note       TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Certificate PDFs the student uploaded. The file itself lives on disk at
+-- <certificates_dir>/<student_id>/<stored_name> (a random name, never the student's own);
+-- filename is the original name, cleaned, shown on the card and used for the download.
+CREATE TABLE IF NOT EXISTS certificates (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id  TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    title       TEXT NOT NULL,
+    issuer      TEXT NOT NULL,
+    issue_date  TEXT,
+    filename    TEXT NOT NULL,
+    stored_name TEXT NOT NULL UNIQUE,
+    size_bytes  INTEGER NOT NULL,
+    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_certificates_student ON certificates (student_id, id);
