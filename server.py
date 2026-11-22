@@ -30,7 +30,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
-from core import calendar_export
+from core import calendar_export, drive
 from piq import (
     db,
     experiences,
@@ -57,6 +57,8 @@ from server_auth import authorize, owner, require_student
 from server_auth import router as auth_router
 from server_companies import ops_router as companies_ops_router
 from server_companies import router as companies_router
+from server_drive import require_drive
+from server_drive import router as drive_router
 from server_ops import router as ops_router
 
 log = logging.getLogger("server")
@@ -96,6 +98,7 @@ app.include_router(auth_router)
 app.include_router(ops_router)
 app.include_router(companies_router)
 app.include_router(companies_ops_router)
+app.include_router(drive_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins(),
@@ -401,10 +404,11 @@ CERTIFICATE_FORM_SLACK = 64 * 1024  # room for the multipart framing and the tex
 
 
 def _certificate(row: Any) -> dict:
-    return {
+    out = {
         k: row[k]
         for k in ("id", "title", "issuer", "issue_date", "filename", "size_bytes", "uploaded_at")
     }
+    return {**out, "in_drive": bool(row["drive_file_id"])}
 
 
 def _certificate_list(candidate_id: str) -> list[dict]:
@@ -720,6 +724,19 @@ def resume_pdf(body: ResumeInput) -> Response:
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{name}"'},
     )
+
+
+@app.post("/api/drive/resume", dependencies=[Depends(require_drive)])
+def resume_to_drive(body: ResumeInput, sid: str = Depends(require_student)) -> dict:
+    """Save the resume's PDF, in its template, to the student's Drive (Resumes)."""
+    res = _build(body)
+    services.check_resume_dates(res)
+    try:
+        return services.save_resume_to_drive(sid, res)
+    except drive.NotConnected as e:
+        raise HTTPException(409, str(e)) from e
+    except drive.DriveError as e:
+        raise HTTPException(400, str(e)) from e
 
 
 class BulletRequest(BaseModel):
