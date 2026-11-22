@@ -14,6 +14,7 @@ import csv
 import json
 import random
 import sqlite3
+import time
 from collections.abc import Iterable, Iterator
 from functools import lru_cache
 from pathlib import Path
@@ -87,15 +88,25 @@ Loaded = tuple[
 ]
 
 
+VERSION_TTL_S = 2.0  # how long a process trusts the contributions version it last read
+_seen: list = [0.0, None]  # [monotonic time read, version]
+
+
 def _version() -> object:
     """The approved contributions' version: they live in the database, so every process sees an
-    approval without a restart. None before there is a database (an import script)."""
+    approval without a restart (within VERSION_TTL_S; one query per window, not per question).
+    None before there is a database (an import script)."""
     from piq import db  # the bank is pure data until contributions are asked for
 
+    now = time.monotonic()
+    if now - _seen[0] < VERSION_TTL_S:
+        return _seen[1]
     try:
-        return db.contributions_version()
+        version = db.contributions_version()
     except (sqlite3.Error, OSError):
-        return None
+        version = None
+    _seen[:] = [now, version]
+    return version
 
 
 def _rows(version: object) -> Iterator[tuple[str, dict[str, str]]]:
@@ -165,8 +176,13 @@ def is_open(question_id: str) -> bool:
 
 def open_count(topic: str) -> int:
     """Open-bank questions on a syllabus topic, all levels."""
+    questions, _, origin = _load()
     return sum(
-        1 for (t, _), qs in _questions().items() if t == topic for q in qs if is_open(qid(q))
+        1
+        for (t, _), qs in questions.items()
+        if t == topic
+        for q in qs
+        if origin.get(qid(q), ("own",))[0] != "own"
     )
 
 
@@ -176,12 +192,13 @@ def draw_open(
     """Up to `k` unseen open-bank (difficulty, question) pairs: the level first, then the
     nearest levels (like draw_nearest, open questions only)."""
     banned = {text_hash(t) for t in avoid}
+    questions, _, origin = _load()
     out: list[tuple[str, Question]] = []
     for d in nearest_levels(level):
         pool = [
             q
-            for q in _questions().get((topic, d), ())
-            if (h := text_hash(q.text)) not in banned and is_open(h)
+            for q in questions.get((topic, d), ())
+            if (h := text_hash(q.text)) not in banned and origin.get(h, ("own",))[0] != "own"
         ]
         for q in random.Random(f"{seed}|{d}").sample(pool, min(k - len(out), len(pool))):
             out.append((d, q))
@@ -306,4 +323,5 @@ def clear_cache() -> None:
     topic_map.cache_clear()
     _load_at.cache_clear()
     _by_id_at.cache_clear()
+    _seen[:] = [0.0, None]  # read the contributions version again
     open_questions.clear_cache()
