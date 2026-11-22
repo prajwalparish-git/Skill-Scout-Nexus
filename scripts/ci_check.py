@@ -203,6 +203,7 @@ def api() -> None:
             resume_templates(c, sid)
             company_questions(c, sid)
             drive(c, sid)
+            proctoring_checks(c, sid)
             c.post("/api/auth/logout")
             tailor = c.post(
                 "/api/resume/tailor", json={**SAMPLE_RESUME, "job_description": "x" * 90}
@@ -468,6 +469,270 @@ def drive(c: "TestClient", sid: str) -> None:
             os.environ.pop(key, None)
         settings.cache_clear()
     check(c.get("/api/drive").json()["enabled"] is False, "Drive: off again without keys")
+
+
+def proctoring_checks(c: "TestClient", sid: str) -> None:
+    """Proctoring without a camera: practice stays unproctored; an organization's requirement
+    is enforced; the server decides severity (one strike per incident, 3 breach, review events
+    never strike); only events are accepted; Safe Exam Browser's hash is checked against the
+    PUBLIC URL (also behind a proxy); students see their own record; everything goes with the
+    account; a rubric flag is no breach; a failed MediaPipe download never fails the build."""
+    import hashlib
+    import shutil
+    import subprocess
+    from types import SimpleNamespace
+
+    from piq import cohort, db, services
+    from piq import proctoring as pr
+    from piq.config import settings
+    from piq.db import tx
+
+    catalog = c.get("/api/catalog").json()["domains"]
+    topic, level = next(
+        (t["name"], next(iter(t["bank"]))) for d in catalog for t in d["topics"] if t["bank"]
+    )
+
+    def submit(attempt: str | None = None) -> "Response":
+        q = c.get("/api/quiz", params={"topic": topic, "difficulty": level, "count": 3}).json()
+        body = {
+            "candidate_id": sid,
+            "topic": q["topic"],
+            "difficulty": q["difficulty"],
+            "answers": [{"id": x["id"], "choice": 0} for x in q["questions"]],
+            "proctor_attempt_id": attempt,
+        }
+        return c.post("/api/quiz/submit", json=body)
+
+    def start(**over: object) -> "Response":
+        body = {"kind": "quiz", "label": topic, "camera": "on", "consent": True, **over}
+        return c.post("/api/proctor/attempts", json=body)
+
+    def events(attempt: str, *items: tuple, headers: dict | None = None) -> "Response":
+        body = {
+            "events": [
+                {"kind": k, "at_s": t, **({"duration_s": d} if d else {})} for k, t, d in items
+            ]
+        }
+        return c.post(f"/api/proctor/attempts/{attempt}/events", json=body, headers=headers)
+
+    def age(attempt: str, seconds: float = 400) -> None:  # the attempt started a while ago
+        with tx() as conn:
+            conn.execute(
+                "UPDATE proctor_attempts SET started_at = started_at - ?, "
+                "last_seen = last_seen - 1 WHERE id = ?",
+                (seconds, attempt),
+            )
+
+    policy = c.get("/api/proctor/policy").json()
+    plain = submit()
+    check(
+        policy["mode"] == "practice"
+        and plain.status_code == 200
+        and plain.json().get("proctoring") is None,
+        "Proctoring: a student without an organization gets unproctored practice",
+    )
+
+    org = db.create_organization(
+        {
+            "org_code": "PRC-2026",
+            "name": "Proctor College",
+            "org_type": "college",
+            "official_domain": "",
+            "admin_name": "P",
+            "admin_email": "admin@prc.example",
+            "contact_phone": "",
+            "location": "",
+            "academic_batch": "",
+            "quiz_cutoff_pct": 70,
+            "voice_cutoff_score": 10,
+        },
+        "x",
+        verified=True,
+    )
+    with tx() as conn:
+        before_org = conn.execute("SELECT org_id FROM students WHERE id = ?", (sid,)).fetchone()[0]
+        conn.execute("UPDATE students SET org_id = ? WHERE id = ?", (org, sid))
+    other = db.create_student("Proctor Other", "proctorother", "Software Engineer")
+    try:
+        pr.set_org_mode(org, "required")
+        check(
+            c.get("/api/proctor/policy").json()["required"] and submit().status_code == 409,
+            "Proctoring: required by the organization, a submit without an attempt is 409",
+        )
+        check(start(consent=False).status_code == 400, "Proctoring: no consent, no start")
+        check(
+            start(image="data:image/png;base64,AAAA").status_code == 422
+            and c.post(
+                "/api/proctor/attempts/x/events",
+                json={"events": [{"kind": "NO_FACE", "at_s": 1, "frame": "AAAA"}]},
+            ).status_code
+            in (403, 422),
+            "Proctoring: an image or frame field is refused (only events are accepted)",
+        )
+
+        a = start(camera="unavailable", camera_note="no camera found").json()["attempt_id"]
+        age(a)
+        burst = events(
+            a,
+            ("WINDOW_BLUR", 10, None),
+            ("TAB_HIDDEN", 10.3, None),
+            ("FULLSCREEN_EXIT", 10.6, None),
+        ).json()
+        check(burst["strikes"] == 1, f"Proctoring: one incident is one strike ({burst})")
+        check(
+            events(a, ("TAB_HIDDEN", 11, None)).status_code == 200
+            and c.post(
+                f"/api/proctor/attempts/{a}/events",
+                json={"events": [{"kind": "TAB_HIDDEN", "at_s": 12, "severity": "review"}]},
+            ).status_code
+            == 422,
+            "Proctoring: the page cannot set an event's severity",
+        )
+        calm = {}
+        for n in range(4):  # 200 soft signals, in batches of 50
+            calm = events(
+                a, *[("LOOKED_AWAY" if i % 2 else "NO_FACE", 20 + n * 50 + i, 9) for i in range(50)]
+            ).json()
+        check(
+            calm.get("strikes") == 1 and calm.get("breached") is False,
+            "Proctoring: 200 looked-away / no-face events strike no one (for review only)",
+        )
+        check(
+            events(a, ("HACKED", 1, None)).status_code == 400
+            and events(a, ("REPORTING_GAP", 1, None)).status_code == 400
+            and c.post(
+                f"/api/proctor/attempts/{a}/events",
+                json={"events": [{"kind": "NO_FACE", "at_s": 1}] * 51},
+            ).status_code
+            == 422,
+            "Proctoring: unknown or server-only events and oversized batches are refused",
+        )
+        fill = events(a, *[("PASTE_BLOCKED", 300 + i, None) for i in range(50)])  # 255 kept
+        over = events(a, *[("PASTE_BLOCKED", 310 + i, None) for i in range(50)])  # 305: no
+        check(
+            fill.status_code == 200 and over.status_code == 400,
+            "Proctoring: an attempt keeps at most 300 events",
+        )
+        done = events(a, ("PHONE_VISIBLE", 330, None), ("SECOND_FACE", 345, None)).json()
+        result = submit(a)
+        flags = (result.json().get("proctoring") or {}).get("flags", [])
+        check(
+            done["breached"]
+            and result.status_code == 200
+            and "PROCTOR_BREACH" in flags
+            and not any(f in flags for f in ("LOOKED_AWAY", "NO_FACE", "PASTE_BLOCKED")),
+            f"Proctoring: the third strike breaches; the submit records it ({flags})",
+        )
+        mine = c.get("/api/proctor/attempts").json()
+        rec = mine[0] if mine else {}
+        check(
+            rec.get("id") == a
+            and rec.get("breached")
+            and rec.get("camera") == "unavailable"
+            and any(e["kind"] == "CAMERA_UNAVAILABLE" for e in rec.get("review", []))
+            and all(e["severity"] == "clear" for e in rec.get("clear", []))
+            and any("looked away 9s at" in e["text"] for e in rec.get("review", [])),
+            "Proctoring: the student sees their own record, clear vs review, camera noted",
+        )
+        theirs = pr.start(other, "quiz", "x", camera="on", consent=True)
+        check(
+            events(theirs, ("TAB_HIDDEN", 1, None)).status_code == 403
+            and c.get(f"/api/proctor/attempts/{theirs}").status_code == 403
+            and submit(theirs).status_code == 403,
+            "Proctoring: another student's attempt is refused (403)",
+        )
+
+        key = hashlib.sha256(b"ci-seb-config").hexdigest()
+        pr.set_org_mode(org, "seb", key)
+        public = settings().app_url.rstrip("/") + "/api/proctor/attempts"
+        good = hashlib.sha256((public + key).encode()).hexdigest()
+        internal = hashlib.sha256((str(c.base_url) + "/api/proctor/attempts" + key).encode())
+        seb = "X-SafeExamBrowser-ConfigKeyHash"
+        proxied = {seb: good, "Host": "10.0.0.7:8000", "X-Forwarded-Host": "app.example"}
+        ok = c.post(
+            "/api/proctor/attempts",
+            json={"kind": "quiz", "label": topic, "camera": "on", "consent": True},
+            headers=proxied,
+        )
+        check(
+            start().status_code == 403
+            and c.post(
+                "/api/proctor/attempts",
+                headers={seb: "0" * 64},
+                json={"kind": "quiz", "camera": "on", "consent": True},
+            ).status_code
+            == 403
+            and c.post(
+                "/api/proctor/attempts",
+                headers={seb: internal.hexdigest()},
+                json={"kind": "quiz", "camera": "on", "consent": True},
+            ).status_code
+            == 403,
+            "Proctoring: SEB mode refuses no header, a wrong hash, and the internal URL's hash",
+        )
+        b = ok.json().get("attempt_id") if ok.status_code == 200 else None
+        ev_url = f"{settings().app_url.rstrip('/')}/api/proctor/attempts/{b}/events"
+        ev_hash = hashlib.sha256((ev_url + key).encode()).hexdigest()
+        check(
+            bool(b)
+            and events(b).status_code == 403
+            and events(b, headers={seb: ev_hash, "Host": "internal-api:8000"}).status_code == 200,
+            "Proctoring: SEB hash of the public URL verifies on a proxied request",
+        )
+        check(
+            (seen := next(x for x in pr.history(sid) if x.id == a)).clear
+            and seen.review
+            and cohort.breaches([SimpleNamespace(proctor_flags=["Too short", "Off topic"])]) == 0
+            and cohort.breaches(
+                [SimpleNamespace(proctor_flags=["TAB_HIDDEN", "PROCTOR_BREACH"])],
+                [SimpleNamespace(proctor_flags=None)],
+            )
+            == 1,
+            "Proctoring: the admin's record splits clear and review; only a breach is BREACH",
+        )
+        services.delete_student(other, "proctorother")
+        with tx() as conn:
+            left = conn.execute(
+                "SELECT COUNT(*) FROM proctor_attempts WHERE id = ?", (theirs,)
+            ).fetchone()[0]
+            orphan = conn.execute(
+                "SELECT COUNT(*) FROM proctor_events WHERE attempt_id = ?", (theirs,)
+            ).fetchone()[0]
+        other = ""
+        check(left == 0 and orphan == 0, "Proctoring: attempts and events go with the account")
+    finally:
+        if other:
+            db.delete_student(other)
+        with tx() as conn:
+            conn.execute("UPDATE students SET org_id = ? WHERE id = ?", (before_org, sid))
+            conn.execute("DELETE FROM proctor_attempts WHERE student_id = ?", (sid,))
+        pr.set_org_mode(org, "off")
+
+    node = shutil.which("node")
+    script = ROOT / "frontend" / "scripts" / "fetch-mediapipe.mjs"
+    if node and script.exists() and (ROOT / "frontend" / "node_modules").exists():
+        out = Path(tempfile.mkdtemp(prefix="ci-mediapipe-"))
+        env = {
+            **os.environ,
+            "MEDIAPIPE_OUT": str(out),
+            "MEDIAPIPE_MODEL_BASE": "http://127.0.0.1:9",
+        }
+        run = subprocess.run(
+            [node, str(script)], env=env, capture_output=True, text=True, timeout=120, check=False
+        )
+        manifest = (
+            json.loads((out / "manifest.json").read_text())
+            if (out / "manifest.json").exists()
+            else {}
+        )
+        check(
+            run.returncode == 0
+            and "camera checks will be disabled" in run.stderr + run.stdout
+            and manifest.get("ok") is False,
+            "Proctoring: a failed MediaPipe download warns, exits 0 and turns camera checks off",
+        )
+    else:
+        print("  skip MediaPipe download check (no Node.js or frontend packages here)")
 
 
 def _fake_local_model() -> tuple[object, int]:
