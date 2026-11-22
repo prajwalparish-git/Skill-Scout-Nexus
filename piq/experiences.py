@@ -487,7 +487,7 @@ def interview_practice(
     )
     return services.start_interview(
         student_id,
-        f"Company practice: {name} ({label})",
+        f"Company practice - {name} ({label})",
         on_event,
         script=reported,
         focus=focus,

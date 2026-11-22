@@ -27,6 +27,7 @@ PAGES = (
     AppPage("plan", "Weekly plan", "views/plan.py"),
     AppPage("quiz", "Quiz", "views/quiz.py"),
     AppPage("interview", "Mock interview", "views/interview.py"),
+    AppPage("company_questions", "Company questions", "views/company_questions.py"),
     AppPage("dashboard", "Dashboard", "views/dashboard.py"),
     AppPage("results", "Results", "views/results.py"),
 )

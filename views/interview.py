@@ -81,8 +81,20 @@ value, words = formatter.interview_progress(
 st.subheader(f"{session.interview_type} interview", anchor=False)
 st.progress(value, text=words)
 
+
+def _source_badge(question: str) -> str:
+    """Company practice: whether a question was reported by a student or written by the AI."""
+    if not session.script:
+        return ""
+    if question in session.script:
+        return ":orange-badge[:material/person: Reported by a student]  \n"
+    return ":violet-badge[:material/smart_toy: AI question, not reported]  \n"
+
+
 for i, turn in enumerate(session.history):
-    st.chat_message("Interviewer", avatar=INTERVIEWER).markdown(formatter.md_escape(turn.question))
+    st.chat_message("Interviewer", avatar=INTERVIEWER).markdown(
+        _source_badge(turn.question) + formatter.md_escape(turn.question)
+    )
     st.chat_message("You", avatar=STUDENT).markdown(formatter.md_escape(turn.answer))
     _feedback(turn, latest=i == len(session.history) - 1)
 
@@ -132,6 +144,8 @@ if session.current is None:  # the answer is saved; only the follow-up question 
     st.stop()
 
 with st.chat_message("Interviewer", avatar=INTERVIEWER):
+    if badge := _source_badge(session.current.question):
+        st.markdown(badge)
     st.markdown(formatter.question_md(session.current))
     show_last_run("Interview agent")  # how the critic checked this question
 if answer := st.chat_input("Your answer"):

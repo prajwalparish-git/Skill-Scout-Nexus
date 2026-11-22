@@ -125,6 +125,11 @@ else:
                     title="Mock interview",
                     icon=":material/record_voice_over:",
                 ),
+                st.Page(
+                    "views/company_questions.py",
+                    title="Company questions",
+                    icon=":material/apartment:",
+                ),
                 st.Page("views/dashboard.py", title="Dashboard", icon=":material/monitoring:"),
                 st.Page("views/results.py", title="Results", icon=":material/fact_check:"),
             ],

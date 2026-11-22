@@ -14,8 +14,13 @@ from datetime import UTC, datetime
 
 import streamlit as st
 
-from piq import charts, cohort, formatter, journey, org_insights, orgs, services, ui
-from piq.config import ACCOUNT_STATUSES, ACTIVE_WITHIN_DAYS, VOICE_RUBRIC_MAX
+from piq import charts, cohort, experiences, formatter, journey, org_insights, orgs, services, ui
+from piq.config import (
+    ACCOUNT_STATUSES,
+    ACTIVE_WITHIN_DAYS,
+    EXPERIENCE_ROUNDS,
+    VOICE_RUBRIC_MAX,
+)
 from piq.ui import Stat, empty_state, page_header, stat_row, status_badge
 
 CREDS = "org_creds"  # the credentials just made, until downloaded or discarded (one time)
@@ -933,11 +938,70 @@ def _settings() -> None:
         )
 
 
-overview_tab, provisioning_tab, students_tab, settings_tab = st.tabs(
+def _interview_posts() -> None:
+    """Interview experiences the organization's own students shared, waiting for approval."""
+    st.caption(
+        "Your students' interview experiences wait here until you approve them. Approved posts "
+        "are visible to every signed-in student, never with the student's name: they read 'a "
+        "student, <year>', and name your college only once five of that batch have shared. "
+        "Personal details were removed automatically, but read each post and its flags."
+    )
+    queue = experiences.review_queue(org.id)
+    if not queue:
+        st.success("Nothing waiting for review.", icon=":material/task_alt:")
+        return
+    for p in queue:
+        with st.container(border=True):
+            hidden = " :orange-badge[Hidden after reports]" if p["status"] == "hidden" else ""
+            st.markdown(
+                f"**{formatter.md_escape(p['company'])}** · {formatter.md_escape(p['role'])} · "
+                f"{EXPERIENCE_ROUNDS[p['round']]} · {p['interview_month']} · shown as "
+                f"*{formatter.md_escape(p['label'])}*{hidden}"
+            )
+            for flag in p["flags"]:
+                st.markdown(f":orange[:material/flag: {formatter.md_escape(flag)}]")
+            for n, q in enumerate(p["questions"], 1):
+                st.markdown(f"**Q{n}.** {formatter.md_escape(q['text'])}")
+                if q["kind"] == "mcq":
+                    right = q["correct_index"]
+                    st.caption(
+                        " · ".join(
+                            f"{'ABCD'[i]}. {formatter.md_escape(o)}" + (" ✓" if i == right else "")
+                            for i, o in enumerate(q["options"])
+                        )
+                    )
+            if p["tip"]:
+                st.caption(f"Tip: {formatter.md_escape(p['tip'])}")
+            with st.form(f"review_{p['id']}", border=False):
+                company = st.text_input(
+                    "Company name",
+                    value=p["company"],
+                    help="Correct a misspelt or unknown company before approving.",
+                )
+                reason = st.text_input("Reason (needed to reject; the student sees it)")
+                approve_col, reject_col = st.columns(2, gap="small")
+                approve = approve_col.form_submit_button(
+                    "Approve", type="primary", icon=":material/check:"
+                )
+                reject = reject_col.form_submit_button("Reject", icon=":material/close:")
+            if approve or reject:
+                try:
+                    fix = company if company.strip() != p["company"] else None
+                    experiences.review(org.id, p["id"], bool(approve), reason, fix)
+                except services.ServiceError as e:
+                    st.error(formatter.md_escape(str(e)), icon=":material/error:")
+                else:
+                    st.toast("Approved." if approve else "Rejected.", icon=":material/check:")
+                    st.rerun()
+
+
+waiting = len(experiences.review_queue(org.id))
+overview_tab, provisioning_tab, students_tab, posts_tab, settings_tab = st.tabs(
     [
         ":material/dashboard: Overview",
         ":material/group_add: Provisioning",
         ":material/groups: Students",
+        f":material/forum: Interview posts ({waiting})",
         ":material/tune: Settings and drives",
     ]
 )
@@ -947,5 +1011,7 @@ with provisioning_tab:
     _provisioning()
 with students_tab:
     _directory()
+with posts_tab:
+    _interview_posts()
 with settings_tab:
     _settings()
