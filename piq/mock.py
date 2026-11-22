@@ -74,6 +74,11 @@ def _tailor(ctx: dict) -> dict:
     return {"summary": summary[:800], "entries": entries}
 
 
+def _screener(ctx: dict) -> dict:
+    """Nothing beyond the deterministic cleaning (piq/experience_checks.py): text unchanged."""
+    return {"questions": list(ctx["questions"]), "tip": ctx["tip"], "flags": []}
+
+
 def _bullet(ctx: dict) -> dict:
     text = ctx["text"].strip().rstrip(".")
     return {"bullet": f"Delivered {text[0].lower()}{text[1:]}, measured by [metric]."}
@@ -239,6 +244,7 @@ _HANDLERS = {
     "bullet": _bullet,
     "github_readme": _github_readme,
     "tailor": _tailor,
+    "screener": _screener,
 }
 
 

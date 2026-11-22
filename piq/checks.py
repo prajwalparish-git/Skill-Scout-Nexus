@@ -9,7 +9,14 @@ import re
 from collections.abc import Iterable, Mapping
 
 from piq.config import SYLLABUS_SKILL_WEIGHT, TOPICS, WEAK_MIN_SHARE, WEAK_THRESHOLD
-from piq.schemas import InterviewTurn, ProfileExtraction, QuizSet, TailoredResume, WeeklyPlan
+from piq.schemas import (
+    ExperienceScreen,
+    InterviewTurn,
+    ProfileExtraction,
+    QuizSet,
+    TailoredResume,
+    WeeklyPlan,
+)
 
 _QUESTION_REASON = re.compile(r"^question (\d+): (.*)$", re.S)
 
@@ -195,6 +202,27 @@ def invented_numbers(source: str, text: str) -> list[str]:
     """Numbers in `text` that `source` does not contain (1,200 and 1200 count as the same)."""
     known = {n.replace(",", "") for n in _NUMBER.findall(source)}
     return sorted({n for n in _NUMBER.findall(text) if n.replace(",", "") not in known})
+
+
+def _only_removed(original: str, screened: str) -> bool:
+    """Every word of `screened` is a word of `original` or the [name] placeholder."""
+    known = {w.lower() for w in re.findall(r"[\w']+", original)} | {"name"}
+    return all(w.lower() in known for w in re.findall(r"[\w']+", screened))
+
+
+def check_screen(inp: Mapping, out: ExperienceScreen) -> list[str]:
+    """A screen may replace names with [name] and add flags; it may never add or change text."""
+    reasons = []
+    if len(out.questions) != len(inp["questions"]):
+        reasons.append(f"return all {len(inp['questions'])} questions, in order")
+    for n, (before, after) in enumerate(zip(inp["questions"], out.questions, strict=False), 1):
+        if not _only_removed(before, after):
+            reasons.append(f"question {n}: only replace names with [name]; add no words")
+    if not _only_removed(inp["tip"], out.tip):
+        reasons.append("tip: only replace names with [name]; add no words")
+    if any(len(f) > 200 for f in out.flags):
+        reasons.append("keep each flag under 200 characters")
+    return reasons
 
 
 def check_tailoring(inp: Mapping, out: TailoredResume) -> list[str]:

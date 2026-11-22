@@ -94,6 +94,7 @@ _HANDLERS = {
     "bullet": mock._bullet,
     "github_readme": mock._github_readme,
     "tailor": mock._tailor,  # deterministic and invents nothing: fit for a real student too
+    "screener": mock._screener,  # the deterministic cleaning already ran
 }
 
 

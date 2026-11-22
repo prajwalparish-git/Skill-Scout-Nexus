@@ -19,6 +19,7 @@ from piq.graph import OnEvent, Task, run_or_raise
 from piq.schemas import (
     AnswerEvaluation,
     BulletRewrite,
+    ExperienceScreen,
     InterviewTurn,
     ProfileExtraction,
     Question,
@@ -468,6 +469,35 @@ def enhance_bullet(
     inp = {"text": text, "role": role, "student_id": student_id}
     out: BulletRewrite = run_or_raise(BULLET_TASK, inp, on_event)
     return out.bullet.strip().lstrip("-*• ").strip()
+
+
+# --- Screening a reported interview experience ------------------------------------------------
+
+
+def _screen_gen(inp: dict, reasons: list[str], _prev: object) -> tuple[ExperienceScreen, int]:
+    listing = "\n".join(f"{n}. {q}" for n, q in enumerate(inp["questions"], 1))
+    user = (
+        f"Company: {inp['company']}\nRound: {inp['round']}\n\nQuestions:\n{listing}\n\n"
+        f"Tip: {inp['tip'] or '(none)'}{_feedback(reasons)}"
+    )
+    return llm.call(
+        ExperienceScreen,
+        agent="screener",
+        system=prompts.SCREENER,
+        user=user,
+        context=inp,
+        size="small",
+        temperature=0.0,
+        student_id=inp.get("student_id"),
+    )
+
+
+SCREEN_TASK = Task("screener", _screen_gen, checks.check_screen)
+
+
+def screen_experience(inp: dict, on_event: OnEvent | None = None) -> ExperienceScreen:
+    """`inp`: company, round, questions (cleaned texts), tip, student_id."""
+    return run_or_raise(SCREEN_TASK, inp, on_event)
 
 
 # --- Resume tailoring to a job description --------------------------------------------------

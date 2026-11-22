@@ -130,6 +130,15 @@ class BulletRewrite(BaseModel):
     bullet: str = Field(min_length=10, max_length=320)
 
 
+class ExperienceScreen(BaseModel):
+    """A reported interview, screened: names the regexes missed replaced with [name], and notes
+    for the human moderator. It may only take words out, never add any."""
+
+    questions: list[str] = Field(description="each question, same order, names replaced")
+    tip: str = ""
+    flags: list[str] = Field(default_factory=list, max_length=5)
+
+
 class TailoredBullet(BaseModel):
     n: int = Field(ge=1, description="the number of the original bullet this one rewrites")
     text: str = Field(min_length=3, max_length=320)
