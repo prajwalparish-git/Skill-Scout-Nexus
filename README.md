@@ -179,6 +179,7 @@ GEMINI_API_KEYS=AIza_your_key         # optional second provider, also comma-sep
 | `LOCAL_STT_MODEL` | Transcribes spoken answers on this machine with no internet (see [Working offline](#working-offline)) | Groq or Gemini transcribe them online; otherwise the student types |
 | `SUPABASE_DB_URL` | A cloud copy of all records (organizations, students and their results), kept in step in the background | Records stay on this machine |
 | `SMTP_EMAIL`, `SMTP_APP_PASSWORD` | Emails the 9-digit codes and an organization's welcome emails (Gmail with an App Password) | Codes and credentials go to `data/.mail_outbox.log` on this machine |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `DRIVE_TOKEN_KEY` | Students connect their own Google Drive: certificates and resumes are saved in a "Skill Scout Nexus" folder (only files the app created are visible to it). Set all three; see `.env.example` | Hidden: certificates stay on this machine only |
 
 The model names in `.env.example` are current (model IDs live only in `.env`, never in code);
 every option is explained in that file. Never commit `.env`.

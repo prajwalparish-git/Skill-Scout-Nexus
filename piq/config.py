@@ -1,5 +1,7 @@
 """Settings loaded once from the environment / .env file."""
 
+import base64
+import binascii
 import os
 import re
 from dataclasses import dataclass, field
@@ -372,6 +374,17 @@ class Settings:
     # app.py shows a friendly message for a crashed page; tests set PIQ_RAISE_ERRORS=1 so
     # AppTest sees the exception instead.
     raise_page_errors: bool = False
+    # Google Drive (core/drive.py): a student keeps certificates and resumes in their own Drive.
+    # Off unless the OAuth client and DRIVE_TOKEN_KEY (which encrypts refresh tokens) are set.
+    google_client_id: str = ""
+    google_client_secret: str = field(default="", repr=False)
+    google_redirect_uri: str = ""  # the web app's callback (through the /api proxy)
+    google_streamlit_redirect_uri: str = "http://localhost:8501/"
+    drive_token_key: bytes = field(default=b"", repr=False)  # 32 bytes, decoded
+
+    @property
+    def drive_enabled(self) -> bool:
+        return bool(self.google_client_id and self.google_client_secret and self.drive_token_key)
 
 
 def _local_mode() -> bool:
@@ -401,6 +414,23 @@ def _local_ai(local_mode: bool) -> bool:
     if forced in {"0", "false", "no"}:
         return False
     return local_mode
+
+
+def _drive_key(raw: str) -> bytes:
+    """DRIVE_TOKEN_KEY: 32 random bytes as URL-safe base64. Blank leaves Google Drive off; a
+    malformed key is a configuration error (a token must never be stored weakly encrypted).
+    Make one with: python -c "import secrets, base64; print(base64.urlsafe_b64encode(
+    secrets.token_bytes(32)).decode())"."""
+    raw = raw.strip()
+    if not raw:
+        return b""
+    try:
+        key = base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4))
+    except (ValueError, binascii.Error) as e:
+        raise ConfigError("DRIVE_TOKEN_KEY must be URL-safe base64") from e
+    if len(key) != 32:
+        raise ConfigError("DRIVE_TOKEN_KEY must decode to 32 bytes")
+    return key
 
 
 def _flag(name: str, default: str) -> bool:
@@ -494,6 +524,17 @@ def settings() -> Settings:
         local_ai=_local_ai(local_mode),
         dev_secret=os.getenv("DEV_SECRET", "").strip(),
         raise_page_errors=_flag("PIQ_RAISE_ERRORS", "false"),
+        google_client_id=os.getenv("GOOGLE_CLIENT_ID", "").strip(),
+        google_client_secret=os.getenv("GOOGLE_CLIENT_SECRET", "").strip(),
+        google_redirect_uri=(
+            os.getenv("GOOGLE_REDIRECT_URI", "").strip()
+            or (os.getenv("APP_URL", "").strip() or "http://localhost:3000").rstrip("/")
+            + "/api/drive/callback"
+        ),
+        google_streamlit_redirect_uri=(
+            os.getenv("GOOGLE_STREAMLIT_REDIRECT_URI", "").strip() or "http://localhost:8501/"
+        ),
+        drive_token_key=_drive_key(os.getenv("DRIVE_TOKEN_KEY", "")),
     )
     if not s.mock_mode:
         # A provider with no key (or URL) is simply skipped by the router; one that is half set

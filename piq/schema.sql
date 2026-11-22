@@ -286,7 +286,8 @@ CREATE TABLE IF NOT EXISTS certificates (
     filename    TEXT NOT NULL,
     stored_name TEXT NOT NULL UNIQUE,
     size_bytes  INTEGER NOT NULL,
-    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    drive_file_id TEXT  -- its copy in the student's Google Drive, when they connected one
 );
 
 CREATE INDEX IF NOT EXISTS idx_certificates_student ON certificates (student_id, id);
@@ -397,6 +398,30 @@ CREATE TABLE IF NOT EXISTS experience_reports (
     student_id    TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (experience_id, student_id)
+);
+
+-- Google Drive (core/drive.py), only while the server sets GOOGLE_CLIENT_ID/SECRET and
+-- DRIVE_TOKEN_KEY. The refresh token is stored encrypted (AES-GCM, DRIVE_TOKEN_KEY, bound to
+-- the student); the short-lived access token is never stored. Disconnecting deletes the row.
+CREATE TABLE IF NOT EXISTS drive_accounts (
+    student_id        TEXT PRIMARY KEY REFERENCES students(id) ON DELETE CASCADE,
+    refresh_token_enc TEXT NOT NULL,
+    scope             TEXT NOT NULL,
+    root_id           TEXT NOT NULL DEFAULT '',
+    certs_id          TEXT NOT NULL DEFAULT '',
+    resumes_id        TEXT NOT NULL DEFAULT '',
+    connected_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- An OAuth sign-in in progress: only the state's SHA-256 and the PKCE verifier (encrypted),
+-- single use, expiring after a few minutes.
+CREATE TABLE IF NOT EXISTS drive_oauth_states (
+    state_hash   TEXT PRIMARY KEY,
+    student_id   TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    verifier_enc TEXT NOT NULL,
+    redirect_uri TEXT NOT NULL,
+    return_to    TEXT NOT NULL,
+    expires_at   REAL NOT NULL
 );
 
 -- Company practice scores, kept apart from quiz_attempts: they never move a syllabus topic's

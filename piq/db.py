@@ -58,6 +58,8 @@ SESSION_ADDED = (
     ("location", "TEXT NOT NULL DEFAULT ''"),
     ("last_seen", "REAL NOT NULL DEFAULT 0"),
 )
+# Columns certificates gained (Google Drive: the copy in the student's Drive).
+CERTIFICATE_ADDED = (("drive_file_id", "TEXT"),)
 
 
 def _migrate(c: sqlite3.Connection) -> None:
@@ -81,6 +83,11 @@ def _migrate(c: sqlite3.Connection) -> None:
         for name, ddl in SESSION_ADDED:
             if name not in session_cols:
                 c.execute(f"ALTER TABLE sessions ADD COLUMN {name} {ddl}")  # fixed identifiers
+    certificate_cols = {r["name"] for r in c.execute("PRAGMA table_info(certificates)")}
+    if certificate_cols:
+        for name, ddl in CERTIFICATE_ADDED:
+            if name not in certificate_cols:
+                c.execute(f"ALTER TABLE certificates ADD COLUMN {name} {ddl}")  # fixed identifiers
 
 
 def init_db() -> None:
@@ -1729,4 +1736,77 @@ def save_company_practice(
                (student_id, company_slug, round, source, correct, total)
                VALUES (?, ?, ?, ?, ?, ?)""",
             (student_id, company_slug, round_, source, correct, total),
+        )
+
+
+# --- Google Drive ------------------------------------------------------------------------
+
+
+def drive_account(student_id: str) -> sqlite3.Row | None:
+    with tx() as c:
+        return c.execute(
+            "SELECT * FROM drive_accounts WHERE student_id = ?", (student_id,)
+        ).fetchone()
+
+
+def save_drive_account(student_id: str, refresh_token_enc: str, scope: str) -> None:
+    """Connect (or reconnect) a student's Drive; folder ids are kept on a reconnect."""
+    with tx() as c:
+        c.execute(
+            """INSERT INTO drive_accounts (student_id, refresh_token_enc, scope) VALUES (?, ?, ?)
+               ON CONFLICT (student_id) DO UPDATE SET
+                 refresh_token_enc = excluded.refresh_token_enc,
+                 scope = excluded.scope, connected_at = CURRENT_TIMESTAMP""",
+            (student_id, refresh_token_enc, scope),
+        )
+
+
+def set_drive_folders(student_id: str, root_id: str, certs_id: str, resumes_id: str) -> None:
+    with tx() as c:
+        c.execute(
+            "UPDATE drive_accounts SET root_id = ?, certs_id = ?, resumes_id = ? "
+            "WHERE student_id = ?",
+            (root_id, certs_id, resumes_id, student_id),
+        )
+
+
+def delete_drive_account(student_id: str) -> None:
+    with tx() as c:
+        c.execute("DELETE FROM drive_accounts WHERE student_id = ?", (student_id,))
+        c.execute("DELETE FROM drive_oauth_states WHERE student_id = ?", (student_id,))
+
+
+def save_drive_state(
+    state_hash: str,
+    student_id: str,
+    verifier_enc: str,
+    redirect_uri: str,
+    return_to: str,
+    expires_at: float,
+) -> None:
+    with tx() as c:
+        c.execute("DELETE FROM drive_oauth_states WHERE expires_at < ?", (expires_at - 3600,))
+        c.execute(
+            """INSERT INTO drive_oauth_states
+               (state_hash, student_id, verifier_enc, redirect_uri, return_to, expires_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (state_hash, student_id, verifier_enc, redirect_uri, return_to, expires_at),
+        )
+
+
+def take_drive_state(state_hash: str) -> sqlite3.Row | None:
+    """The sign-in in progress for this state, removed as it is read (single use)."""
+    with tx() as c:
+        row = c.execute(
+            "SELECT * FROM drive_oauth_states WHERE state_hash = ?", (state_hash,)
+        ).fetchone()
+        c.execute("DELETE FROM drive_oauth_states WHERE state_hash = ?", (state_hash,))
+        return row
+
+
+def set_certificate_drive_id(student_id: str, cert_id: int, file_id: str | None) -> None:
+    with tx() as c:
+        c.execute(
+            "UPDATE certificates SET drive_file_id = ? WHERE id = ? AND student_id = ?",
+            (file_id, cert_id, student_id),
         )
