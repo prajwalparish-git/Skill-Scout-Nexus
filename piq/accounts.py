@@ -268,6 +268,53 @@ def sign_up(
     return _send_code(db.student(sid), "login")  # type: ignore[arg-type]
 
 
+def sign_up_contributor(
+    name: str,
+    username: str,
+    email: str,
+    password: str,
+    confirm: str,
+    company_joined: str,
+    batch_year: str,
+    *,
+    device: Device | None = None,
+) -> Pending | str:
+    """A contributor account for a placed student, an alumnus or a professional: name, email,
+    the company they joined and their batch year; no target role, resume or readiness score.
+    It shares questions only. The same password rules and email code as a student's (in local
+    mode there is no email: made and signed in at once, as it is not the install's student)."""
+    name = (name or "").strip()
+    if not 1 <= len(name) <= 120:
+        raise ServiceError("Enter your name (up to 120 characters).")
+    username, email = normalise_username(username), normalise_email(email)
+    check_password(password, confirm, username, email)
+    company = " ".join((company_joined or "").split())
+    if not 2 <= len(company) <= 120:
+        raise ServiceError("Name the company you joined (up to 120 characters).")
+    year = (batch_year or "").strip()
+    this_year = time.gmtime().tm_year
+    if not (year.isdigit() and len(year) == 4 and 1970 <= int(year) <= this_year + 1):
+        raise ServiceError("Give your batch year, e.g. 2024.")
+    if db.student_by_username(username) is not None:
+        raise ServiceError("That username is taken; choose another.")
+    if db.email_taken(email):
+        raise ServiceError("That email already has an account: sign in, or recover it.")
+    pw = auth.hash_password(password, pepper=settings().auth_pepper)
+    try:
+        sid = db.create_student(
+            name, username, "", email=email, password_hash=pw, kind="contributor"
+        )
+    except sqlite3.IntegrityError as e:
+        raise ServiceError("That username or email was just taken; try another.") from e
+    db.set_batch_year(sid, year)
+    db.ensure_contributor(sid, company)
+    if settings().local_mode:
+        db.set_email_verified(sid)
+        return sid
+    event("sign_up_started", student_id=sid, identifier=username, device=device)
+    return _send_code(db.student(sid), "login")  # type: ignore[arg-type]
+
+
 def start_login(
     identifier: str, password: str, *, risky: bool = False, device: Device | None = None
 ) -> Pending | str:

@@ -165,6 +165,8 @@ def public(student_id: str) -> dict | None:
         "readiness_score": row["readiness_score"],
         "must_change_password": bool(row["must_change_password"]),
         "in_org": row["org_id"] is not None,  # an organization's student (never which one)
+        # "contributor": shares questions only (piq/contributions.py), no student tools
+        "account_kind": row["account_kind"],
     }
 
 
@@ -172,10 +174,26 @@ def session_id(request: Request) -> str | None:
     return accounts.session_student(request.cookies.get(COOKIE))
 
 
-def require_student(request: Request) -> str:
+def require_member(request: Request) -> str:
+    """Anyone signed in: a student or a contributor."""
     sid = session_id(request)
     if sid is None:
         raise HTTPException(401, "Sign in to continue.")
+    return sid
+
+
+CONTRIBUTOR_ONLY = (
+    "This is a contributor account: it can contribute questions and share interviews, not use "
+    "the student tools."
+)
+
+
+def require_student(request: Request) -> str:
+    """A signed-in student (a contributor account is refused: it has no profile or plan)."""
+    sid = require_member(request)
+    row = db.student(sid)
+    if row is not None and row["account_kind"] == "contributor":
+        raise HTTPException(403, CONTRIBUTOR_ONLY)
     return sid
 
 
@@ -356,6 +374,36 @@ def signup(body: SignUp, request: Request, response: Response) -> dict:
     )
     if isinstance(result, str):  # local mode: no email to confirm
         services.benchmark_profile(result)
+        return _start_session(request, response, result, d)
+    return _step(result)
+
+
+class ContributorSignUp(BaseModel):
+    name: str = Field(max_length=200)
+    username: str = Field(max_length=60)
+    email: str = Field(max_length=254)
+    password: str = Field(max_length=200)
+    confirm: str = Field(max_length=200)
+    company_joined: str = Field(max_length=160)
+    batch_year: str = Field(max_length=8)
+
+
+@router.post("/signup-contributor", dependencies=[Depends(throttle)])
+def signup_contributor(body: ContributorSignUp, request: Request, response: Response) -> dict:
+    """A contributor account: name, email, company joined, batch year (no role, resume or
+    readiness score). The same email code as a student's sign-up."""
+    d = device(request, response)
+    result = accounts.sign_up_contributor(
+        body.name,
+        body.username,
+        body.email,
+        body.password,
+        body.confirm,
+        body.company_joined,
+        body.batch_year,
+        device=d,
+    )
+    if isinstance(result, str):  # local mode: no email to confirm
         return _start_session(request, response, result, d)
     return _step(result)
 

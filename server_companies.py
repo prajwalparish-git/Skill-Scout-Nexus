@@ -24,7 +24,7 @@ from piq.config import (
     PROCESS_SUMMARY_MAX,
 )
 from piq.services import ServiceError
-from server_auth import require_ops, require_student, session_id
+from server_auth import require_member, require_ops, require_student, session_id
 
 router = APIRouter(tags=["companies"])
 ops_router = APIRouter(prefix="/api/ops", tags=["ops"], dependencies=[Depends(require_ops)])
@@ -69,7 +69,7 @@ def companies(request: Request) -> dict:
 
 
 @router.get("/api/companies/{slug}")
-def company(slug: str, round: str | None = None, sid: str = Depends(require_student)) -> dict:
+def company(slug: str, round: str | None = None, sid: str = Depends(require_member)) -> dict:
     """A company's approved posts, labelled ('a student, 2026'), never named."""
     return _call(lambda: experiences.company_detail(slug, round or None, sid))
 
@@ -113,15 +113,16 @@ class ExperienceIn(BaseModel):
 
 
 @router.post("/api/experiences", dependencies=[Depends(submit_throttle)])
-def share(body: ExperienceIn, sid: str = Depends(require_student)) -> dict:
-    """Share an interview: cleaned, then pending until a moderator approves it."""
+def share(body: ExperienceIn, sid: str = Depends(require_member)) -> dict:
+    """Share an interview (a student, or a contributor who was interviewed): cleaned, then
+    pending until a moderator approves it."""
     form = body.model_dump()
     s = _call(lambda: experiences.submit(sid, form))
     return {"id": s.id, "status": s.status, "removed": s.removed}
 
 
 @router.get("/api/experiences/mine")
-def mine(sid: str = Depends(require_student)) -> dict:
+def mine(sid: str = Depends(require_member)) -> dict:
     return {"posts": experiences.my_posts(sid)}
 
 

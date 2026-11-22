@@ -49,7 +49,10 @@ CREATE TABLE IF NOT EXISTS students (
     must_change_password INTEGER NOT NULL DEFAULT 0,
     phone                TEXT,
     batch_year           TEXT,
-    email_verified       INTEGER NOT NULL DEFAULT 0  -- a code sent to the email was typed
+    email_verified       INTEGER NOT NULL DEFAULT 0, -- a code sent to the email was typed
+    -- a contributor (piq/contributions.py) shares questions only: no role, resume or score
+    account_kind         TEXT NOT NULL DEFAULT 'student'
+                         CHECK (account_kind IN ('student', 'contributor'))
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_students_email ON students (email);
@@ -510,3 +513,47 @@ CREATE TABLE IF NOT EXISTS handsfree_answers (
     at                REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_handsfree_answers_run ON handsfree_answers (run_id, question_index);
+
+-- Contributors (piq/contributions.py): placed students, alumni and professionals who add
+-- questions to the open bank (students.account_kind = 'contributor': no target role, resume or
+-- readiness score), and students who contribute too (company_joined empty). Credit is opt-in:
+-- anonymous unless credit_opt_in is set with a display name.
+CREATE TABLE IF NOT EXISTS contributors (
+    student_id     TEXT PRIMARY KEY REFERENCES students(id) ON DELETE CASCADE,
+    company_joined TEXT NOT NULL DEFAULT '',
+    credit_opt_in  INTEGER NOT NULL DEFAULT 0,
+    display_name   TEXT NOT NULL DEFAULT '',
+    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Questions contributed to the open bank, licensed CC BY 4.0 by their author (accepted on the
+-- form, recorded per question). Cleaned and checked like interview posts, critic-checked in
+-- live mode, pending until a moderator approves (the author's organization admin, else the
+-- operations view). Approved multiple-choice questions join the quiz bank; open ones (with
+-- their model answer) the general-practice interviews. Deleted with the author's account.
+CREATE TABLE IF NOT EXISTS contributed_questions (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    author_id           TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    org_id              INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
+    kind                TEXT NOT NULL CHECK (kind IN ('mcq', 'open')),
+    round               TEXT NOT NULL CHECK (round IN ('aptitude', 'technical', 'hr')),
+    topic               TEXT NOT NULL,
+    difficulty          TEXT NOT NULL CHECK (difficulty IN ('easy', 'medium', 'hard')),
+    text                TEXT NOT NULL,
+    options_json        TEXT NOT NULL DEFAULT '[]',
+    correct_index       INTEGER,
+    explanation         TEXT NOT NULL DEFAULT '',
+    model_answer        TEXT NOT NULL DEFAULT '',
+    licence             TEXT NOT NULL DEFAULT 'CC-BY-4.0' CHECK (licence = 'CC-BY-4.0'),
+    licence_accepted_at TIMESTAMP NOT NULL,
+    status              TEXT NOT NULL DEFAULT 'pending'
+                        CHECK (status IN ('pending', 'approved', 'rejected', 'hidden')),
+    flags               TEXT NOT NULL DEFAULT '[]',
+    reject_reason       TEXT NOT NULL DEFAULT '',
+    reviewed_by         TEXT NOT NULL DEFAULT '',
+    reviewed_at         TIMESTAMP,
+    content_hash        TEXT NOT NULL UNIQUE,
+    created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_contributed_status ON contributed_questions (status, round);
+CREATE INDEX IF NOT EXISTS idx_contributed_author ON contributed_questions (author_id, created_at);

@@ -49,6 +49,10 @@ STUDENT_ADDED = (
     ("phone", "TEXT"),
     ("batch_year", "TEXT"),
     ("email_verified", "INTEGER NOT NULL DEFAULT 0"),
+    (
+        "account_kind",
+        "TEXT NOT NULL DEFAULT 'student' CHECK (account_kind IN ('student', 'contributor'))",
+    ),
 )
 # Device columns sessions gained (the student's list of signed-in devices).
 SESSION_ADDED = (
@@ -147,15 +151,18 @@ def create_student(
     email: str | None = None,
     password_hash: str | None = None,
     at: str | None = None,
+    kind: str = "student",
 ) -> str:
     """A new account (and its password, when it has one); returns its id. The caller has
-    validated and lower-cased username and email; a duplicate raises sqlite3.IntegrityError."""
+    validated and lower-cased username and email; a duplicate raises sqlite3.IntegrityError.
+    `kind`: "student", or "contributor" (questions only: no role, resume or score)."""
     sid = uuid.uuid4().hex
     with tx() as c:
         c.execute(
-            """INSERT INTO students (id, name, username, email, target_role, created_at)
-               VALUES (?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))""",
-            (sid, name, username, email, target_role, at),
+            """INSERT INTO students (id, name, username, email, target_role, created_at,
+                                     account_kind)
+               VALUES (?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?)""",
+            (sid, name, username, email, target_role, at, kind),
         )
         if password_hash:
             c.execute(
@@ -185,7 +192,8 @@ def save_profile(student_id: str, profile: StudentProfile, at: str | None = None
 _STUDENT = (
     "SELECT s.id, s.name, s.username, s.email, s.target_role, s.readiness_score, s.org_id, "
     "s.main_domain, s.subdomain, s.account_status, s.must_change_password, s.phone, "
-    "s.batch_year, s.created_at, s.email_verified, o.org_code, o.name AS org_name "
+    "s.batch_year, s.created_at, s.email_verified, s.account_kind, o.org_code, "
+    "o.name AS org_name "
     "FROM students s LEFT JOIN organizations o ON o.id = s.org_id "
 )
 
@@ -225,8 +233,11 @@ def student(student_id: str) -> sqlite3.Row | None:
 
 
 def list_students() -> list[sqlite3.Row]:
+    """Student accounts (contributor accounts are not students)."""
     with tx() as c:
-        return c.execute(_STUDENT + "ORDER BY s.username").fetchall()
+        return c.execute(
+            _STUDENT + "WHERE s.account_kind = 'student' ORDER BY s.username"
+        ).fetchall()
 
 
 # --- sign-in state (piq/accounts.py; never synced) -------------------------------
@@ -389,8 +400,11 @@ def set_email_verified(student_id: str) -> None:
 
 
 def student_count() -> int:
+    """Student accounts (contributors are not students: local mode's one student is not one)."""
     with tx() as c:
-        return c.execute("SELECT COUNT(*) FROM students").fetchone()[0]
+        return c.execute("SELECT COUNT(*) FROM students WHERE account_kind = 'student'").fetchone()[
+            0
+        ]
 
 
 def prefs(student_id: str) -> str | None:
@@ -2082,4 +2096,175 @@ def handsfree_answers(run_id: str) -> list[sqlite3.Row]:
         return c.execute(
             "SELECT * FROM handsfree_answers WHERE run_id = ? ORDER BY question_index, id",
             (run_id,),
+        ).fetchall()
+
+
+# --- contributors and contributed questions (piq/contributions.py) ------------------------------
+
+CONTRIBUTION_FIELDS = (
+    "author_id",
+    "org_id",
+    "kind",
+    "round",
+    "topic",
+    "difficulty",
+    "text",
+    "options_json",
+    "correct_index",
+    "explanation",
+    "model_answer",
+    "licence_accepted_at",
+    "flags",
+    "content_hash",
+)
+
+
+def set_batch_year(student_id: str, year: str) -> None:
+    with tx() as c:
+        c.execute("UPDATE students SET batch_year = ? WHERE id = ?", (year, student_id))
+
+
+def ensure_contributor(student_id: str, company_joined: str = "") -> None:
+    with tx() as c:
+        c.execute(
+            "INSERT INTO contributors (student_id, company_joined) VALUES (?, ?) "
+            "ON CONFLICT (student_id) DO NOTHING",
+            (student_id, company_joined),
+        )
+
+
+def contributor(student_id: str) -> sqlite3.Row | None:
+    with tx() as c:
+        return c.execute(
+            "SELECT * FROM contributors WHERE student_id = ?", (student_id,)
+        ).fetchone()
+
+
+def set_contributor_credit(student_id: str, opt_in: bool, display_name: str) -> None:
+    ensure_contributor(student_id)
+    with tx() as c:
+        c.execute(
+            "UPDATE contributors SET credit_opt_in = ?, display_name = ? WHERE student_id = ?",
+            (int(opt_in), display_name, student_id),
+        )
+
+
+def add_contribution(fields: Mapping[str, object]) -> int:
+    with tx() as c:
+        cur = c.execute(
+            f"INSERT INTO contributed_questions ({', '.join(CONTRIBUTION_FIELDS)}) "
+            f"VALUES ({', '.join('?' * len(CONTRIBUTION_FIELDS))})",
+            [fields[k] for k in CONTRIBUTION_FIELDS],
+        )
+        return cur.lastrowid
+
+
+def contribution(contribution_id: int) -> sqlite3.Row | None:
+    with tx() as c:
+        return c.execute(
+            "SELECT * FROM contributed_questions WHERE id = ?", (contribution_id,)
+        ).fetchone()
+
+
+def contribution_hash_taken(content_hash: str) -> bool:
+    with tx() as c:
+        return (
+            c.execute(
+                "SELECT 1 FROM contributed_questions WHERE content_hash = ?", (content_hash,)
+            ).fetchone()
+            is not None
+        )
+
+
+def contributions_since(student_id: str, since: str) -> int:
+    with tx() as c:
+        return c.execute(
+            "SELECT COUNT(*) FROM contributed_questions WHERE author_id = ? AND created_at >= ?",
+            (student_id, since),
+        ).fetchone()[0]
+
+
+def contributions_pending(student_id: str) -> int:
+    with tx() as c:
+        return c.execute(
+            "SELECT COUNT(*) FROM contributed_questions WHERE author_id = ? AND status = 'pending'",
+            (student_id,),
+        ).fetchone()[0]
+
+
+def contributions_of(student_id: str) -> list[sqlite3.Row]:
+    with tx() as c:
+        return c.execute(
+            "SELECT * FROM contributed_questions WHERE author_id = ? ORDER BY id DESC",
+            (student_id,),
+        ).fetchall()
+
+
+def contributions_to_review(org_id: int | None) -> list[sqlite3.Row]:
+    """Pending (and reported-hidden) contributions for one organization, or (None) for the
+    operations view: contributors and individual learners."""
+    with tx() as c:
+        return c.execute(
+            "SELECT * FROM contributed_questions WHERE status IN ('pending', 'hidden') "
+            "AND ((? IS NULL AND org_id IS NULL) OR org_id = ?) ORDER BY id",
+            (org_id, org_id),
+        ).fetchall()
+
+
+def review_contribution(contribution_id: int, status: str, by: str, reason: str) -> None:
+    with tx() as c:
+        c.execute(
+            "UPDATE contributed_questions SET status = ?, reviewed_by = ?, reject_reason = ?, "
+            "reviewed_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (status, by, reason, contribution_id),
+        )
+
+
+def approved_contributions(kind: str | None = None) -> list[sqlite3.Row]:
+    """Approved contributions with their author's credit choice (anonymous unless opted in)."""
+    with tx() as c:
+        return c.execute(
+            """SELECT q.*, COALESCE(k.credit_opt_in, 0) AS credit_opt_in,
+                      COALESCE(k.display_name, '') AS display_name
+               FROM contributed_questions q
+               LEFT JOIN contributors k ON k.student_id = q.author_id
+               WHERE q.status = 'approved' AND (? IS NULL OR q.kind = ?)
+               ORDER BY q.id""",
+            (kind, kind),
+        ).fetchall()
+
+
+def contributions_version() -> tuple[int, int, str]:
+    """Changes whenever the approved set or a credit choice does: what the bank caches on."""
+    with tx() as c:
+        row = c.execute(
+            """SELECT COUNT(*), COALESCE(MAX(q.id), 0),
+                      COALESCE(MAX(q.reviewed_at), '') ||
+                      COALESCE((SELECT group_concat(student_id || credit_opt_in || display_name)
+                                FROM contributors), '')
+               FROM contributed_questions q WHERE q.status = 'approved'"""
+        ).fetchone()
+    return row[0], row[1], row[2]
+
+
+def approved_contribution_count(student_id: str) -> int:
+    with tx() as c:
+        return c.execute(
+            "SELECT COUNT(*) FROM contributed_questions WHERE author_id = ? "
+            "AND status = 'approved'",
+            (student_id,),
+        ).fetchone()[0]
+
+
+def top_contributors(since: str, limit: int = 10) -> list[sqlite3.Row]:
+    """Opted-in contributors by questions approved since `since`: display name and count only."""
+    with tx() as c:
+        return c.execute(
+            """SELECT k.display_name, COUNT(*) AS approved
+               FROM contributed_questions q JOIN contributors k ON k.student_id = q.author_id
+               WHERE q.status = 'approved' AND q.reviewed_at >= ?
+                 AND k.credit_opt_in = 1 AND k.display_name != ''
+               GROUP BY q.author_id, k.display_name
+               ORDER BY approved DESC, k.display_name LIMIT ?""",
+            (since, limit),
         ).fetchall()
