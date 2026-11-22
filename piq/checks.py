@@ -9,7 +9,7 @@ import re
 from collections.abc import Iterable, Mapping
 
 from piq.config import SYLLABUS_SKILL_WEIGHT, TOPICS, WEAK_MIN_SHARE, WEAK_THRESHOLD
-from piq.schemas import InterviewTurn, ProfileExtraction, QuizSet, WeeklyPlan
+from piq.schemas import InterviewTurn, ProfileExtraction, QuizSet, TailoredResume, WeeklyPlan
 
 _QUESTION_REASON = re.compile(r"^question (\d+): (.*)$", re.S)
 
@@ -188,6 +188,42 @@ def check_bullet(original: str, rewrite: str) -> list[str]:
         reasons.append("return one bullet on one line")
     if text_hash(rewrite) == text_hash(original):
         reasons.append("rewrite the bullet in XYZ form; it came back unchanged")
+    return reasons
+
+
+def invented_numbers(source: str, text: str) -> list[str]:
+    """Numbers in `text` that `source` does not contain (1,200 and 1200 count as the same)."""
+    known = {n.replace(",", "") for n in _NUMBER.findall(source)}
+    return sorted({n for n in _NUMBER.findall(text) if n.replace(",", "") not in known})
+
+
+def check_tailoring(inp: Mapping, out: TailoredResume) -> list[str]:
+    """A tailored resume may reorder and reword, never add, drop or invent: each entry keeps
+    exactly its own bullets (by number), each bullet only its own numbers, and the summary only
+    numbers that are somewhere in the resume."""
+    reasons = []
+    entries: Mapping[str, list[str]] = inp["entries"]
+    if bad := invented_numbers(inp["corpus"], out.summary):
+        reasons.append(f"summary: numbers {bad} are not in the resume; do not add figures")
+    if "\n" in out.summary.strip():
+        reasons.append("summary: one paragraph, no line breaks")
+    for e in out.entries:
+        original = entries.get(e.id)
+        if original is None:
+            reasons.append(f"{e.id} is not an entry of this resume; use only the ids given")
+            continue
+        ns = sorted(b.n for b in e.bullets)
+        if ns != list(range(1, len(original) + 1)):
+            reasons.append(
+                f"{e.id}: return each of its {len(original)} bullets exactly once (numbers "
+                f"1-{len(original)}); none added or dropped"
+            )
+            continue
+        for b in e.bullets:
+            if bad := invented_numbers(original[b.n - 1], b.text):
+                reasons.append(f"{e.id} bullet {b.n}: numbers {bad} are not in that bullet")
+            if "\n" in b.text.strip():
+                reasons.append(f"{e.id} bullet {b.n}: one line only")
     return reasons
 
 

@@ -62,6 +62,15 @@ original; never invent a figure. If the original has no measurable result, write
 the measure belongs so the student can fill it in. Return the bullet only, without a leading
 dash."""
 
+TAILOR = """You tailor a student's resume to one job description. You may only (1) rewrite the
+summary and (2) reorder and reword the bullets of the entries listed, putting the bullets that
+best match the job first. Never invent anything: no new experience, employer, project, skill,
+tool, certificate or result. Keep every fact of each bullet. Use only numbers that appear in
+that bullet (or, for the summary, anywhere in the resume); never add a figure, and never claim
+years of experience the resume does not state. Return every original bullet of an entry exactly
+once, identified by its number; never add or drop one. Use the job description's wording only
+where the resume already shows that skill. Keep each bullet to one sentence."""
+
 JUDGE = """You check interview transcripts. Decide whether the NEXT question directly follows
 up on the candidate's ANSWER: it must refer to something the candidate said, or press on
 what the answer left vague. A new, unrelated question does not count. Be strict."""

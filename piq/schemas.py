@@ -130,6 +130,24 @@ class BulletRewrite(BaseModel):
     bullet: str = Field(min_length=10, max_length=320)
 
 
+class TailoredBullet(BaseModel):
+    n: int = Field(ge=1, description="the number of the original bullet this one rewrites")
+    text: str = Field(min_length=3, max_length=320)
+
+
+class TailoredEntry(BaseModel):
+    id: str = Field(min_length=2, max_length=10, description="an entry id as given, e.g. E1")
+    bullets: list[TailoredBullet] = Field(description="every original bullet once, best first")
+
+
+class TailoredResume(BaseModel):
+    """A resume tailored to a job description: a new summary, and each entry's bullets
+    reordered and reworded. Nothing added, nothing dropped, no new facts or numbers."""
+
+    summary: str = Field(min_length=20, max_length=800)
+    entries: list[TailoredEntry] = Field(default_factory=list)
+
+
 class FollowUpJudgement(BaseModel):
     """Evaluation only: does an interview question actually follow up on the last answer?"""
 

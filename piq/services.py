@@ -5,6 +5,7 @@ its input, runs the agents, persists the result and returns typed state, so ever
 flow is testable without Streamlit. `ServiceError` messages are safe to show to users.
 """
 
+import copy
 import csv
 import json
 import logging
@@ -1695,6 +1696,109 @@ def enhance_bullet(
     if resume_builder.get_role_info(role) is None and role not in syllabus.role_skills():
         raise ServiceError(f"Unknown role {role!r}.")
     return agents.enhance_bullet(text, role, on_event, student_id)
+
+
+JD_MIN_CHARS, JD_MAX_CHARS = 80, 6000
+
+
+@dataclass(frozen=True)
+class Tailoring:
+    """A tailored resume for the student to review: nothing changes until they accept it."""
+
+    resume: dict  # the resume with the tailored summary and bullets (accept = use this)
+    summary: str
+    bullets: dict[str, list[str]]  # "experience:0" / "projects:0" -> bullets in the new order
+    changes: list[str]  # what moved or was reworded, in words
+    matched_keywords: list[str]  # the job's terms the resume already shows
+    missing_keywords: list[str]  # the job's terms it does not: never added for the student
+
+
+def job_keywords(role: str, job_description: str, resume: Mapping) -> tuple[list[str], list[str]]:
+    """(on the resume, not on it): the role's ATS keywords and skills, plus the student's own
+    skills, that the job description names. Worked out from text only, no model."""
+    info = resume_builder.get_role_info(role) or {}
+    terms = list(
+        dict.fromkeys(
+            [
+                *info.get("ats_keywords", []),
+                *syllabus.role_skills().get(role, {}),
+                *resume.get("skills", []),
+            ]
+        )
+    )
+    jd = job_description.lower()
+    corpus = resume_builder.resume_text(resume_builder.without_private(resume)).lower()
+
+    def has(text: str, term: str) -> bool:
+        return re.search(rf"(?<!\w){re.escape(term.lower())}(?!\w)", text) is not None
+
+    asked = [t for t in terms if has(jd, t)]
+    return [t for t in asked if has(corpus, t)], [t for t in asked if not has(corpus, t)]
+
+
+def tailor_resume(
+    student_id: str, resume: Mapping, job_description: str, on_event: OnEvent | None = None
+) -> Tailoring:
+    """Tailor the summary and the order and wording of each entry's bullets to a job
+    description, by the rules of checks.check_tailoring (nothing added, dropped or invented).
+    Personal details are never sent. The job description is neither saved nor cached."""
+    jd = (job_description or "").strip()
+    if not JD_MIN_CHARS <= len(jd) <= JD_MAX_CHARS:
+        raise ServiceError(
+            f"Paste a job description of {JD_MIN_CHARS} to {JD_MAX_CHARS:,} characters."
+        )
+    entries: dict[str, list[str]] = {}
+    titles: dict[str, str] = {}
+    where: dict[str, str] = {}
+    for kind, prefix, items in (
+        ("experience", "E", resume_builder.experience_entries(resume)),
+        ("projects", "P", list(resume.get("projects", []))),
+    ):
+        for i, item in enumerate(items):
+            if item.get("bullets"):
+                eid = f"{prefix}{i + 1}"
+                entries[eid] = [str(b) for b in item["bullets"]]
+                titles[eid] = (
+                    resume_builder.job_label(item) if kind == "experience" else item["title"]
+                )
+                where[eid] = f"{kind}:{i}"
+    safe = resume_builder.without_private(resume)
+    inp = {
+        "role": resume.get("target_role", ""),
+        "skills": list(resume.get("skills", [])),
+        "summary": resume.get("summary", ""),
+        "entries": entries,
+        "titles": titles,
+        "corpus": resume_builder.resume_text(safe),
+        "job_description": jd,
+        "student_id": student_id,
+    }
+    out = agents.tailor_resume(inp, on_event)
+
+    tailored = copy.deepcopy(dict(resume))
+    changes = []
+    summary = " ".join(out.summary.split())
+    if summary != " ".join(str(resume.get("summary", "")).split()):
+        changes.append("Summary rewritten for this job.")
+    tailored["summary"] = summary
+    tailored.setdefault("form", {})["summary"] = summary
+    bullets: dict[str, list[str]] = {}
+    for e in out.entries:
+        kind, i = where[e.id].split(":")
+        new = [" ".join(b.text.split()) for b in e.bullets]
+        old = entries[e.id]
+        bullets[where[e.id]] = new
+        tailored[kind][int(i)]["bullets"] = new
+        moved = [b.n for b in e.bullets] != list(range(1, len(old) + 1))
+        reworded = sum(b.text.strip() != old[b.n - 1].strip() for b in e.bullets)
+        if moved or reworded:
+            what = [
+                *(["bullets reordered"] if moved else []),
+                *([f"{reworded} reworded"] if reworded else []),
+            ]
+            changes.append(f"{titles[e.id]}: {', '.join(what)}.")
+    matched, missing = job_keywords(inp["role"], jd, tailored)
+    return Tailoring(tailored, summary, bullets, changes, matched, missing)
 
 
 def check_resume_dates(resume: Mapping) -> None:

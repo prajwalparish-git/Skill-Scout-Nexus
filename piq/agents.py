@@ -26,6 +26,7 @@ from piq.schemas import (
     QuizCritique,
     QuizSet,
     StudentProfile,
+    TailoredResume,
     WeeklyPlan,
 )
 
@@ -467,3 +468,36 @@ def enhance_bullet(
     inp = {"text": text, "role": role, "student_id": student_id}
     out: BulletRewrite = run_or_raise(BULLET_TASK, inp, on_event)
     return out.bullet.strip().lstrip("-*• ").strip()
+
+
+# --- Resume tailoring to a job description --------------------------------------------------
+
+
+def _tailor_gen(inp: dict, reasons: list[str], _prev: object) -> tuple[TailoredResume, int]:
+    listing = "\n\n".join(
+        f"[{eid}] {inp['titles'][eid]}\n" + "\n".join(f"  {n}. {b}" for n, b in enumerate(bs, 1))
+        for eid, bs in inp["entries"].items()
+    )
+    user = (
+        f"Target role: {inp['role']}\nThe student's skills: {', '.join(inp['skills']) or 'none'}\n"
+        f"Current summary: {inp['summary']}\n\nEntries:\n{listing or 'none'}\n\n"
+        f"Job description:\n{inp['job_description']}{_feedback(reasons)}"
+    )
+    return llm.call(
+        TailoredResume,
+        agent="tailor",
+        system=prompts.TAILOR,
+        user=user,
+        context=inp,
+        temperature=0.3,
+        student_id=inp.get("student_id"),
+    )
+
+
+TAILOR_TASK = Task("tailor", _tailor_gen, checks.check_tailoring)
+
+
+def tailor_resume(inp: dict, on_event: OnEvent | None = None) -> TailoredResume:
+    """`inp`: role, skills, summary, entries {id: bullets}, titles {id: title}, corpus (the
+    resume's text, for the summary's numbers), job_description, student_id."""
+    return run_or_raise(TAILOR_TASK, inp, on_event)

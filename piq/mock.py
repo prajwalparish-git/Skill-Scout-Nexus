@@ -53,6 +53,27 @@ _TRACK_TEMPLATES = [
 ]
 
 
+def _words(text: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z][a-z0-9+#.]{2,}", text.lower())}
+
+
+def _tailor(ctx: dict) -> dict:
+    """Bullets ranked by how many of the job description's words they share (ties keep their
+    order), wording unchanged; the summary gains the student's own skills the job asks for.
+    Nothing is invented, so it passes the same checks a model's answer must."""
+    jd = _words(ctx["job_description"])
+    entries = []
+    for eid, bullets in ctx["entries"].items():
+        ranked = sorted(range(len(bullets)), key=lambda i: (-len(_words(bullets[i]) & jd), i))
+        entries.append({"id": eid, "bullets": [{"n": i + 1, "text": bullets[i]} for i in ranked]})
+    text = ctx["job_description"].lower()
+    asked = [s for s in ctx["skills"] if re.search(rf"(?<!\w){re.escape(s.lower())}(?!\w)", text)]
+    summary = ctx["summary"].strip()
+    if asked:
+        summary = f"{summary} Relevant to this role: {', '.join(asked[:6])}."
+    return {"summary": summary[:800], "entries": entries}
+
+
 def _bullet(ctx: dict) -> dict:
     text = ctx["text"].strip().rstrip(".")
     return {"bullet": f"Delivered {text[0].lower()}{text[1:]}, measured by [metric]."}
@@ -217,6 +238,7 @@ _HANDLERS = {
     "judge": _judge,
     "bullet": _bullet,
     "github_readme": _github_readme,
+    "tailor": _tailor,
 }
 
 
