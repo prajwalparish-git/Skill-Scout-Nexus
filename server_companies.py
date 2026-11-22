@@ -14,7 +14,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from piq import experiences
+from piq import experiences, open_questions, question_bank
 from piq.config import (
     EXPERIENCE_MAX_QUESTIONS,
     EXPERIENCE_QUESTION_MAX,
@@ -69,7 +69,7 @@ def companies(request: Request) -> dict:
 @router.get("/api/companies/{slug}")
 def company(slug: str, round: str | None = None, sid: str = Depends(require_student)) -> dict:
     """A company's approved posts, labelled ('a student, 2026'), never named."""
-    return _call(lambda: experiences.company_detail(slug, round or None))
+    return _call(lambda: experiences.company_detail(slug, round or None, sid))
 
 
 # --- share, mine, report -----------------------------------------------------------------------
@@ -119,13 +119,16 @@ def report(experience_id: int, sid: str = Depends(require_student)) -> dict:
 def practice(
     slug: str,
     round: str,
-    source: Literal["reported", "ai"] = "reported",
+    source: Literal["reported", "ai", "open"] = "reported",
     sid: str = Depends(require_student),
 ) -> dict:
     """A practice quiz without its answers. `reported`: students' MCQs for this company;
+    `open`: general practice from the open question bank, never claimed as this company's;
     `ai`: AI practice in its style, always labelled so and never stored as reported."""
     if source == "reported":
         q = _call(lambda: experiences.reported_quiz(slug, round))
+    elif source == "open":
+        q = _call(lambda: experiences.open_quiz(sid, slug, round))
     else:
         q = _call(lambda: experiences.ai_quiz(sid, slug, round))
     return {
@@ -145,7 +148,7 @@ class PracticeAnswer(BaseModel):
 
 class PracticeSubmit(BaseModel):
     round: str = Field(max_length=30)
-    source: Literal["reported", "ai"]
+    source: Literal["reported", "ai", "open"]
     answers: list[PracticeAnswer] = Field(min_length=1, max_length=30)
 
 
@@ -154,6 +157,15 @@ def practice_submit(slug: str, body: PracticeSubmit, sid: str = Depends(require_
     """Graded into company practice only: syllabus topics, levels and the plan are unchanged."""
     answers = [(a.id, a.choice) for a in body.answers]
     return _call(lambda: experiences.grade_practice(sid, slug, body.round, body.source, answers))
+
+
+# --- question sources and credits ----------------------------------------------------------------
+
+
+@router.get("/api/question-sources")
+def question_sources() -> dict:
+    """Where the questions come from, their licences and what we changed (public)."""
+    return open_questions.credits_page(question_bank.counts_by_source())
 
 
 # --- moderation by the operations view (individual learners' posts) ---------------------------

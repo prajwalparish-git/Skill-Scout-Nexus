@@ -103,11 +103,38 @@ def _migrate(c: sqlite3.Connection) -> None:
                 c.execute(f"ALTER TABLE organizations ADD COLUMN {name} {ddl}")  # fixed identifiers
 
 
+# Tables whose CHECK constraint widened since an older schema: (table, text the new CHECK has).
+# SQLite cannot alter a CHECK, so an older table is set aside, recreated from schema.sql and
+# copied back (same columns), data kept.
+CHECK_WIDENED = (("company_practice", "'open'"),)
+
+
+def _set_aside_narrow_checks(c: sqlite3.Connection) -> None:
+    for table, marker in CHECK_WIDENED:
+        row = c.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)
+        ).fetchone()
+        if row and marker not in row["sql"]:
+            c.execute(f"ALTER TABLE {table} RENAME TO {table}_old")  # fixed identifiers
+            for (index,) in c.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = ? "
+                "AND sql IS NOT NULL",
+                (f"{table}_old",),
+            ).fetchall():
+                c.execute(f"DROP INDEX {index}")  # recreated with the new table
+
+
 def init_db() -> None:
     with tx() as c:
         c.execute("PRAGMA journal_mode = WAL")  # persistent: readers never block the writer
         _migrate(c)
+        _set_aside_narrow_checks(c)
         c.executescript(SCHEMA.read_text(encoding="utf-8"))
+        for table, _ in CHECK_WIDENED:  # also finishes a copy an earlier start left halfway
+            old = f"{table}_old"
+            if c.execute("SELECT 1 FROM sqlite_master WHERE name = ?", (old,)).fetchone():
+                c.execute(f"INSERT INTO {table} SELECT * FROM {old}")  # fixed identifiers
+                c.execute(f"DROP TABLE {old}")
 
 
 # --- students & profiles -------------------------------------------------------

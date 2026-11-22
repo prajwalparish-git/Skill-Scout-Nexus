@@ -310,6 +310,7 @@ def quiz_submit(body: QuizSubmission, request: Request) -> dict:
             "correct_index": q.correct_index,
             "is_correct": c == q.correct_index,
             "explanation": q.explanation,
+            "credit": question_bank.credit(question_bank.qid(q)),  # open-bank source, if any
         }
         for q, c in zip(result.quiz.questions, result.chosen, strict=True)
     ]
@@ -509,6 +510,7 @@ class InterviewTurnRequest(BaseModel):
     track: str | None = None  # to start a session
     company: str | None = Field(None, max_length=60)  # or company practice: its slug ...
     round: str | None = Field(None, max_length=30)  # ... and round (reported questions first)
+    open: bool = False  # ... or general practice from the open question bank (HR, technical)
     session: dict | None = None  # the state returned by the last turn, to continue it
     answer: str | None = None
     proctor_attempt_id: str | None = Field(None, max_length=64)
@@ -581,9 +583,8 @@ def interview_turn(body: InterviewTurnRequest, request: Request) -> StreamingRes
     def work(on_event: Callable[[str], None]) -> dict:
         if body.session is None:
             if body.company and body.round:  # company practice: reported questions first
-                s = experiences.interview_practice(
-                    body.candidate_id, body.company, body.round, on_event
-                )
+                start = experiences.open_interview if body.open else experiences.interview_practice
+                s = start(body.candidate_id, body.company, body.round, on_event)
                 return spoken(s, _session_payload(s), on_event)
             if not body.track:
                 raise ServiceError("Choose an interview track.")

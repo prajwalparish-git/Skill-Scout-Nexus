@@ -50,10 +50,44 @@ def credit(source: str, modified: bool) -> str:
     s = sources().get(source)
     if s is None or source == "own":
         return ""
-    parts = [s["name"], s["licence_id"]]
+    parts = [s.get("short", s["name"]), s["licence_id"]]
     if modified:
         parts.append("modified")
     return " · ".join(parts)
+
+
+def credits_page(bank_counts: dict[str, int]) -> dict:
+    """What the "Question sources & credits" page shows: each source with its licence,
+    attribution, pinned version, what we changed and how many of its questions are in use."""
+    reg = registry()
+    interview: dict[str, int] = {}
+    for q in interview_questions():
+        interview[q["source"]] = interview.get(q["source"], 0) + 1
+    out = []
+    for key, s in reg["sources"].items():
+        lic = reg["licences"].get(s["licence_id"], {})
+        out.append(
+            {
+                "key": key,
+                "name": s["name"],
+                "homepage": s.get("homepage", ""),
+                "commit": s.get("commit", ""),
+                "licence_id": s["licence_id"],
+                "licence_name": lic.get("name", "Our own questions"),
+                "licence_url": lic.get("url", ""),
+                "attribution": s["attribution"],
+                "modifications": s.get("modifications", []),
+                "multiple_choice": bank_counts.get(key, 0),
+                "interview": interview.get(key, 0),
+            }
+        )
+    return {
+        "sources": out,
+        "general_practice_note": (
+            "Open questions are general practice. None is presented as asked at any company."
+        ),
+        "licences_file": "data/questions/LICENSES.md",
+    }
 
 
 def forbidden_in(text: str) -> list[str]:

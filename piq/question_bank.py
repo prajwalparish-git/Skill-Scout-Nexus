@@ -130,6 +130,39 @@ def credit(question_id: str) -> str:
     return open_questions.credit(*found) if found else ""
 
 
+def is_open(question_id: str) -> bool:
+    """From the open question bank (openly licensed, not our own bank)."""
+    found = source(question_id)
+    return found is not None and found[0] != "own"
+
+
+def open_count(topic: str) -> int:
+    """Open-bank questions on a syllabus topic, all levels."""
+    return sum(
+        1 for (t, _), qs in _questions().items() if t == topic for q in qs if is_open(qid(q))
+    )
+
+
+def draw_open(
+    topic: str, level: str, k: int, avoid: Iterable[str], seed: str
+) -> list[tuple[str, Question]]:
+    """Up to `k` unseen open-bank (difficulty, question) pairs: the level first, then the
+    nearest levels (like draw_nearest, open questions only)."""
+    banned = {text_hash(t) for t in avoid}
+    out: list[tuple[str, Question]] = []
+    for d in nearest_levels(level):
+        pool = [
+            q
+            for q in _questions().get((topic, d), ())
+            if (h := text_hash(q.text)) not in banned and is_open(h)
+        ]
+        for q in random.Random(f"{seed}|{d}").sample(pool, min(k - len(out), len(pool))):
+            out.append((d, q))
+        if len(out) >= k:
+            break
+    return out
+
+
 def counts_by_source() -> dict[str, int]:
     out: dict[str, int] = {}
     for src, _ in _load()[2].values():

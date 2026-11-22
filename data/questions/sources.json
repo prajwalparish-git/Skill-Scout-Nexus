@@ -3,6 +3,7 @@
   "sources": {
     "own": {
       "name": "Skill Scout Nexus question bank",
+      "short": "Skill Scout Nexus",
       "homepage": "",
       "licence_id": "own",
       "attribution": "Written for this project (data/questions/mcq_bank.csv and our model answers).",
@@ -10,6 +11,7 @@
     },
     "aqua_rat": {
       "name": "AQuA-RAT",
+      "short": "AQuA-RAT",
       "homepage": "https://github.com/google-deepmind/AQuA",
       "commit": "26b64ed1f22208c6742f47df547dfd65088ec30d",
       "licence_id": "Apache-2.0",
@@ -73,6 +75,7 @@
     },
     "mmlu": {
       "name": "MMLU (Measuring Massive Multitask Language Understanding)",
+      "short": "MMLU",
       "homepage": "https://github.com/hendrycks/test",
       "commit": "4450500f923c49f1fb1dd3d99108a0bd9717b660",
       "licence_id": "MIT",
@@ -123,6 +126,7 @@
     },
     "tih": {
       "name": "Tech Interview Handbook",
+      "short": "Tech Interview Handbook",
       "homepage": "https://github.com/yangshun/tech-interview-handbook",
       "commit": "e1d28e8886c0b6ff3e50da991ce0e895134ddc59",
       "licence_id": "MIT",

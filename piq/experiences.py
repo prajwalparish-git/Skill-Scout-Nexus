@@ -7,10 +7,13 @@ are visible to every signed-in student under a label worked out when shown (neve
 name): "a <college> student, <year>" once at least LABEL_MIN_POSTERS of that batch have approved
 posts, otherwise "a student, <year>".
 
-Practice keeps reported and AI material apart: reported MCQs become a quiz and reported open
-questions a mock interview (asked word for word); "AI practice in the style of a company" is
-always marked source "ai" and never stored as reported. Company practice scores never touch the
-syllabus topics' quiz history, levels or weekly plan.
+Practice keeps reported, open and AI material apart: reported MCQs become a quiz and reported
+open questions a mock interview (asked word for word); "AI practice in the style of a company" is
+always marked source "ai" and never stored as reported. Until students report a company, every
+company page offers "Practice by round" from the open question bank (piq/open_questions.py),
+source "open", labelled "General practice (open question bank)" and never claimed as asked at
+that company. Company practice scores never touch the syllabus topics' quiz history, levels or
+weekly plan.
 """
 
 import json
@@ -21,7 +24,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
-from piq import agents, db, experience_checks, question_bank, services, syllabus
+from piq import agents, db, experience_checks, open_questions, question_bank, services, syllabus
 from piq.config import (
     EXPERIENCE_DAILY_MAX,
     EXPERIENCE_PENDING_MAX,
@@ -41,6 +44,10 @@ OPS = "ops"  # the operations view: moderates individual learners' posts (org_id
 QUIZ_ROUNDS = {"aptitude": "Aptitude", "coding": "DSA"}  # AI practice topic per quiz round
 INTERVIEW_ROUNDS = ("hr", "group_discussion", "technical")
 AI_LABEL = "AI practice, not reported by a student"
+OPEN_ROUNDS = {"aptitude": "Aptitude", "technical": "Technical", "hr": "HR"}  # practice by round
+APTITUDE_TOPICS = ("Aptitude", "Reasoning")
+DEFAULT_TECH_TOPICS = ("DSA", "OOP", "OS", "CN", "DBMS", "ML & Data Science")
+OPEN_SCRIPT = 4  # open questions asked word for word before the AI interviewer closes
 
 
 class ExperienceLimit(ServiceError):
@@ -290,8 +297,10 @@ def companies_overview() -> list[dict]:
     return sorted(out.values(), key=lambda c: (-c["posts"], c["name"].lower()))
 
 
-def company_detail(slug: str, round_: str | None = None) -> dict:
-    """A company's approved posts (newest interview first), labelled, never named."""
+def company_detail(slug: str, round_: str | None = None, student_id: str | None = None) -> dict:
+    """A company's approved posts (newest interview first), labelled, never named; the open
+    question bank's practice by round (counts for this student's topics); and the company's
+    test pattern only when taken from its official page (with that link)."""
     if round_ is not None and round_ not in EXPERIENCE_ROUNDS:
         raise ServiceError("Unknown round.")
     known = experience_checks.company(slug)
@@ -301,10 +310,13 @@ def company_detail(slug: str, round_: str | None = None) -> dict:
     overview = next((c for c in companies_overview() if c["slug"] == slug), None)
     qs = db.experience_questions([r["id"] for r in rows])
     sizes = db.approved_posters_by_batch()
+    name = known["name"] if known else (rows[0]["company_name"] if rows else slug)
     return {
         "slug": slug,
-        "name": known["name"] if known else (rows[0]["company_name"] if rows else slug),
+        "name": name,
         "careers_url": (known or {}).get("careers_url", ""),
+        "test_pattern": official_test_pattern(known),
+        "open_practice": open_practice(student_id, name),
         "rounds": (overview or {}).get("rounds", {}),
         "posts": [
             {
@@ -373,6 +385,124 @@ def _as_question(row: Mapping) -> Question:
     )
 
 
+# --- general practice from the open question bank ------------------------------------------------
+
+
+def official_test_pattern(known: Mapping | None) -> dict | None:
+    """A company's test pattern only when data/companies.json took it from the company's own
+    page: {sections, source_url, checked}. Nothing else about a company is stated."""
+    pattern = (known or {}).get("test_pattern")
+    if not pattern or not pattern.get("source_url") or not pattern.get("sections"):
+        return None
+    return {
+        "sections": list(pattern["sections"]),
+        "source_url": pattern["source_url"],
+        "checked": pattern.get("checked", ""),
+    }
+
+
+def open_topics(student_id: str | None, round_: str) -> list[str]:
+    """The syllabus topics a round's general practice draws on: aptitude and reasoning, or the
+    student's own focus topics for the technical round (common CS topics without a profile)."""
+    if round_ == "aptitude":
+        wanted: Sequence[str] = APTITUDE_TOPICS
+    else:
+        profile = services.current_profile(student_id) if student_id else None
+        focus = syllabus.focus_topics(profile.target_role) if profile else []
+        wanted = [t for t in focus if t not in APTITUDE_TOPICS] or DEFAULT_TECH_TOPICS
+    return [t for t in wanted if question_bank.open_count(t)]
+
+
+def open_practice(student_id: str | None, company: str) -> dict:
+    """What "Practice by round" offers: counts per round, the label and the note that these are
+    not that company's questions."""
+    rounds = {
+        "aptitude": sum(question_bank.open_count(t) for t in open_topics(student_id, "aptitude")),
+        "technical": sum(question_bank.open_count(t) for t in open_topics(student_id, "technical")),
+        "hr": len(open_questions.for_round("hr")),
+    }
+    return {
+        "label": open_questions.OPEN_LABEL,
+        "note": open_questions.NOT_ASKED.format(company=company),
+        "rounds": rounds,
+        "technical_interview": len(open_questions.for_round("technical")),
+        "hr_questions": [
+            {"text": q["text"], "model_answer": q["model_answer"], "credit": _open_credit(q)}
+            for q in open_questions.for_round("hr")
+        ],
+    }
+
+
+def _open_credit(q: Mapping) -> str:
+    return open_questions.credit(q["source"], False)
+
+
+def open_quiz(student_id: str, slug: str, round_: str, count: int = 10) -> PracticeQuiz:
+    """General practice for a company's aptitude or technical round from the open question bank,
+    at the student's level on each topic (nearest levels when one runs short). Never presented
+    as asked at that company."""
+    if round_ == "hr":
+        raise ServiceError("The HR round is practised as a mock interview.")
+    if round_ not in ("aptitude", "technical"):
+        raise ServiceError("General practice covers the aptitude, technical and HR rounds.")
+    name = _company_name(slug)
+    topics = open_topics(student_id, round_)
+    if not topics:
+        raise ServiceError("The open question bank has no questions for this round yet.")
+    seed = uuid.uuid4().hex
+    picked: list[tuple[str, Question]] = []
+    share, extra = divmod(count, len(topics))
+    for i, topic in enumerate(topics):
+        want = share + (i < extra)
+        level = services.topic_level(student_id, topic)
+        got = question_bank.draw_open(
+            topic, level, want, db.asked_questions(student_id, topic), f"{seed}|{topic}"
+        )
+        picked += [(question_bank.qid(q), q) for _, q in got]
+    if len(picked) < count:  # a thin topic: top up from the others
+        have = {i for i, _ in picked}
+        for topic in topics:
+            for _, q in question_bank.draw_open(topic, "medium", count, [], f"{seed}|more|{topic}"):
+                if len(picked) < count and question_bank.qid(q) not in have:
+                    picked.append((question_bank.qid(q), q))
+                    have.add(question_bank.qid(q))
+    random.Random(seed).shuffle(picked)
+    return PracticeQuiz(
+        name,
+        round_,
+        "open",
+        picked,
+        open_questions.OPEN_LABEL,
+        [open_questions.NOT_ASKED.format(company=name), f"Topics: {', '.join(topics)}."],
+    )
+
+
+def open_interview(
+    student_id: str, slug: str, round_: str, on_event: OnEvent | None = None
+) -> services.InterviewSession:
+    """A general-practice mock interview for a company's HR or technical round: open questions
+    (with our model answers), asked word for word, then the AI interviewer closes. The type and
+    focus say plainly that these are not that company's questions."""
+    if round_ not in ("hr", "technical"):
+        raise ServiceError("General practice interviews cover the HR and technical rounds.")
+    name = _company_name(slug)
+    pool = [q["text"] for q in open_questions.for_round(round_)]
+    if not pool:
+        raise ServiceError("The open question bank has no interview questions for this round.")
+    script = random.Random(uuid.uuid4().hex).sample(pool, min(OPEN_SCRIPT, len(pool)))
+    label = OPEN_ROUNDS[round_]
+    return services.start_interview(
+        student_id,
+        f"General practice - {label} (open question bank)",
+        on_event,
+        script=script,
+        focus=(
+            f"a general fresher {label} interview round; these are general practice questions, "
+            f"not questions {name} is known to ask: never claim a question is one {name} asks"
+        ),
+    )
+
+
 def ai_topic(student_id: str, round_: str) -> str:
     if round_ in QUIZ_ROUNDS:
         return QUIZ_ROUNDS[round_]
@@ -425,7 +555,7 @@ def grade_practice(
 ) -> dict:
     """Grade a company practice quiz. Recorded in company_practice only: no syllabus topic's
     quiz history, level, weakness or plan changes."""
-    if source not in ("reported", "ai"):
+    if source not in ("reported", "ai", "open"):
         raise ServiceError("Unknown practice source.")
     if not answers or len(answers) > 30:
         raise ServiceError("Send between 1 and 30 answers.")
@@ -444,6 +574,11 @@ def grade_practice(
             if row is None:
                 raise ServiceError("An answer does not match a question of this practice.")
             right, explanation = row["correct_index"], row["explanation"]
+        elif source == "open":
+            found = question_bank.get(qid)
+            if found is None or not question_bank.is_open(qid):
+                raise ServiceError("An answer does not match a question of this practice.")
+            right, explanation = found[2].correct_index, found[2].explanation
         else:
             found = db.generated(qid)
             if found is None or found[0] != _ai_key(slug, round_):
@@ -457,6 +592,7 @@ def grade_practice(
                 "correct_index": right,
                 "is_correct": chosen == right,
                 "explanation": explanation or REPORTED_NOTE,
+                "credit": question_bank.credit(qid) if source == "open" else "",
             }
         )
     db.save_company_practice(student_id, slug, round_, source, correct, len(answers))

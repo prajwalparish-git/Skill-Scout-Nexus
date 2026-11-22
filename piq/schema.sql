@@ -434,7 +434,7 @@ CREATE TABLE IF NOT EXISTS company_practice (
     student_id   TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
     company_slug TEXT NOT NULL,
     round        TEXT NOT NULL,
-    source       TEXT NOT NULL CHECK (source IN ('reported', 'ai')),
+    source       TEXT NOT NULL CHECK (source IN ('reported', 'ai', 'open')),
     correct      INTEGER NOT NULL,
     total        INTEGER NOT NULL,
     at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP
