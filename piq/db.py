@@ -1456,17 +1456,6 @@ def generated(qid: str) -> tuple[str, str, Question] | None:
     return row["topic"], row["difficulty"], Question.model_validate_json(row["question_json"])
 
 
-def reusable_generated(topic: str, difficulty: str, limit: int = 200) -> list[Question]:
-    """Critic-approved AI questions on the topic at the level (never MOCK_MODE samples)."""
-    with tx() as c:
-        rows = c.execute(
-            """SELECT question_json FROM generated_questions
-               WHERE topic = ? AND difficulty = ? AND source = 'ai' ORDER BY created_at LIMIT ?""",
-            (topic, difficulty, limit),
-        ).fetchall()
-    return [Question.model_validate_json(r["question_json"]) for r in rows]
-
-
 def due_reviews(student_id: str, topic: str, k: int) -> list[sqlite3.Row]:
     """Up to `k` missed questions on the topic still to bring back, oldest miss first."""
     if k <= 0:

@@ -313,8 +313,9 @@ CREATE TABLE IF NOT EXISTS topic_levels (
 );
 
 -- Questions the AI wrote when the bank ran out at a level, kept whole so a quiz served over
--- the API can be graded and a missed one asked again. source 'ai' passed the critic and may be
--- reused for anyone; 'mock' (MOCK_MODE samples) is only ever graded, never reused.
+-- the API can be graded and a missed one asked again. They are never served to another
+-- student (an offline answer may pad with generic practice questions). source: 'ai' (through
+-- the critic) or 'mock' (MOCK_MODE samples).
 CREATE TABLE IF NOT EXISTS generated_questions (
     qid           TEXT PRIMARY KEY,
     topic         TEXT NOT NULL,
