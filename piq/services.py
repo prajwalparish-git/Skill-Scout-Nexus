@@ -1708,6 +1708,7 @@ class Tailoring:
     resume: dict  # the resume with the tailored summary and bullets (accept = use this)
     summary: str
     bullets: dict[str, list[str]]  # "experience:0" / "projects:0" -> bullets in the new order
+    original: dict[str, list[str]]  # the same entries' bullets as they were
     changes: list[str]  # what moved or was reworded, in words
     matched_keywords: list[str]  # the job's terms the resume already shows
     missing_keywords: list[str]  # the job's terms it does not: never added for the student
@@ -1783,11 +1784,13 @@ def tailor_resume(
     tailored["summary"] = summary
     tailored.setdefault("form", {})["summary"] = summary
     bullets: dict[str, list[str]] = {}
+    original: dict[str, list[str]] = {}
     for e in out.entries:
         kind, i = where[e.id].split(":")
         new = [" ".join(b.text.split()) for b in e.bullets]
         old = entries[e.id]
         bullets[where[e.id]] = new
+        original[where[e.id]] = old
         tailored[kind][int(i)]["bullets"] = new
         moved = [b.n for b in e.bullets] != list(range(1, len(old) + 1))
         reworded = sum(b.text.strip() != old[b.n - 1].strip() for b in e.bullets)
@@ -1798,7 +1801,7 @@ def tailor_resume(
             ]
             changes.append(f"{titles[e.id]}: {', '.join(what)}.")
     matched, missing = job_keywords(inp["role"], jd, tailored)
-    return Tailoring(tailored, summary, bullets, changes, matched, missing)
+    return Tailoring(tailored, summary, bullets, original, changes, matched, missing)
 
 
 def check_resume_dates(resume: Mapping) -> None:

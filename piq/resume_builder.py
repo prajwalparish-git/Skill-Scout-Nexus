@@ -450,6 +450,27 @@ def merge_certifications(typed: Sequence[str], uploaded: Sequence[Mapping[str, s
     return list(dict.fromkeys([*(u["line"] for u in uploaded), *rest]))
 
 
+def apply_tailoring(
+    res: Mapping[str, Any],
+    summary: str,
+    bullets: Mapping[str, Sequence[str]],
+    original: Mapping[str, Sequence[str]],
+) -> dict[str, Any] | None:
+    """The resume with an accepted tailoring (summary, and "experience:0"-style entries'
+    bullets), or None when an entry's bullets are no longer the ones it was made from (the
+    student edited them since: the tailoring no longer fits)."""
+    out = copy.deepcopy(dict(res))
+    for where, new in bullets.items():
+        kind, i = where.split(":")
+        items = out.get(kind) or []
+        if int(i) >= len(items) or sorted(items[int(i)]["bullets"]) != sorted(original[where]):
+            return None
+        items[int(i)]["bullets"] = list(new)
+    out["summary"] = summary
+    out.setdefault("form", {})["summary"] = summary
+    return out
+
+
 def without_private(res: Mapping[str, Any]) -> dict[str, Any]:
     """A copy of the resume without date of birth or address anywhere: what may be saved."""
     out = copy.deepcopy(dict(res))
