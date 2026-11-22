@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useId, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
-import { Download, LayoutTemplate, Loader2, Lock, Plus, Sparkles, Trash2, Undo2, Wand2 } from "lucide-react";
+import { CloudUpload, Download, LayoutTemplate, Loader2, Lock, Plus, Sparkles, Trash2, Undo2, Wand2 } from "lucide-react";
 import {
   API,
   failure,
@@ -19,6 +19,7 @@ import {
   type Tailoring,
 } from "@/lib/api";
 import { useCandidate } from "@/lib/candidate";
+import { useDrive } from "@/lib/drive";
 import { useCatalog } from "@/lib/catalog";
 import { Badge, ErrorNote, PageHeader, Ring } from "@/components/ui";
 import { ResumePreview } from "@/components/resume/Preview";
@@ -192,6 +193,9 @@ function Builder() {
 
   // A signed-in student's uploaded certificates, all ticked to start with.
   const candidateId = candidate?.id;
+  const [drive] = useDrive(candidateId);
+  const [driveBusy, setDriveBusy] = useState(false);
+  const [driveLink, setDriveLink] = useState<string | null>(null);
   useEffect(() => {
     setUploaded([]);
     setChosenCerts([]);
@@ -300,6 +304,20 @@ function Builder() {
       setError(e instanceof TypeError ? "Cannot reach the server. Is the API running?" : (e as Error).message);
     } finally {
       setPdfBusy(false);
+    }
+  }
+
+  async function saveToDrive() {
+    setDriveBusy(true);
+    setDriveLink(null);
+    setError(null);
+    try {
+      const saved = await post<{ id: string; link: string }>("/api/drive/resume", body);
+      setDriveLink(saved.link || "https://drive.google.com/");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setDriveBusy(false);
     }
   }
 
@@ -800,13 +818,27 @@ function Builder() {
               {pdfBusy ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <Download size={16} aria-hidden />}
               Download PDF{current ? ` (${current.name})` : ""}
             </button>
+            {drive.connected && (
+              <button type="button" className="btn-ghost mt-2 w-full" disabled={driveBusy || !contact.full_name} onClick={saveToDrive}>
+                {driveBusy ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <CloudUpload size={16} aria-hidden />}
+                Save to Drive
+              </button>
+            )}
+            {driveLink && (
+              <p className="mt-2 text-xs text-muted">
+                Saved to your Drive.{" "}
+                <a href={driveLink} target="_blank" rel="noopener noreferrer" className="underline">
+                  Open it
+                </a>
+              </p>
+            )}
             {!contact.full_name && (
               <p id="pdf-hint" className="mt-2 text-xs text-muted">
                 Add your name to download.
               </p>
             )}
             <p role="status" aria-live="polite" className="sr-only">
-              {pdfBusy ? "Building your PDF." : pdfDone ? "Your resume PDF was downloaded." : ""}
+              {pdfBusy ? "Building your PDF." : pdfDone ? "Your resume PDF was downloaded." : driveBusy ? "Saving to your Drive." : driveLink ? "Saved to your Drive." : ""}
             </p>
           </section>
           <ErrorNote message={error} />

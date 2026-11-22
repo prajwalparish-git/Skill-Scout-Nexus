@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Cpu, KeyRound, Laptop, Loader2, LogOut, MonitorSmartphone, PlugZap, Smartphone, SlidersHorizontal } from "lucide-react";
+import { Cpu, ExternalLink, HardDrive, KeyRound, Laptop, Loader2, LogOut, MonitorSmartphone, PlugZap, Smartphone, SlidersHorizontal } from "lucide-react";
 import {
   get,
   post,
   type DeviceSession,
+  type DriveStatus,
   type LocalAIPayload,
   type LocalAIProvider,
   type Prefs,
@@ -13,6 +14,7 @@ import {
   type Student,
 } from "@/lib/api";
 import { useCandidate } from "@/lib/candidate";
+import { useDrive } from "@/lib/drive";
 import { ErrorNote, Loading, NeedsCandidate, PageHeader } from "@/components/ui";
 
 const when = (raw: string | number | null) => {
@@ -107,6 +109,86 @@ function Preferences() {
           </>
         )}
       </div>
+      <ErrorNote message={error} />
+    </section>
+  );
+}
+
+/** Google Drive: copies of certificates and resumes in the student's own Drive (only the files
+ * this app puts there). Shown only when the server has the Google keys. Google sends the student
+ * back to /settings?drive=connected (or drive=error&reason=...), read once and then cleared. */
+function GoogleDrive({ studentId }: { studentId: string }) {
+  const [status, setStatus] = useDrive(studentId);
+  const [busy, setBusy] = useState<"connect" | "backup" | "disconnect" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const back = q.get("drive");
+    if (!back) return;
+    if (back === "connected") setNote("Google Drive connected. New certificates are copied there.");
+    else setError(q.get("reason") || "Google Drive was not connected.");
+    window.history.replaceState(null, "", window.location.pathname);
+  }, []);
+
+  const act = async (kind: "connect" | "backup" | "disconnect") => {
+    setBusy(kind);
+    setError(null);
+    setNote(null);
+    try {
+      if (kind === "connect") {
+        const { url } = await post<{ url: string }>("/api/drive/connect", {});
+        window.location.assign(url); // Google's consent page; it sends the student back here
+        return;
+      }
+      if (kind === "backup") {
+        const { copied } = await post<{ copied: number }>("/api/drive/backup-certificates", {});
+        setNote(copied ? `${copied} certificate${copied === 1 ? "" : "s"} copied to Drive.` : "Every certificate is already in Drive.");
+      } else {
+        setStatus(await post<DriveStatus>("/api/drive/disconnect", {}));
+        setNote("Disconnected. Files already in your Drive stay there.");
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    }
+    setBusy(null);
+  };
+
+  if (!status.enabled) return null;
+  const spin = (k: typeof busy) => (busy === k ? <Loader2 size={14} className="animate-spin" aria-hidden /> : null);
+  return (
+    <section className="card" aria-labelledby="drive-title">
+      <h2 id="drive-title" className="flex items-center gap-2 font-semibold">
+        <HardDrive size={16} aria-hidden /> Google Drive
+      </h2>
+      <p className="mt-1 text-xs text-muted">
+        Keep copies of your certificates and resumes in your own Google Drive. The app sees only the files it puts there, nothing else in your Drive.
+      </p>
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        {status.connected ? (
+          <>
+            <a href={status.folder_link} target="_blank" rel="noopener noreferrer" className="btn-ghost">
+              <ExternalLink size={14} aria-hidden /> Open the folder
+            </a>
+            <button type="button" className="btn-ghost" disabled={busy !== null} onClick={() => act("backup")}>
+              {spin("backup")} Back up certificates
+            </button>
+            <button type="button" className="btn-ghost text-bad" disabled={busy !== null} onClick={() => act("disconnect")}>
+              {spin("disconnect")} Disconnect
+            </button>
+          </>
+        ) : (
+          <button type="button" className="btn-ink" disabled={busy !== null} onClick={() => act("connect")}>
+            {spin("connect")} Connect Google Drive
+          </button>
+        )}
+      </div>
+      {note && (
+        <p role="status" className="mt-3 text-sm text-ok">
+          {note}
+        </p>
+      )}
       <ErrorNote message={error} />
     </section>
   );
@@ -412,6 +494,7 @@ export default function SettingsPage() {
           </section>
           <Preferences />
           <LocalModel />
+          <GoogleDrive studentId={candidate.id} />
           <Devices />
           <Password />
         </div>

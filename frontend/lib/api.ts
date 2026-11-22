@@ -326,7 +326,11 @@ export type Certificate = {
   filename: string;
   size_bytes: number;
   uploaded_at: string;
+  /** A copy is in the student's Google Drive. */
+  in_drive: boolean;
 };
+/** GET /api/drive: whether the server offers Google Drive and whether this student connected it. */
+export type DriveStatus = { enabled: boolean; connected: boolean; folder_link: string };
 export type Track = { name: string; focus: string; group: string };
 export type Evaluation = {
   relevance: number;
