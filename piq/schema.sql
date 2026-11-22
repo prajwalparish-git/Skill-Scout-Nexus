@@ -290,3 +290,14 @@ CREATE TABLE IF NOT EXISTS certificates (
 );
 
 CREATE INDEX IF NOT EXISTS idx_certificates_student ON certificates (student_id, id);
+
+-- A student's own AI model on this computer (core/local_ai.py): Ollama or LM Studio. Used only
+-- while the server allows it (LOCAL_AI) and only at a localhost / 127.0.0.1 / ::1 address.
+CREATE TABLE IF NOT EXISTS student_local_ai (
+    student_id TEXT PRIMARY KEY REFERENCES students(id) ON DELETE CASCADE,
+    provider   TEXT NOT NULL CHECK (provider IN ('ollama', 'lmstudio')),
+    base_url   TEXT NOT NULL,
+    model      TEXT NOT NULL,
+    preferred  INTEGER NOT NULL DEFAULT 0,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

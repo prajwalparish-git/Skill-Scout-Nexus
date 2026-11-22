@@ -1364,3 +1364,47 @@ def delete_certificate(student_id: str, cert_id: int) -> sqlite3.Row | None:
         if row is not None:
             c.execute("DELETE FROM certificates WHERE id = ?", (cert_id,))
         return row
+
+
+# --- a student's own local model --------------------------------------------------
+
+
+def local_ai(student_id: str) -> sqlite3.Row | None:
+    with tx() as c:
+        return c.execute(
+            "SELECT provider, base_url, model, preferred FROM student_local_ai "
+            "WHERE student_id = ?",
+            (student_id,),
+        ).fetchone()
+
+
+def save_local_ai(
+    student_id: str, provider: str, base_url: str, model: str, preferred: bool
+) -> None:
+    """Set the student's local model (the caller has validated it)."""
+    with tx() as c:
+        c.execute(
+            """INSERT INTO student_local_ai (student_id, provider, base_url, model, preferred)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT (student_id) DO UPDATE SET provider = excluded.provider,
+                 base_url = excluded.base_url, model = excluded.model,
+                 preferred = excluded.preferred, updated_at = CURRENT_TIMESTAMP""",
+            (student_id, provider, base_url, model, int(preferred)),
+        )
+
+
+def delete_local_ai(student_id: str) -> None:
+    with tx() as c:
+        c.execute("DELETE FROM student_local_ai WHERE student_id = ?", (student_id,))
+
+
+def last_model_used(student_id: str) -> str | None:
+    """agent_logs.model_used of the student's latest AI call that produced an answer."""
+    with tx() as c:
+        row = c.execute(
+            """SELECT model_used FROM agent_logs
+               WHERE student_id = ? AND (reject_reason IS NULL OR reject_reason NOT LIKE ?)
+               ORDER BY id DESC LIMIT 1""",
+            (student_id, f"{FAILED}%"),
+        ).fetchone()
+        return row["model_used"] if row else None

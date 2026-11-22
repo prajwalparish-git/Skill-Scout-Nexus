@@ -101,6 +101,14 @@ OLLAMA_KEEP_ALIVE = -1  # keep the model loaded in RAM/VRAM between requests
 OLLAMA_TEMPERATURE = 0.2  # small local models keep to valid JSON far better when cool
 OLLAMA_NUM_CTX = 2048  # defaults; OLLAMA_NUM_CTX / OLLAMA_NUM_PREDICT in .env override
 OLLAMA_NUM_PREDICT = 512
+# A student's own local model (core/local_ai.py): Ollama or LM Studio on the same computer.
+LOCAL_AI_PROVIDERS = {"ollama": "Ollama", "lmstudio": "LM Studio"}
+LOCAL_AI_DEFAULT_URLS = {"ollama": "http://127.0.0.1:11434", "lmstudio": "http://127.0.0.1:1234"}
+LOCAL_AI_HOSTS = ("localhost", "127.0.0.1", "::1")  # the only hosts a student's URL may name
+LOCAL_AI_CONNECT_TIMEOUT_S = 2.0  # a model that is not running fails fast: pages never hang
+LOCAL_AI_LIST_TIMEOUT_S = 3.0  # Test connection: the model list
+LOCAL_AI_MAX_LIST_BYTES = 512 * 1024
+LOCAL_AI_MODEL_MAX = 200  # characters in a model name
 # Prompt cache (core/ai_cache.py): only answers that should not vary for the same input.
 # Quizzes and interview questions are left out: a student regenerating one wants new ones.
 AI_CACHE_AGENTS = frozenset({"planner", "critic", "evaluator"})
@@ -336,6 +344,8 @@ class Settings:
     # One student, password only, no emails: a laptop with no SMTP and no cloud database
     # (LOCAL_MODE=auto), or forced with LOCAL_MODE=true / false.
     local_mode: bool = False
+    # A student may point the app at their own local model (core/local_ai.py): LOCAL_AI.
+    local_ai: bool = False
     # Signing in with this as the password (any username or email) opens the operations view.
     dev_secret: str = field(default="", repr=False)
     # app.py shows a friendly message for a crashed page; tests set PIQ_RAISE_ERRORS=1 so
@@ -356,6 +366,20 @@ def _local_mode() -> bool:
         os.getenv("DATABASE_URL", "").strip() or os.getenv("SUPABASE_DB_URL", "").strip()
     )
     return not has_mail and not has_cloud
+
+
+def _local_ai(local_mode: bool) -> bool:
+    """LOCAL_AI: auto (default) follows LOCAL_MODE; true / false force it. Never on Render,
+    whose RENDER variable marks a public server: there a student's URL would make the server
+    call its own localhost."""
+    if os.getenv("RENDER", "").strip():
+        return False
+    forced = os.getenv("LOCAL_AI", "auto").strip().lower()
+    if forced in {"1", "true", "yes"}:
+        return True
+    if forced in {"0", "false", "no"}:
+        return False
+    return local_mode
 
 
 def _flag(name: str, default: str) -> bool:
@@ -396,6 +420,7 @@ def settings() -> Settings:
     load_dotenv(os.getenv("PIQ_DOTENV", ROOT / ".env"))
     # GROQ_API_KEY_1/_2 are the earlier two-key names; they still join the pool.
     pool = key_pool("GROQ_API_KEYS", "GROQ_API_KEY_1", "GROQ_API_KEY_2", "GROQ_API_KEY")
+    local_mode = _local_mode()
     gemini = key_pool("GEMINI_API_KEYS", "GEMINI_API_KEY")
     s = Settings(
         groq_api_key=pool[0] if pool else "",
@@ -444,7 +469,8 @@ def settings() -> Settings:
         app_url=(os.getenv("APP_URL", "").strip() or "http://localhost:3000").rstrip("/"),
         support_email=os.getenv("SUPPORT_EMAIL", "").strip(),
         auth_pepper=os.getenv("AUTH_PEPPER", ""),
-        local_mode=_local_mode(),
+        local_mode=local_mode,
+        local_ai=_local_ai(local_mode),
         dev_secret=os.getenv("DEV_SECRET", "").strip(),
         raise_page_errors=_flag("PIQ_RAISE_ERRORS", "false"),
     )
