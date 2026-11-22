@@ -17,7 +17,10 @@ repository proves the product itself works.
    nearest-level fallback, an explicit difficulty kept), resume templates (each a text-only
    one-column PDF in its own section order, Standard the original, one page where meant,
    uploaded certificates included, tailoring that invents no number, no date of birth or
-   address in a saved version), and the refusals (signed out, another student, the
+   address in a saved version), company interview experiences (personal data removed, abuse
+   refused, copied text flagged, pending until the right moderator approves, labelled never
+   named, the college only for batches of five, 429 past the daily limit, reports hide a post,
+   reported and AI practice kept apart), and the refusals (signed out, another student, the
    operations view, an invalid body).
 4. The app starts: every page renders headless (Streamlit AppTest) in mock mode, with no
    student and with the demo student, on throwaway databases. No network, no secrets.
@@ -63,7 +66,14 @@ def compile_all() -> None:
     print("Compile")
     for name in CODE:
         check(bool(compileall.compile_dir(ROOT / name, quiet=1)), f"{name}/ compiles")
-    for name in ("app.py", "server.py", "server_auth.py", "server_ops.py", "bootstrap.py"):
+    for name in (
+        "app.py",
+        "server.py",
+        "server_auth.py",
+        "server_ops.py",
+        "server_companies.py",
+        "bootstrap.py",
+    ):
         check(bool(compileall.compile_file(ROOT / name, quiet=1)), f"{name} compiles")
 
 
@@ -189,6 +199,7 @@ def api() -> None:
             local_model(c, sid)
             adaptive_quiz(c, sid)
             resume_templates(c, sid)
+            company_questions(c, sid)
             c.post("/api/auth/logout")
             tailor = c.post(
                 "/api/resume/tailor", json={**SAMPLE_RESUME, "job_description": "x" * 90}
@@ -645,6 +656,183 @@ def resume_templates(c: "TestClient", sid: str) -> None:
     )
 
 
+def company_questions(c: "TestClient", sid: str) -> None:
+    """Company interview experiences: cleaned, pending until approved by the right moderator,
+    labelled (never named, the college only for big enough batches), limited, reportable, and
+    practised with reported and AI material kept apart."""
+    import json as _json
+
+    from piq import db, experiences, services
+    from piq.db import ORG_FIELDS, tx
+
+    post = {
+        "company": "TCS",
+        "role": "Systems Engineer",
+        "round": "technical",
+        "interview_month": "2026-08",
+        "tip": "Mr. Rao liked clear answers; ring me on 9845012345 or mail me@example.com.",
+        "questions": [
+            {"kind": "open", "text": "Explain the difference between a process and a thread"},
+            {
+                "kind": "mcq",
+                "text": "Which SQL clause filters grouped rows?",
+                "options": ["WHERE", "HAVING", "ORDER BY", "LIMIT"],
+                "correct_index": 1,
+            },
+        ],
+    }
+    shared = c.post("/api/experiences", json=post)
+    exp_id = shared.json().get("id") if shared.status_code == 200 else None
+    check(exp_id is not None, f"POST /api/experiences: shared, pending{_why(shared)}")
+    if exp_id is None:
+        return
+    row = db.experience(exp_id)
+    check(
+        row["status"] == "pending" and row["company_slug"] == "tcs",
+        "a post waits for approval, its company normalised (TCS -> Tata Consultancy Services)",
+    )
+    tip = row["tip"]
+    check(
+        "9845012345" not in tip and "me@example.com" not in tip and "Rao" not in tip,
+        "phone numbers, emails and titled names are removed before anyone sees the post",
+    )
+    check(c.get("/api/companies/tcs").json()["posts"] == [], "a pending post is not visible")
+    abusive = {**post, "questions": [{"kind": "open", "text": "this fucking round was rubbish"}]}
+    bad = c.post("/api/experiences", json=abusive)
+    check(
+        bad.status_code == 400 and "abusive" in bad.json().get("detail", ""),
+        "abusive text is refused, with the reason",
+    )
+    copied = {
+        **post,
+        "questions": [
+            {
+                "kind": "open",
+                "text": "Two Sum. Example 1: Input: nums = [2,7], target 9. Constraints: n < 100",
+            }
+        ],
+    }
+    flagged = c.post("/api/experiences", json=copied).json().get("id")
+    flags = _json.loads(db.experience(flagged)["flags"]) if flagged else []
+    check(
+        any("problem-site" in f for f in flags) and db.experience(flagged)["status"] == "pending",
+        "text that looks copied from a problem site is flagged for the moderator, not published",
+    )
+    check(c.get("/api/ops/experiences").status_code == 401, "ops moderation needs the ops sign-in")
+    experiences.review(experiences.OPS, exp_id, True)  # an individual learner's post: ops
+    detail = c.get("/api/companies/tcs").json()
+    dumped = _json.dumps(detail).lower()
+    me = db.student(sid)
+    check(
+        [p["label"] for p in detail["posts"]] == ["a student, 2026"]
+        and me["username"] not in dumped
+        and me["name"].lower() not in dumped
+        and (me["email"] or "@@") not in dumped,
+        "approved: visible as 'a student, 2026', never with a name, username or email",
+    )
+
+    before = len(db.quiz_history(sid))
+    quiz = c.get("/api/companies/tcs/practice", params={"round": "technical"}).json()
+    graded = c.post(
+        "/api/companies/tcs/practice/submit",
+        json={
+            "round": "technical",
+            "source": "reported",
+            "answers": [{"id": q["id"], "choice": 1} for q in quiz.get("questions", [])],
+        },
+    ).json()
+    check(
+        quiz.get("source") == "reported"
+        and "correct_index" not in _json.dumps(quiz)
+        and graded.get("score_pct") == 100.0
+        and len(db.quiz_history(sid)) == before,
+        "a reported quiz: answers withheld, graded, and no syllabus quiz history touched",
+    )
+    ai = c.get("/api/companies/tcs/practice", params={"round": "technical", "source": "ai"})
+    ai_ids = {q["id"] for q in ai.json().get("questions", [])}
+    reported_ids = {q["id"] for q in quiz.get("questions", [])}
+    check(
+        ai.json().get("source") == "ai"
+        and "AI practice" in ai.json().get("label", "")
+        and not ai_ids & reported_ids,
+        "AI practice is labelled AI and never among the reported questions",
+    )
+    session = experiences.interview_practice(sid, "tcs", "technical")
+    check(
+        session.current.question == post["questions"][0]["text"]
+        and session.current.intent == services.REPORTED_INTENT,
+        "company interview practice asks the reported question first, word for word",
+    )
+
+    codes = [
+        c.post(
+            "/api/experiences",
+            json={
+                **post,
+                "questions": [{"kind": "open", "text": f"A distinct question {i} on joins"}],
+            },
+        ).status_code
+        for i in range(4)
+    ]
+    check(codes[-1] == 429 and 200 in codes, "more than five posts in a day is refused (429)")
+
+    def org(code: str, name: str) -> int:
+        fields = {k: "" for k in ORG_FIELDS} | {
+            "org_code": code,
+            "name": name,
+            "org_type": "University",
+            "admin_name": "Admin",
+            "admin_email": f"admin@{code.lower()}.example",
+            "quiz_cutoff_pct": 70,
+            "voice_cutoff_score": 10,
+        }
+        return db.create_organization(fields, "x", verified=True)
+
+    def member(username: str, org_id: int) -> str:
+        new = db.create_student(username, username, "Software Engineer")
+        services.benchmark_profile(new)
+        with tx() as conn:
+            conn.execute(
+                "UPDATE students SET org_id = ?, batch_year = '2026' WHERE id = ?", (org_id, new)
+            )
+        return new
+
+    ci_org, other_org = org("CIU-2026", "CIU - CI University"), org("OTH-2026", "Other College")
+    posters = [member(f"ciu{i}", ci_org) for i in range(5)]
+    ids = [
+        experiences.submit(
+            s, {**post, "questions": [{"kind": "open", "text": f"Walk me through project {i}"}]}
+        ).id
+        for i, s in enumerate(posters)
+    ]
+
+    def refused(moderator: int | str) -> bool:
+        try:
+            experiences.review(moderator, ids[0], True)
+        except services.ServiceError:
+            return True
+        return False
+
+    check(
+        refused(other_org) and refused(experiences.OPS),
+        "an organization moderates only its own students' posts (not ops, not others)",
+    )
+    for i in ids[:4]:
+        experiences.review(ci_org, i, True)
+    labels = {p["label"] for p in experiences.company_detail("tcs")["posts"]}
+    check(
+        "a student, 2026" in labels and not any("CIU" in lb for lb in labels),
+        "fewer than five approved posters of a batch: no college in the label",
+    )
+    experiences.review(ci_org, ids[4], True)
+    labels = {p["label"] for p in experiences.company_detail("tcs")["posts"]}
+    check("a CIU student, 2026" in labels, "from the fifth approved poster: the college is named")
+
+    c.post(f"/api/experiences/{ids[0]}/report")
+    experiences.report(posters[1], ids[0])
+    check(db.experience(ids[0])["status"] == "hidden", "two reports hide a post for review")
+
+
 def pages() -> None:
     print("Pages (headless, mock mode)")
     from streamlit.testing.v1 import AppTest
@@ -677,7 +865,9 @@ def pages() -> None:
         at.switch_page(path)
         at.run()
         errors = [str(e.value)[:200] for e in at.exception]
-        ok = not errors and any("Overview" in t.label for t in at.tabs)
+        labels = [t.label for t in at.tabs]
+        ok = not errors and any("Overview" in t for t in labels)
+        ok = ok and any("Interview posts" in t for t in labels)
         check(ok, f"{path} (demo organization admin)" + (f": {errors[0]}" if errors else ""))
 
 
