@@ -28,7 +28,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Upload
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from core import calendar_export
 from piq import (
@@ -38,6 +38,7 @@ from piq import (
     llm,
     question_bank,
     resume_builder,
+    resume_templates,
     services,
     study_library,
     syllabus,
@@ -551,6 +552,9 @@ def interview_turn(body: InterviewTurnRequest, request: Request) -> StreamingRes
 # --- resume: local ATS audit, PDF, one LLM endpoint ----------
 
 
+Line = Annotated[str, Field(max_length=300)]  # one resume line (an achievement, a score)
+
+
 class ResumeInput(BaseModel):
     """The resume form, as resume_builder.build_ats_resume_data takes it. The caps match the
     form's own and keep a visitor (these routes need no sign-in) from sending a huge PDF job."""
@@ -569,12 +573,49 @@ class ResumeInput(BaseModel):
     project_tech: str = Field("", max_length=300)
     project_desc: str = Field("", max_length=3000)
     certifications: list[str] = Field(default_factory=list, max_length=30)
+    # Templates (piq/resume_templates.py) and the fields only some of them show.
+    template: str = Field("standard", max_length=20)
+    leetcode_url: str = Field("", max_length=300)
+    codeforces_url: str = Field("", max_length=300)
+    portfolio_url: str = Field("", max_length=300)
+    achievements: list[Line] = Field(default_factory=list, max_length=20)
+    exam_scores: list[Line] = Field(default_factory=list, max_length=10)
+    # Date of birth and address go into this request's PDF only: never saved or logged.
+    date_of_birth: str = Field("", max_length=30)
+    nationality: str = Field("", max_length=60)
+    languages: str = Field("", max_length=200)
+    address: str = Field("", max_length=300)
+    declaration_place: str = Field("", max_length=80)
+    summary: str = Field("", max_length=800)  # a tailored summary the student accepted
+
+    @field_validator("template")
+    @classmethod
+    def _known_template(cls, v: str) -> str:
+        if v not in resume_templates.TEMPLATES:
+            raise ValueError(
+                f"unknown template; choose one of {', '.join(resume_templates.TEMPLATES)}"
+            )
+        return v
 
 
 def _build(body: ResumeInput) -> dict:
     if resume_builder.get_role_info(body.role_name) is None:
         raise ServiceError(f"Unknown role {body.role_name!r}.")
     return resume_builder.build_ats_resume_data(
+        template=body.template,
+        leetcode_url=body.leetcode_url,
+        codeforces_url=body.codeforces_url,
+        portfolio_url=body.portfolio_url,
+        achievements=body.achievements,
+        exam_scores=body.exam_scores,
+        personal={
+            "date_of_birth": body.date_of_birth,
+            "nationality": body.nationality,
+            "languages": body.languages,
+            "address": body.address,
+        },
+        declaration_place=body.declaration_place,
+        summary=body.summary,
         full_name=body.full_name,
         email=body.email,
         phone=body.phone,
@@ -593,12 +634,67 @@ def _build(body: ResumeInput) -> dict:
     )
 
 
+def _layout(res: dict) -> dict:
+    """The template's preview, its pages, and a note when a one-page layout runs over."""
+    _, pages = resume_templates.render_pdf(res)
+    t, _, sections = resume_templates.plan(res)
+    return {
+        **resume_templates.preview_sections(res),
+        "pages": pages,
+        "one_page": t.one_page,
+        "page_note": resume_templates.one_page_note(t.id, pages, sections),
+    }
+
+
 @app.post("/api/resume/ats")
 def resume_ats(body: ResumeInput) -> dict:
-    """The ATS audit for the live score card (no LLM): score, keywords, verbs, degree fit."""
+    """The ATS audit for the live score card (no LLM): score, keywords, verbs, degree fit,
+    and the chosen template's preview (`layout`)."""
     res = _build(body)
     ats = resume_builder.evaluate_ats_compatibility(res, body.role_name)
-    return {"ats": asdict(ats), "summary": res["summary"], "preview": res}
+    return {
+        "ats": asdict(ats),
+        "summary": res["summary"],
+        "preview": resume_builder.without_private(res),
+        "layout": _layout(res),
+    }
+
+
+@app.get("/api/resume/templates")
+def resume_templates_list(domain: str = "") -> dict:
+    """The layouts, and the one a domain's students start from."""
+    return {
+        "templates": resume_templates.catalog(),
+        "default": resume_templates.default_for(domain),
+    }
+
+
+@app.get("/api/resume/certificates")
+def resume_certificates(sid: str = Depends(require_student)) -> dict:
+    """The signed-in student's uploaded certificates as resume lines."""
+    return {"certificates": services.resume_certificates(sid)}
+
+
+class TailorRequest(ResumeInput):
+    job_description: str = Field(max_length=services.JD_MAX_CHARS)
+
+
+@app.post("/api/resume/tailor")
+def resume_tailor(body: TailorRequest, sid: str = Depends(require_student)) -> dict:
+    """Tailor the summary and the bullets to a job description, for the student to review
+    (nothing is saved). Every number stays the student's own (checks.check_tailoring)."""
+    res = _build(body)
+    t = services.tailor_resume(sid, res, body.job_description)
+    ats = resume_builder.evaluate_ats_compatibility(t.resume, body.role_name)
+    return {
+        "summary": t.summary,
+        "bullets": t.bullets,
+        "changes": t.changes,
+        "matched_keywords": t.matched_keywords,
+        "missing_keywords": t.missing_keywords,
+        "ats": asdict(ats),
+        "layout": _layout(t.resume),
+    }
 
 
 @app.post("/api/resume/build-pdf")
