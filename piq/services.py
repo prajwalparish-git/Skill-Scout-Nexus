@@ -20,10 +20,10 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal, Self
+from typing import Annotated, Literal, Self
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from piq import agents, checks, db, degrees, question_bank, resume_builder, scorecard, syllabus
 from piq.config import (
@@ -1091,8 +1091,10 @@ class InterviewSession(BaseModel):
     done: bool = False
     # Company practice (piq/experiences.py): questions students reported, asked first and word
     # for word, then the AI interviewer continues with this focus (None: the track's own).
-    script: list[str] = []
-    custom_focus: str | None = None
+    script: list[Annotated[str, Field(max_length=1000)]] = Field(
+        default_factory=list, max_length=INTERVIEW_MAX_TURNS
+    )
+    custom_focus: str | None = Field(None, max_length=400)
 
     @model_validator(mode="after")
     def _finished_has_no_open_question(self) -> Self:

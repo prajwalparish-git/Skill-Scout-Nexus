@@ -33,6 +33,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 from core import calendar_export
 from piq import (
     db,
+    experiences,
     formatter,
     graph,
     llm,
@@ -54,6 +55,8 @@ from piq.config import (
 from piq.services import InterviewSession, ServiceError
 from server_auth import authorize, owner, require_student
 from server_auth import router as auth_router
+from server_companies import ops_router as companies_ops_router
+from server_companies import router as companies_router
 from server_ops import router as ops_router
 
 log = logging.getLogger("server")
@@ -91,6 +94,8 @@ def cors_origins() -> list[str]:
 app = FastAPI(title="Skill Scout Nexus API", version="1.0", lifespan=_lifespan)
 app.include_router(auth_router)
 app.include_router(ops_router)
+app.include_router(companies_router)
+app.include_router(companies_ops_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins(),
@@ -477,6 +482,8 @@ def interview_tracks(candidate_id: str) -> list[dict]:
 class InterviewTurnRequest(BaseModel):
     candidate_id: str
     track: str | None = None  # to start a session
+    company: str | None = Field(None, max_length=60)  # or company practice: its slug ...
+    round: str | None = Field(None, max_length=30)  # ... and round (reported questions first)
     session: dict | None = None  # the state returned by the last turn, to continue it
     answer: str | None = None
 
@@ -530,6 +537,11 @@ def interview_turn(body: InterviewTurnRequest, request: Request) -> StreamingRes
 
     def work(on_event: Callable[[str], None]) -> dict:
         if body.session is None:
+            if body.company and body.round:  # company practice: reported questions first
+                s = experiences.interview_practice(
+                    body.candidate_id, body.company, body.round, on_event
+                )
+                return _session_payload(s)
             if not body.track:
                 raise ServiceError("Choose an interview track.")
             s = services.start_interview(body.candidate_id, body.track, on_event)
