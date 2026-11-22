@@ -2,9 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect } from "react";
 import { motion } from "motion/react";
 import {
   CalendarDays,
+  Cpu,
   FileText,
   Gauge,
   Home,
@@ -108,8 +110,13 @@ function ProfileCard() {
 
 /** Compact status bar: which tool, the candidate's track, and their readiness score. */
 function StatusBar({ path }: { path: string }) {
-  const { candidate, loading } = useCandidate();
+  const { candidate, loading, localModel, refreshLocalModel } = useCandidate();
   const page = NAV.find((n) => path.startsWith(n.href));
+  const signedIn = Boolean(candidate);
+  // Which AI answered last can change on any page: check again on each navigation.
+  useEffect(() => {
+    if (signedIn) refreshLocalModel();
+  }, [path, signedIn, refreshLocalModel]);
   if (loading || !candidate || !page) return null;
   return (
     <div className="mb-5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
@@ -126,6 +133,15 @@ function StatusBar({ path }: { path: string }) {
       <span className="font-mono tabular-nums">
         Readiness <span className="font-semibold text-ink">{candidate.readiness_score}</span>/100
       </span>
+      {localModel && (
+        <Link
+          href="/settings"
+          className="chip ml-auto border-ok/40 text-ok hover:border-ok"
+          title={`Your latest AI answer came from ${localModel} on this computer`}
+        >
+          <Cpu size={12} aria-hidden /> Using your local model
+        </Link>
+      )}
     </div>
   );
 }

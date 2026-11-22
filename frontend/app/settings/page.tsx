@@ -1,8 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { KeyRound, Laptop, Loader2, LogOut, MonitorSmartphone, Smartphone, SlidersHorizontal } from "lucide-react";
-import { get, post, type DeviceSession, type Prefs, type SettingsPayload, type Student } from "@/lib/api";
+import { Cpu, KeyRound, Laptop, Loader2, LogOut, MonitorSmartphone, PlugZap, Smartphone, SlidersHorizontal } from "lucide-react";
+import {
+  get,
+  post,
+  type DeviceSession,
+  type LocalAIPayload,
+  type LocalAIProvider,
+  type Prefs,
+  type SettingsPayload,
+  type Student,
+} from "@/lib/api";
 import { useCandidate } from "@/lib/candidate";
 import { ErrorNote, Loading, NeedsCandidate, PageHeader } from "@/components/ui";
 
@@ -99,6 +108,162 @@ function Preferences() {
         )}
       </div>
       <ErrorNote message={error} />
+    </section>
+  );
+}
+
+/** My local model: Ollama or LM Studio on this computer, used when the cloud AI fails (or
+ * first, when preferred). The server decides whether it is allowed; where it is not (the
+ * deployed site), the card only explains why. */
+function LocalModel() {
+  const { refreshLocalModel } = useCandidate();
+  const [data, setData] = useState<LocalAIPayload | null>(null);
+  const [provider, setProvider] = useState<LocalAIProvider>("ollama");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [model, setModel] = useState("");
+  const [preferred, setPreferred] = useState(false);
+  const [models, setModels] = useState<string[] | null>(null);
+  const [busy, setBusy] = useState<"test" | "save" | "remove" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  const show = useCallback((p: LocalAIPayload) => {
+    setData(p);
+    const c = p.config;
+    setProvider(c?.provider ?? "ollama");
+    setBaseUrl(c?.base_url ?? p.defaults.ollama);
+    setModel(c?.model ?? "");
+    setPreferred(c?.preferred ?? false);
+  }, []);
+
+  useEffect(() => {
+    get<LocalAIPayload>("/api/auth/local-ai").then(show, (e: Error) => setError(e.message));
+  }, [show]);
+
+  const act = async (kind: "test" | "save" | "remove") => {
+    setBusy(kind);
+    setError(null);
+    setNote(null);
+    try {
+      if (kind === "test") {
+        const r = await post<{ models: string[]; base_url: string }>("/api/auth/local-ai/test", { provider, base_url: baseUrl });
+        setModels(r.models);
+        setBaseUrl(r.base_url);
+        if (!model && r.models.length) setModel(r.models[0]);
+        setNote(r.models.length ? `Connected: ${r.models.length} model${r.models.length === 1 ? "" : "s"} found.` : "Connected, but no models are installed yet.");
+      } else if (kind === "save") {
+        show(await post<LocalAIPayload>("/api/auth/local-ai", { provider, base_url: baseUrl, model, preferred }));
+        setNote("Saved.");
+      } else {
+        show(await post<LocalAIPayload>("/api/auth/local-ai/delete", {}));
+        setModels(null);
+        setNote("Removed.");
+      }
+      refreshLocalModel();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const options = Array.from(new Set([...(models ?? []), ...(model ? [model] : [])])).sort();
+  const spin = (k: typeof busy) => (busy === k ? <Loader2 size={14} className="animate-spin" aria-hidden /> : null);
+
+  return (
+    <section className="card" aria-labelledby="local-ai-title">
+      <h2 id="local-ai-title" className="flex items-center gap-2 font-semibold">
+        <Cpu size={16} aria-hidden /> My local model
+      </h2>
+      <p className="mt-1 text-xs text-muted">
+        Use an AI model installed on this computer (Ollama, or LM Studio&apos;s server) when the cloud AI fails or there is no network.
+      </p>
+      {!data && !error && <p className="mt-4 text-sm text-muted">Loading…</p>}
+      {data && !data.allowed && <p className="mt-4 rounded-xl border border-dashed border-line px-4 py-3 text-sm text-muted">{data.explainer}</p>}
+      {data?.allowed && (
+        <div className="mt-4 grid gap-3">
+          <fieldset>
+            <legend className="label">Runs in</legend>
+            <div className="segmented">
+              {data.providers.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  className="segment"
+                  aria-pressed={provider === p.id}
+                  onClick={() => {
+                    setProvider(p.id);
+                    setBaseUrl(data.config?.provider === p.id ? data.config.base_url : data.defaults[p.id]);
+                    setModel(data.config?.provider === p.id ? data.config.model : "");
+                    setModels(null);
+                  }}
+                >
+                  {p.name}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+          <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+            <div>
+              <label className="label" htmlFor="local-ai-url">
+                Address
+              </label>
+              <input
+                id="local-ai-url"
+                className="input font-mono"
+                value={baseUrl}
+                maxLength={200}
+                onChange={(e) => setBaseUrl(e.target.value)}
+                aria-describedby="local-ai-url-hint"
+              />
+              <p id="local-ai-url-hint" className="mt-1 text-xs text-muted">
+                Only this computer: localhost, 127.0.0.1 or [::1].
+              </p>
+            </div>
+            <div className="sm:pt-[1.625rem]">
+              <button type="button" className="btn-ghost w-full" disabled={busy !== null} onClick={() => act("test")}>
+                {spin("test") ?? <PlugZap size={14} aria-hidden />} Test connection
+              </button>
+            </div>
+          </div>
+          <div>
+            <label className="label" htmlFor="local-ai-model">
+              Model
+            </label>
+            <select id="local-ai-model" className="input" value={model} disabled={!options.length} onChange={(e) => setModel(e.target.value)}>
+              {!options.length && <option value="">Test the connection to list your models</option>}
+              {options.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          </div>
+          <Switch
+            label="Use it first, before the cloud AI"
+            hint="Off: it is used only when the cloud AI fails or there is no network."
+            checked={preferred}
+            onChange={setPreferred}
+          />
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="btn-ink" disabled={busy !== null || !model} onClick={() => act("save")}>
+              {spin("save")} Save
+            </button>
+            {data.config && (
+              <button type="button" className="btn-ghost" disabled={busy !== null} onClick={() => act("remove")}>
+                {spin("remove")} Remove
+              </button>
+            )}
+          </div>
+          {data.using_local && <p className="text-xs text-ok">Your latest AI answer came from {data.using_local}.</p>}
+        </div>
+      )}
+      <ErrorNote message={error} />
+      {note && !error && (
+        <p role="status" className="mt-3 text-sm text-ok">
+          {note}
+        </p>
+      )}
     </section>
   );
 }
@@ -246,6 +411,7 @@ export default function SettingsPage() {
             </p>
           </section>
           <Preferences />
+          <LocalModel />
           <Devices />
           <Password />
         </div>

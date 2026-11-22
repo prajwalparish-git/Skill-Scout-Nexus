@@ -229,6 +229,19 @@ export type DeviceSession = {
   current: boolean;
 };
 export type Prefs = { preload: boolean; login_alerts: boolean };
+/** A student's own model on their laptop (Settings > My local model). */
+export type LocalAIProvider = "ollama" | "lmstudio";
+export type LocalAIConfig = { provider: LocalAIProvider; base_url: string; model: string; preferred: boolean };
+export type LocalAIPayload = {
+  /** false on a server that refuses local models (the deployed site): show `explainer` instead. */
+  allowed: boolean;
+  explainer: string;
+  config: LocalAIConfig | null;
+  /** The model name when the student's latest AI answer came from it. */
+  using_local: string | null;
+  providers: { id: LocalAIProvider; name: string }[];
+  defaults: Record<LocalAIProvider, string>;
+};
 export type SettingsPayload = { prefs: Prefs; preload_allowed: boolean };
 export type RoleFit = {
   role: string;
