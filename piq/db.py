@@ -1999,6 +1999,6 @@ def add_handsfree_answer(
 def handsfree_answers(run_id: str) -> list[sqlite3.Row]:
     with tx() as c:
         return c.execute(
-            "SELECT * FROM handsfree_answers WHERE run_id = ? ORDER BY question_index, attempt_no",
+            "SELECT * FROM handsfree_answers WHERE run_id = ? ORDER BY question_index, id",
             (run_id,),
         ).fetchall()
