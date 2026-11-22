@@ -71,3 +71,6 @@ desktop.ini
 
 # --- Personal to-do / scratch notes ----------------------------------------------------------------
 /test.html
+
+# MediaPipe for proctoring, fetched by frontend/scripts/fetch-mediapipe.mjs
+frontend/public/mediapipe/
