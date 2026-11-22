@@ -9,11 +9,11 @@ from functools import partial
 import streamlit as st
 
 from core import proctor_guard
-from database import crud
 from piq import charts, formatter, services
 from piq.config import DEFAULT_MIX, QUIZ_MAX_PER_TOPIC, QUIZ_MAX_TOTAL, QUIZ_SIZE, settings
 from piq.ui import Stat, page_header, require_profile, run_agent, show_last_run, stat_row
 
+PROCTOR_FLAGS = "quiz_proctor_flags"  # what proctoring recorded for the last result
 BLANKS = "quiz_blanks"  # question numbers left blank at the last submit
 RUN, RESULT = "quiz_run", "quiz_run_result"
 NEXT = (
@@ -146,40 +146,17 @@ def _setup(sid: str, profile: services.StudentProfile) -> None:
 
 
 def _take(sid: str, run: services.QuizRun) -> None:
-    proctor_guard.render_proctor_guard(page_type="quiz")
-    proctor_guard.render_warning_banner()
-
-    if proctor_guard.is_breached():
+    topics = list(dict.fromkeys(p.topic for p in run.parts))
+    proctor_key = f"quiz-{run.key}"
+    guard = proctor_guard.guard(sid, "quiz", formatter.run_title(topics), key=proctor_key)
+    if guard.breached:  # the third strike: submit what the form has (unsent answers are blank)
         chosen = [st.session_state.get(f"{run.key}-{i}") for i in range(1, run.total + 1)]
         st.session_state.pop(BLANKS, None)
         st.session_state[RESULT] = services.submit_quiz_run(sid, run, chosen)
-        try:
-            profile = services.current_profile(sid)
-            syl = services.student_syllabus(sid, profile)
-            t = crud.get_student(profile.username) if profile else None
-            if t:
-                score = sum(
-                    a == q.correct_index
-                    for (*_, q), a in zip(run.questions, chosen, strict=False)
-                    if a is not None
-                )
-                crud.save_quiz_attempt(
-                    student_id=t.id,
-                    stream=getattr(syl.domain, "stream", "Engineering"),
-                    domain=syl.domain.name,
-                    score=score,
-                    total_questions=run.total,
-                    critique_notes=(
-                        "[TEST TERMINATED: Force-submitted due to 3 strikes / PROCTOR_BREACH]"
-                    ),
-                    proctor_flags=[proctor_guard.FLAG_PROCTOR_BREACH],
-                )
-        except Exception:
-            pass
+        st.session_state[PROCTOR_FLAGS] = proctor_guard.finish(sid, proctor_key)
         st.session_state.pop(RUN, None)
         st.rerun()
 
-    topics = list(dict.fromkeys(p.topic for p in run.parts))
     st.subheader(f"{formatter.run_title(topics)} · {run.total} questions", anchor=False)
     show_last_run("Quiz agent")
     st.caption("Pick one answer for each question, then submit; nothing is marked until you do.")
@@ -220,6 +197,7 @@ def _take(sid: str, run: services.QuizRun) -> None:
             st.rerun()
         st.session_state.pop(BLANKS, None)
         st.session_state[RESULT] = services.submit_quiz_run(sid, run, chosen)
+        st.session_state[PROCTOR_FLAGS] = proctor_guard.finish(sid, f"quiz-{run.key}")
         st.session_state.pop(RUN)
         st.rerun()
 
@@ -237,12 +215,7 @@ BREAKDOWNS = (
 
 
 def _review(result: services.QuizRunResult) -> None:
-    if proctor_guard.is_breached():
-        st.error(
-            "🚨 **PROCTOR BREACH:** This quiz was force-submitted due to 3 proctoring violations "
-            "(tab switching, window blur, or camera absence).",
-            icon=":material/gavel:",
-        )
+    proctor_guard.outcome_banner(st.session_state.get(PROCTOR_FLAGS) or [])
     topics = list(dict.fromkeys(p.topic for p in result.run.parts))
     with st.container(border=True):
         st.subheader(f"{formatter.run_title(topics)}: your result", anchor=False)
@@ -268,7 +241,7 @@ def _review(result: services.QuizRunResult) -> None:
             )
         with st.container(horizontal=True, vertical_alignment="center"):
             if st.button("New quiz", type="primary", icon=":material/restart_alt:"):
-                proctor_guard.reset_proctor_state()
+                st.session_state.pop(PROCTOR_FLAGS, None)
                 st.session_state.pop(RESULT)
                 st.rerun()
             st.page_link(

@@ -51,7 +51,10 @@ PER_STUDENT_KEYS = (
     "voice_result",
     "voice_text",
     "voice_audio",  # the recorded answer (st.audio_input)
-    "proctor_state",  # core.proctor_guard.STATE_KEY: the open assessment's strikes
+    "proctor_state",  # core.proctor_guard.STATE_KEY: the open tests' proctored attempts
+    "quiz_proctor_flags",
+    "cq_proctor_flags",
+    "voice_proctor_flags",
 )
 # Kept for the same student after a re-profile (a new resume does not change their GitHub
 # analysis or resume-builder picks), but never carried over to another account.

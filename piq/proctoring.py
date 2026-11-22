@@ -158,9 +158,12 @@ def record(
     events: Iterable[tuple[str, float, float | None]],
     *,
     seb: SebProof | None = None,
+    check_gap: bool = True,
 ) -> Progress:
     """Store a batch of the page's events (an empty batch is a heartbeat) and return the
-    strikes so far. The server decides severity and strikes; review events never strike."""
+    strikes so far. The server decides severity and strikes; review events never strike.
+    `check_gap=False` for the Streamlit app, whose live websocket already shows the page is
+    there (it sends no heartbeat, so a quiet stretch is not a reporting gap)."""
     row = _own(student_id, attempt_id)
     if row["mode"] == "seb":
         _check_seb(student_id, seb)
@@ -174,7 +177,7 @@ def record(
     if row["ended_at"] is not None:  # a late beacon after submit: kept out, never an error
         return Progress(row["strikes"], bool(row["breached"]), None)
     gap = now - row["last_seen"]
-    if gap > rules.HEARTBEAT_GAP_S:
+    if check_gap and gap > rules.HEARTBEAT_GAP_S:
         batch.append(("REPORTING_GAP", row["last_seen"] - row["started_at"], gap))
     if db.proctor_event_count(attempt_id) + len(batch) > rules.MAX_EVENTS:
         raise ServiceError("This attempt has recorded as many events as it can.")

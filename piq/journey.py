@@ -648,8 +648,9 @@ def assess_answer(
         [f"Tier: {result.performance_tier}."]
         + [f"Strength: {x}" for x in result.strengths]
         + [f"Improve: {x}" for x in result.areas_for_improvement]
+        + [f"Gap: {x}" for x in result.gap_flags.flag_details]  # the rubric's, not proctoring's
     )
-    all_flags = list(dict.fromkeys([*result.gap_flags.flag_details, *proctor_flags]))
+    all_flags = list(dict.fromkeys(proctor_flags))  # proctoring only: a rubric gap is no breach
     try:
         crud.save_voice_session(
             _telemetry_id(s),

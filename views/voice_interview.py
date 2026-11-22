@@ -2,6 +2,8 @@
 (core/speech_router.py: ElevenLabs, else the browser's voice), a spoken or typed answer, a 0-15
 rubric score with proctor flags (agents/rubric_evaluator_agent.py), recorded for the faculty."""
 
+import hashlib
+
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -12,6 +14,7 @@ from piq.services import ServiceError
 from piq.ui import Stat, page_header, require_profile, stat_row, status_badge
 
 QUESTION, RESULT, TEXT, AUDIO = "voice_q", "voice_result", "voice_text", "voice_audio"
+PROCTOR_FLAGS = "voice_proctor_flags"  # what proctoring recorded for the scored answer
 CATEGORY_LABELS = {
     "technical": "Technical",
     "situational": "Situational",
@@ -67,7 +70,7 @@ with setup, st.container(border=True):
         )
     if st.button("Generate question", type="primary", icon=":material/play_circle:"):
         try:
-            proctor_guard.reset_proctor_state()
+            st.session_state.pop(PROCTOR_FLAGS, None)
             picked_viva = None
             if use_viva and viva_list:
                 import random
@@ -91,17 +94,14 @@ if vq is None:
     st.stop()
 
 result: journey.VoiceResult | None = st.session_state.get(RESULT)
+proctor_key = "voice-" + hashlib.sha256(vq.question.question_text.encode()).hexdigest()[:16]
 if result is None:
-    proctor_guard.render_proctor_guard(page_type="voice_interview")
-    proctor_guard.render_warning_banner()
-    if proctor_guard.is_breached():
-        ans = (
-            st.session_state.get(TEXT, "").strip()
-            or "[Force-submitted due to 3 proctoring strikes / PROCTOR_BREACH]"
-        )
-        st.session_state[RESULT] = journey.assess_answer(
-            sid, vq.question, ans, proctor_flags=[proctor_guard.FLAG_PROCTOR_BREACH]
-        )
+    guard = proctor_guard.guard(sid, "interview", vq.question.question_text[:120], key=proctor_key)
+    if guard.breached:  # the third strike: score what was typed so far
+        ans = st.session_state.get(TEXT, "").strip() or "[Submitted after 3 proctoring strikes]"
+        flags = proctor_guard.finish(sid, proctor_key)
+        st.session_state[PROCTOR_FLAGS] = flags
+        st.session_state[RESULT] = journey.assess_answer(sid, vq.question, ans, proctor_flags=flags)
         st.rerun()
 
 q = vq.question
@@ -138,7 +138,9 @@ answer = st.text_area(
 if st.button("Score my answer", type="primary", icon=":material/grading:"):
     try:
         with st.spinner("The evaluator is scoring your answer"):
-            st.session_state[RESULT] = journey.assess_answer(sid, q, answer)
+            flags = proctor_guard.finish(sid, proctor_key)
+            st.session_state[PROCTOR_FLAGS] = flags
+            st.session_state[RESULT] = journey.assess_answer(sid, q, answer, proctor_flags=flags)
     except ServiceError as e:
         st.error(formatter.md_escape(str(e)), icon=":material/error:")
 
@@ -146,12 +148,7 @@ result: journey.VoiceResult | None = st.session_state.get(RESULT)
 if result is None:
     st.stop()
 
-if proctor_guard.is_breached():
-    st.error(
-        "🚨 **PROCTOR BREACH:** This interview was force-submitted due to 3 proctoring violations "
-        "(tab switching, window blur, or camera absence).",
-        icon=":material/gavel:",
-    )
+proctor_guard.outcome_banner(st.session_state.get(PROCTOR_FLAGS) or [])
 
 ev = result.evaluation
 r = ev.rubric
