@@ -39,7 +39,9 @@ me = journey.student(sid)
 def _transcribe() -> None:
     """Callback, so the transcript can fill the answer box before it is drawn."""
     audio = st.session_state.get(AUDIO)
-    text = journey.transcribe(audio.getvalue()) if audio else ""
+    if audio is None:  # the recording was cleared: nothing to transcribe
+        return
+    text = journey.transcribe(audio.getvalue())
     if text:
         st.session_state[TEXT] = text
     else:
@@ -113,16 +115,21 @@ with st.container(border=True):
     st.markdown(f"#### {formatter.md_escape(q.question_text)}")
     st.markdown(f":gray[What the interviewer looks for: {formatter.md_escape(q.intent)}]")
     if vq.speech.audio:
-        st.audio(vq.speech.audio, format=getattr(vq.speech, "mime_type", "audio/mpeg"))
+        st.audio(
+            vq.speech.audio,
+            format=getattr(vq.speech, "mime_type", "audio/mpeg"),
+            autoplay=True,  # the question is read out as it appears
+        )
     else:
         components.html(journey.browser_speech_html(vq.speech.text), height=48)
         st.caption("Spoken by your browser's own voice.")
 journey.preload_next_voice(sid, q.stream, q.category)  # the next type's audio, while they answer
 
 st.subheader("Your answer", anchor=False)
-st.audio_input("Record your answer", key=AUDIO)
+# A new recording fills the answer box by itself; the button stays for transcribing it again.
+st.audio_input("Record your answer", key=AUDIO, on_change=_transcribe)
 st.button(
-    "Transcribe the recording",
+    "Transcribe again",
     icon=":material/transcribe:",
     on_click=_transcribe,
     disabled=st.session_state.get(AUDIO) is None,
