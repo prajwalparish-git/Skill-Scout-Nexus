@@ -483,6 +483,7 @@ def _local_ai_payload(sid: str) -> dict:
     current = local_ai.for_student(sid) if allowed else None
     return {
         "allowed": allowed,
+        "explainer": "" if allowed else local_ai.EXPLAINER,
         "config": current.as_dict() if current else None,
         "using_local": local_ai.using_local(sid),
         "providers": [{"id": k, "name": v} for k, v in LOCAL_AI_PROVIDERS.items()],

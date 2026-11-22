@@ -45,6 +45,12 @@ DISABLED = (
     "Your own AI model works when Skill Scout Nexus runs on your laptop. This server cannot "
     "use one."
 )
+# Shown instead of the setting when this server does not allow it (the deployed site).
+EXPLAINER = (
+    "Your own AI model (Ollama or LM Studio) works when you run Skill Scout Nexus on your "
+    "laptop. This server can't reach your computer, and letting it fetch addresses you type "
+    "would be unsafe."
+)
 _BAD_CHARS = re.compile(r"[\x00-\x20\x7f\\]")
 _FENCE = re.compile(r"^```[a-zA-Z]*\s*\n(.*?)\n?```\s*$", re.DOTALL)
 

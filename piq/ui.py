@@ -11,11 +11,14 @@ from functools import lru_cache
 import streamlit as st
 from streamlit.delta_generator import DeltaGenerator
 
+from core import local_ai
 from piq import accounts, devices, formatter, journey, orgs, prefs, services
 from piq.config import (
     CODE_AFTER_FAILURES,
     DEVICE_COOKIE,
     DEVICE_COOKIE_TTL_S,
+    LOCAL_AI_DEFAULT_URLS,
+    LOCAL_AI_PROVIDERS,
     SESSION_COOKIE,
     SESSION_TTL_S,
     STATIC_DIR,
@@ -305,6 +308,7 @@ def _settings(student: dict) -> None:
         wanted = {"preload": preload if allowed else current["preload"], "login_alerts": alerts}
         if wanted != current:
             prefs.update(sid, wanted)
+        _local_model(sid)
         st.markdown("**Signed-in devices**")
         here = st.session_state.get(TOKEN)
         rows = accounts.sessions(sid, here)
@@ -323,6 +327,75 @@ def _settings(student: dict) -> None:
             "Sign out all other devices", icon=":material/devices:", key="revoke_others"
         ):
             accounts.end_other_sessions(sid, here or "", current_device())
+            st.rerun()
+
+
+def _local_model(sid: str) -> None:
+    """My local model: Ollama or LM Studio on this computer, for when the cloud AI fails (or
+    first, when preferred). Only where the server allows it (core/local_ai.py)."""
+    st.markdown("**My local model**")
+    if not local_ai.allowed():
+        st.caption(local_ai.EXPLAINER)
+        return
+    current = local_ai.for_student(sid)
+    providers = list(LOCAL_AI_PROVIDERS)
+    provider = st.radio(
+        "Runs in",
+        providers,
+        format_func=LOCAL_AI_PROVIDERS.__getitem__,
+        index=providers.index(current.provider) if current else 0,
+        horizontal=True,
+        key="lai_provider",
+    )
+    mine = current if current and current.provider == provider else None
+    url = st.text_input(
+        "Address",
+        value=mine.base_url if mine else LOCAL_AI_DEFAULT_URLS[provider],
+        help="Only a model on this computer: localhost, 127.0.0.1 or [::1].",
+        key=f"lai_url_{provider}",
+    )
+    found_key = f"lai_models_{provider}"
+    if st.button("Test connection", icon=":material/lan:", key="lai_test"):
+        try:
+            st.session_state[found_key] = local_ai.list_models(provider, url)
+        except local_ai.LocalAIError as e:
+            st.session_state.pop(found_key, None)
+            st.error(formatter.md_escape(str(e)), icon=":material/error:")
+    found = st.session_state.get(found_key)
+    if found is not None:
+        st.caption(
+            f"Connected: {len(found)} model{'s' if len(found) != 1 else ''} found."
+            if found
+            else "Connected, but no models are installed yet."
+        )
+    options = sorted(set(found or []) | ({mine.model} if mine else set()))
+    model = st.selectbox(
+        "Model",
+        options,
+        index=options.index(mine.model) if mine and mine.model in options else None,
+        placeholder="Test the connection to list your models",
+        disabled=not options,
+        key=f"lai_model_{provider}",
+    )
+    preferred = st.toggle(
+        "Use it first, before the cloud AI",
+        value=bool(current and current.preferred),
+        help="Off: it is used only when the cloud AI fails or there is no network.",
+        key="lai_preferred",
+    )
+    with st.container(horizontal=True):
+        if st.button("Save", type="primary", disabled=not model, key="lai_save"):
+            try:
+                local_ai.save(
+                    sid, provider=provider, base_url=url, model=model, preferred=preferred
+                )
+            except local_ai.LocalAIError as e:
+                st.error(formatter.md_escape(str(e)), icon=":material/error:")
+            else:
+                st.toast("Your local model is saved.", icon=":material/check_circle:")
+                st.rerun()
+        if current and st.button("Remove", key="lai_remove"):
+            local_ai.remove(sid)
             st.rerun()
 
 
@@ -425,10 +498,20 @@ def sidebar_context(mock_mode: bool, ai: str = "", engine: str = "") -> None:
     answers (mock mode, the AI provider in use, or the offline rules) and, last, the
     engine line: AI, records and preloader (journey.engine_status)."""
     with st.sidebar:
-        if student := current_student():
+        student = current_student()
+        if student:
             score = student["readiness_score"] or 0
             st.progress(score / 100, text=f"Readiness {score}/100")
-        if mock_mode:
+        local_model = local_ai.using_local(student["id"]) if student else None
+        if local_model:
+            st.badge(
+                f"Using your local model ({local_model})",
+                icon=":material/computer:",
+                color="green",
+                help="Your latest AI answer came from the model on this computer (Settings > "
+                "My local model).",
+            )
+        elif mock_mode:
             st.badge(
                 "Mock mode",
                 icon=":material/science:",
