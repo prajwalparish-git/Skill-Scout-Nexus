@@ -1038,6 +1038,17 @@ def _interview_posts() -> None:
                             for i, o in enumerate(q["options"])
                         )
                     )
+            if proc := p.get("process"):
+                order = " → ".join(
+                    r["label"] + (f" ({r['minutes']} min)" if r["minutes"] else "")
+                    + f", {r['difficulty']}"
+                    for r in proc["rounds"]
+                )  # fmt: skip
+                st.markdown(
+                    f"**Interview process** · {proc['result_label']}  \n"
+                    f":gray[{formatter.md_escape(order)}]"
+                    + (f"  \n{formatter.md_escape(proc['summary'])}" if proc["summary"] else "")
+                )
             if p["tip"]:
                 st.caption(f"Tip: {formatter.md_escape(p['tip'])}")
             with st.form(f"review_{p['id']}", border=False):

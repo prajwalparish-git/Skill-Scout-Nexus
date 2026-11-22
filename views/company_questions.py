@@ -8,15 +8,22 @@ appears once a moderator approves it."""
 
 from datetime import date
 
+import pandas as pd
 import streamlit as st
 
 from piq import experience_checks, experiences, formatter, services
-from piq.config import EXPERIENCE_MAX_QUESTIONS, EXPERIENCE_ROUNDS
+from piq.config import (
+    EXPERIENCE_MAX_QUESTIONS,
+    EXPERIENCE_ROUNDS,
+    PROCESS_RESULTS,
+    PROCESS_ROUND_TYPES,
+)
 from piq.ui import page_header, require_profile, run_agent
 
 QUIZ = "cq_quiz"  # (company slug, PracticeQuiz) being taken
 RESULT = "cq_result"  # (PracticeQuiz, graded) just submitted
 SHARED = "cq_shared"  # the last post shared: (id, removed kinds)
+PANEL_SHARED = "cq_panel_shared"  # shared from a company page's panel: removed kinds
 LETTERS = "ABCD"
 
 
@@ -238,7 +245,7 @@ def _result(quiz: experiences.PracticeQuiz, graded: dict) -> None:
         st.rerun()
 
 
-def _browse(sid: str) -> None:
+def _browse(sid: str, in_org: bool) -> None:
     overview = experiences.companies_overview()
     by_slug = {c["slug"]: c for c in overview}
     slug = st.selectbox(
@@ -253,12 +260,24 @@ def _browse(sid: str) -> None:
     )
     detail = experiences.company_detail(slug, round_, sid)
     c = by_slug[slug]
-    has_reports = bool(c["rounds"])
+    has_reports = detail["reported"]  # questions or an interview process
+    # Posts and practice on the left, this company's share panel on the right (Streamlit has no
+    # sticky columns; on a narrow screen the panel follows the posts).
+    left, right = st.columns([3, 2], gap="large")
+    with right:
+        _panel(sid, in_org, detail["name"])
+    with left:
+        _company(sid, slug, round_, detail, c, has_reports)
+
+
+def _company(sid: str, slug: str, round_: str | None, detail: dict, c: dict, has_reports: bool):
+    """A company's posts, its interview process and practice."""
     with st.container(horizontal=True, vertical_alignment="center"):
         st.caption(_rounds_line(c["rounds"]))
         if c["careers_url"]:
             st.link_button("Official careers page", c["careers_url"], icon=":material/open_in_new:")
     _pattern(detail["test_pattern"])
+    _process_summary(detail["process"])
     if not has_reports:
         st.info(
             "No student reports for this company yet. Until there are, practise by round from "
@@ -279,6 +298,194 @@ def _browse(sid: str) -> None:
         _post(sid, p)
     if st.toggle("More practice: general practice by round (open question bank)", key="cq_more"):
         _open_practice(sid, slug, detail["open_practice"])  # it holds an expander: no nesting
+
+
+def _question_inputs(prefix: str, n: int) -> list[dict]:
+    """`n` questions in the student's own words: open, or multiple choice with the four options,
+    the correct one and why (inside a form)."""
+    questions = []
+    for i in range(n):
+        with st.container(border=True):
+            text = st.text_area(f"Question {i + 1}", height=70, key=f"{prefix}_q_{i}")
+            with st.expander("Multiple choice? Add the four options"):
+                opts = [
+                    st.text_input(f"Option {LETTERS[j]}", key=f"{prefix}_o_{i}_{j}")
+                    for j in range(4)
+                ]
+                correct = st.selectbox(
+                    "Correct option",
+                    list(range(4)),
+                    index=None,
+                    format_func=LETTERS.__getitem__,
+                    key=f"{prefix}_c_{i}",
+                )
+                explanation = st.text_input("Why (optional)", key=f"{prefix}_e_{i}")
+            mcq = all(o.strip() for o in opts)
+            questions.append(
+                {
+                    "kind": "mcq" if mcq else "open",
+                    "text": text,
+                    "options": opts if mcq else [],
+                    "correct_index": correct if mcq else None,
+                    "explanation": explanation,
+                }
+            )
+    return questions
+
+
+ROUND_LABELS = {v: k for k, v in PROCESS_ROUND_TYPES.items()}
+DIFFICULTY_LABELS = {"Easy": "easy", "Medium": "medium", "Hard": "hard"}
+
+
+def _rounds_from(table: pd.DataFrame) -> list[dict]:
+    """The rounds table as the API takes it: in the order of its # column, blank rows left out."""
+    out = []
+    for _, row in table.sort_values("#", na_position="last").iterrows():
+        if not isinstance(row["Round"], str) or not row["Round"]:
+            continue
+        minutes = row["Minutes"]
+        out.append(
+            {
+                "type": ROUND_LABELS.get(row["Round"], row["Round"]),
+                "minutes": None if pd.isna(minutes) else int(minutes),
+                "difficulty": DIFFICULTY_LABELS.get(row["Difficulty"], row["Difficulty"] or ""),
+            }
+        )
+    return out
+
+
+def _panel(sid: str, in_org: bool, company: str) -> None:
+    """ "Interviewed at <Company>? Share your experience": the company is this page's; questions
+    (section 1), the interview process (section 2), or both; cleaned and moderated like every
+    post."""
+    with st.container(border=True):
+        st.markdown(f"**Interviewed at {formatter.md_escape(company)}? Share your experience**")
+        st.caption(
+            "In your own words; names and contact details are removed. A moderator approves it "
+            "before anyone sees it, and you are shown only as 'a student' with your batch year."
+        )
+        if shared := st.session_state.pop(PANEL_SHARED, None):
+            note = f" Removed automatically: {', '.join(shared)}." if shared else ""
+            st.success(
+                f"Thanks! Waiting for a moderator's approval.{note}", icon=":material/check:"
+            )
+        n = int(
+            st.number_input(
+                "1. Questions to add", min_value=0, max_value=EXPERIENCE_MAX_QUESTIONS, value=1,
+                key="cqp_n",
+            )
+        )  # fmt: skip
+        with_process = st.checkbox("2. Add my interview process", key="cqp_with_process")
+        with st.form("cqp_form", border=False, clear_on_submit=True):
+            st.text_input("Company", value=company, disabled=True, help="Fixed to this page.")
+            role = st.text_input("Role", placeholder="e.g. Systems Engineer")
+            month = st.text_input(
+                "Interview month", value=date.today().strftime("%Y-%m"), help="YYYY-MM"
+            )
+            round_ = None
+            questions: list[dict] = []
+            if n:
+                st.markdown("**1. Add a question**")
+                round_ = st.selectbox(
+                    "Round", list(EXPERIENCE_ROUNDS), format_func=EXPERIENCE_ROUNDS.__getitem__
+                )
+                questions = _question_inputs("cqp", n)
+            rounds = pd.DataFrame()
+            if with_process:
+                st.markdown("**2. Your interview process**")
+                st.caption("One row per round. Number them in order; minutes are optional.")
+                rounds = st.data_editor(
+                    pd.DataFrame(
+                        {
+                            "#": [1, 2, 3],
+                            "Round": ["Online test", "Technical", "HR"],
+                            "Minutes": [None, None, None],
+                            "Difficulty": ["Medium", "Medium", "Easy"],
+                        }
+                    ),
+                    num_rows="dynamic",
+                    hide_index=True,
+                    width="stretch",
+                    column_config={
+                        "#": st.column_config.NumberColumn(min_value=1, max_value=8, step=1),
+                        "Round": st.column_config.SelectboxColumn(
+                            options=list(PROCESS_ROUND_TYPES.values()), required=True
+                        ),
+                        "Minutes": st.column_config.NumberColumn(
+                            min_value=5, max_value=480, step=5
+                        ),
+                        "Difficulty": st.column_config.SelectboxColumn(
+                            options=list(DIFFICULTY_LABELS), required=True
+                        ),
+                    },
+                    key="cqp_rounds",
+                )
+                result = st.selectbox(
+                    "Result", list(PROCESS_RESULTS), format_func=PROCESS_RESULTS.__getitem__
+                )
+                summary = st.text_area("A short summary", height=80, max_chars=600)
+            tip = st.text_area("A tip for juniors (optional)", height=70)
+            show_college = (
+                st.checkbox("Show my college with my batch year", value=True) if in_org else False
+            )
+            sent = st.form_submit_button("Share", type="primary", icon=":material/send:")
+        if sent:
+            form = {
+                "company": company,
+                "role": role,
+                "round": round_ or "",
+                "interview_month": month,
+                "tip": tip,
+                "show_college": show_college,
+                "questions": [q for q in questions if q["text"].strip()],
+                "process": (
+                    {"rounds": _rounds_from(rounds), "result": result, "summary": summary}
+                    if with_process
+                    else None
+                ),
+            }
+            try:
+                s = experiences.submit(sid, form)
+            except services.ServiceError as e:
+                st.error(formatter.md_escape(str(e)), icon=":material/error:")
+                return
+            st.session_state[PANEL_SHARED] = s.removed
+            st.rerun()
+
+
+def _round_text(r: dict) -> str:
+    minutes = f" ({r['minutes']} min)" if r["minutes"] else ""
+    return f"{r['label']}{minutes}, {r['difficulty']}"
+
+
+def _process_summary(summary: dict) -> None:
+    """ "Interview process (from N reports)"."""
+    if not summary.get("reports"):
+        return
+    n = summary["reports"]
+    with st.container(border=True):
+        st.markdown(f"**:material/format_list_numbered: Interview process (from {n} report"
+                    f"{'s' if n != 1 else ''})**")  # fmt: skip
+        spread = summary["difficulty"]
+        total = sum(spread.values()) or 1
+        st.markdown(
+            f"Most common round order: **{' → '.join(summary['common_order'])}** "
+            f"({summary['common_order_reports']} of {n})  \n"
+            f"Average number of rounds: **{summary['average_rounds']}**  \n"
+            "Difficulty across all rounds: "
+            + " · ".join(f"{d.title()} {round(100 * c / total)}%" for d, c in spread.items())
+            + "  \nResults reported: "
+            + " · ".join(f"{k} {v}" for k, v in summary["results"].items())
+        )
+        for s in summary["summaries"]:
+            order = " → ".join(_round_text(r) for r in s["rounds"])
+            st.markdown(
+                f":orange-badge[:material/person: Reported by {formatter.md_escape(s['label'])}] "
+                f"**{formatter.md_escape(s['role'])}** · {s['interview_month']} · "
+                f"{s['result_label']}  \n:gray[{formatter.md_escape(order)}]"
+                + (f"  \n{formatter.md_escape(s['summary'])}" if s["summary"] else "")
+                + (f"  \n:gray[Tip: {formatter.md_escape(s['tip'])}]" if s["tip"] else "")
+            )
 
 
 def _share(sid: str, in_org: bool) -> None:
@@ -319,32 +526,7 @@ def _share(sid: str, in_org: bool) -> None:
         month = c4.text_input(
             "Month of the interview", value=date.today().strftime("%Y-%m"), help="YYYY-MM"
         )
-        questions = []
-        for i in range(n):
-            with st.container(border=True):
-                text = st.text_area(f"Question {i + 1}", height=70, key=f"cq_q_{i}")
-                with st.expander("Multiple choice? Add the four options"):
-                    opts = [
-                        st.text_input(f"Option {LETTERS[j]}", key=f"cq_o_{i}_{j}") for j in range(4)
-                    ]
-                    correct = st.selectbox(
-                        "Correct option",
-                        list(range(4)),
-                        index=None,
-                        format_func=LETTERS.__getitem__,
-                        key=f"cq_c_{i}",
-                    )
-                    explanation = st.text_input("Why (optional)", key=f"cq_e_{i}")
-                mcq = all(o.strip() for o in opts)
-                questions.append(
-                    {
-                        "kind": "mcq" if mcq else "open",
-                        "text": text,
-                        "options": opts if mcq else [],
-                        "correct_index": correct if mcq else None,
-                        "explanation": explanation,
-                    }
-                )
+        questions = _question_inputs("cq", n)
         tip = st.text_area("A tip for juniors (optional)", height=70)
         show_college = (
             st.checkbox("Show my college with my batch year", value=True) if in_org else False
@@ -390,7 +572,8 @@ def _mine(sid: str) -> None:
         st.markdown(
             f"{STATUS[p['status']]} **{formatter.md_escape(p['company'])}** · "
             f"{formatter.md_escape(p['role'])} · {EXPERIENCE_ROUNDS[p['round']]} · "
-            f"{p['interview_month']} · {p['questions']} questions{reason}"
+            f"{p['interview_month']} · {p['questions']} questions"
+            f"{' · interview process' if p['process'] else ''}{reason}"
         )
 
 
@@ -416,7 +599,7 @@ else:
         ]
     )
     with browse_tab:
-        _browse(sid)
+        _browse(sid, bool(student and student["org_id"]))
     with share_tab:
         _share(sid, bool(student and student["org_id"]))
     with mine_tab:
