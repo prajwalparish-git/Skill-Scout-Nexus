@@ -25,6 +25,7 @@ from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field, model_validator
 
+from core import drive
 from piq import agents, checks, db, degrees, question_bank, resume_builder, scorecard, syllabus
 from piq.config import (
     BULLET_MAX_CHARS,
@@ -191,6 +192,7 @@ def delete_student(student_id: str | None, confirm_username: str | None) -> None
         raise ServiceError("This account no longer exists.")
     if (confirm_username or "").strip().lower() != student["username"]:
         raise ServiceError("That is not this account's username; nothing was deleted.")
+    drive.disconnect(student["id"])  # revoke the app's Drive access first (best effort)
     db.delete_student(student["id"])
     remove_certificate_files(student["id"])
 
@@ -2161,10 +2163,26 @@ def save_certificate(
     path.write_bytes(data)
     fields |= {"stored_name": stored, "size_bytes": len(data)}
     try:
-        return db.add_certificate(student_id, fields)
+        cert_id = db.add_certificate(student_id, fields)
     except Exception:
         path.unlink(missing_ok=True)
         raise
+    _mirror_to_drive(student_id, cert_id, str(fields["filename"]), data)
+    return cert_id
+
+
+def _mirror_to_drive(student_id: str, cert_id: int, filename: str, data: bytes) -> bool:
+    """Copy a certificate into the student's Drive when they connected one. Best effort: the
+    local copy is already saved, and the card offers a retry."""
+    if not drive.connected(student_id):
+        return False
+    try:
+        up = drive.upload(student_id, "certificates", filename, data)
+    except drive.DriveError as e:
+        log.info("drive: certificate %s not copied (%s)", cert_id, e)
+        return False
+    db.set_certificate_drive_id(student_id, cert_id, up["id"])
+    return True
 
 
 def certificates(student_id: str) -> list[sqlite3.Row]:
@@ -2173,21 +2191,79 @@ def certificates(student_id: str) -> list[sqlite3.Row]:
 
 def certificate_file(student_id: str, cert_id: int) -> tuple[sqlite3.Row, Path] | None:
     """The certificate and its file, or None when it is not this student's or the file is
-    gone."""
+    gone. A file gone from this disk (a host that wipes it on restart) is fetched back from
+    the student's Drive when it has a copy there, and kept here again."""
     row = db.certificate(student_id, cert_id)
     if row is None:
         return None
     path = _certificate_dir(student_id) / row["stored_name"]
-    return (row, path) if path.is_file() else None
+    if path.is_file():
+        return row, path
+    if row["drive_file_id"] and drive.connected(student_id):
+        try:
+            data = drive.download(student_id, row["drive_file_id"])
+        except drive.DriveError as e:
+            log.info("drive: certificate %s not restored (%s)", cert_id, e)
+            return None
+        if data.startswith(PDF_MAGIC):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+            return row, path
+    return None
 
 
 def delete_certificate(student_id: str, cert_id: int) -> bool:
-    """Delete the certificate and its file; False when it is not this student's."""
+    """Delete the certificate and its file; False when it is not this student's. Its copy in
+    the student's Drive goes to Drive's trash (recoverable there)."""
     row = db.delete_certificate(student_id, cert_id)
     if row is None:
         return False
     (_certificate_dir(student_id) / row["stored_name"]).unlink(missing_ok=True)
+    if row["drive_file_id"] and drive.connected(student_id):
+        try:
+            drive.trash(student_id, row["drive_file_id"])
+        except drive.DriveError as e:
+            log.info("drive: certificate %s not trashed in Drive (%s)", cert_id, e)
     return True
+
+
+def backup_certificates(student_id: str) -> int:
+    """Copy every certificate not yet in the student's Drive there; how many were copied."""
+    copied = 0
+    for row in db.certificates(student_id):
+        if row["drive_file_id"]:
+            continue
+        path = _certificate_dir(student_id) / row["stored_name"]
+        if path.is_file() and _mirror_to_drive(
+            student_id, row["id"], row["filename"], path.read_bytes()
+        ):
+            copied += 1
+    return copied
+
+
+def retry_certificate_drive(student_id: str, cert_id: int) -> bool:
+    row = db.certificate(student_id, cert_id)
+    if row is None:
+        raise ServiceError("No such certificate.")
+    path = _certificate_dir(student_id) / row["stored_name"]
+    if not path.is_file():
+        raise ServiceError("The file is no longer on this server; upload it again.")
+    return _mirror_to_drive(student_id, cert_id, row["filename"], path.read_bytes())
+
+
+def save_resume_to_drive(student_id: str, resume: Mapping) -> dict[str, str]:
+    """The resume's PDF, in its template, into the student's Drive (Resumes). Nothing about it
+    is kept here; the PDF may carry details (date of birth, address) only the student sees."""
+    pdf = resume_builder.generate_ats_pdf(resume)
+    return drive.upload(student_id, "resumes", _resume_pdf_name(resume), pdf)
+
+
+def _resume_pdf_name(resume: Mapping) -> str:
+    from piq import formatter  # formatter imports pandas: load it only when needed
+
+    return formatter.resume_filename(
+        str(resume.get("full_name", "")), str(resume.get("target_role", ""))
+    )
 
 
 def resume_certificates(student_id: str | None) -> list[dict[str, str]]:
