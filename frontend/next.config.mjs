@@ -12,6 +12,9 @@ const nextConfig = {
   // This folder is the project root: a lockfile higher up (a home folder's stray
   // package-lock.json) must not be taken for it.
   turbopack: { root: dirname(fileURLToPath(import.meta.url)) },
+  // The rewrite forwards request headers and the exact path and query. Proctoring relies on that:
+  // Safe Exam Browser's X-SafeExamBrowser-ConfigKeyHash must reach the API, which checks it
+  // against APP_URL + path + query (the Host it sees here is the internal one).
   async rewrites() {
     return [{ source: "/api/:path*", destination: `${API_ORIGIN.replace(/\/$/, "")}/api/:path*` }];
   },

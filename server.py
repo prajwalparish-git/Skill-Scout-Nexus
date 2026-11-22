@@ -37,6 +37,7 @@ from piq import (
     formatter,
     graph,
     llm,
+    proctoring,
     question_bank,
     resume_builder,
     resume_templates,
@@ -60,6 +61,8 @@ from server_companies import router as companies_router
 from server_drive import require_drive
 from server_drive import router as drive_router
 from server_ops import router as ops_router
+from server_proctor import call as proctor_call
+from server_proctor import router as proctor_router
 
 log = logging.getLogger("server")
 
@@ -99,6 +102,7 @@ app.include_router(ops_router)
 app.include_router(companies_router)
 app.include_router(companies_ops_router)
 app.include_router(drive_router)
+app.include_router(proctor_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins(),
@@ -281,11 +285,14 @@ class QuizSubmission(BaseModel):
     topic: str
     difficulty: str
     answers: list[Answer] = Field(min_length=1, max_length=QUIZ_MAX_PER_TOPIC)
+    proctor_attempt_id: str | None = Field(None, max_length=64)
 
 
 @app.post("/api/quiz/submit")
 def quiz_submit(body: QuizSubmission, request: Request) -> dict:
     authorize(request, body.candidate_id)
+    cid = body.candidate_id or None
+    watched = proctor_call(lambda: proctoring.require(cid, body.proctor_attempt_id, "quiz"))
     result = services.grade_instant_quiz(
         body.candidate_id or None,
         body.topic,
@@ -315,7 +322,17 @@ def quiz_submit(body: QuizSubmission, request: Request) -> dict:
         "level_changed": result.level_before != result.level_after,
         "review": review,
         "weakness": weakness,
+        "proctoring": _proctor_end(cid, watched),
     }
+
+
+def _proctor_end(cid: str | None, watched: Any) -> dict | None:
+    """Finish the proctored attempt a submit or the last interview turn belongs to."""
+    if not cid or watched is None:
+        return None
+    flags = proctoring.finish(cid, watched["id"])
+    a = proctoring.attempt(cid, watched["id"])
+    return {"attempt_id": a.id, "strikes": a.strikes, "breached": a.breached, "flags": flags}
 
 
 def _scores(candidate_id: str) -> dict[str, float]:
@@ -490,6 +507,7 @@ class InterviewTurnRequest(BaseModel):
     round: str | None = Field(None, max_length=30)  # ... and round (reported questions first)
     session: dict | None = None  # the state returned by the last turn, to continue it
     answer: str | None = None
+    proctor_attempt_id: str | None = Field(None, max_length=64)
 
 
 def _sse(event: str, data: Any) -> str:
@@ -538,6 +556,9 @@ def interview_turn(body: InterviewTurnRequest, request: Request) -> StreamingRes
     (`session` + `answer`). Streams `step` events, then one `result` or `error` event."""
     authorize(request, body.candidate_id)
     _student(body.candidate_id)
+    watched = proctor_call(
+        lambda: proctoring.require(body.candidate_id, body.proctor_attempt_id, "interview")
+    )
 
     def work(on_event: Callable[[str], None]) -> dict:
         if body.session is None:
@@ -554,9 +575,12 @@ def interview_turn(body: InterviewTurnRequest, request: Request) -> StreamingRes
         if s.current is not None:
             s = services.answer_question(body.candidate_id, s, body.answer or "")
             on_event("Answer scored by the evaluator")
-        if not s.done:
+        if not s.done and not (watched is not None and watched["breached"]):
             s = services.continue_interview(body.candidate_id, s, on_event)
-        return _session_payload(s)
+        out = _session_payload(s)
+        if watched is not None and (s.done or watched["breached"]):
+            out["proctoring"] = _proctor_end(body.candidate_id, watched)
+        return out
 
     return StreamingResponse(
         _stream(work),
