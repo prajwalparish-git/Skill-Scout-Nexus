@@ -473,20 +473,20 @@ def logout(request: Request, response: Response) -> dict:
 
 
 @router.post("/password", dependencies=[Depends(throttle)])
-def change_password(body: PasswordChange, sid: str = Depends(require_student)) -> dict:
+def change_password(body: PasswordChange, sid: str = Depends(require_member)) -> dict:
     accounts.change_password(sid, body.current, body.password, body.confirm)
     return {"student": public(sid)}
 
 
 @router.get("/sessions")
-def list_sessions(request: Request, sid: str = Depends(require_student)) -> list[dict]:
+def list_sessions(request: Request, sid: str = Depends(require_member)) -> list[dict]:
     """The student's signed-in devices, newest activity first; `current` is this one."""
     return accounts.sessions(sid, request.cookies.get(COOKIE))
 
 
 @router.post("/sessions/{session_id}/revoke")
 def revoke_session(
-    session_id: str, request: Request, response: Response, sid: str = Depends(require_student)
+    session_id: str, request: Request, response: Response, sid: str = Depends(require_member)
 ) -> list[dict]:
     if not accounts.end_session_id(sid, session_id, device(request, response)):
         raise HTTPException(404, "That device is already signed out.")
@@ -495,7 +495,7 @@ def revoke_session(
 
 @router.post("/sessions/revoke-others")
 def revoke_others(
-    request: Request, response: Response, sid: str = Depends(require_student)
+    request: Request, response: Response, sid: str = Depends(require_member)
 ) -> list[dict]:
     accounts.end_other_sessions(sid, request.cookies.get(COOKIE) or "", device(request, response))
     return accounts.sessions(sid, request.cookies.get(COOKIE))
