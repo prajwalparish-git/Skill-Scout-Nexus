@@ -164,6 +164,7 @@ def public(student_id: str) -> dict | None:
         "target_role": row["target_role"],
         "readiness_score": row["readiness_score"],
         "must_change_password": bool(row["must_change_password"]),
+        "in_org": row["org_id"] is not None,  # an organization's student (never which one)
     }
 
 

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Activity, Cpu, Database, LogOut, RefreshCw, ShieldAlert, Users } from "lucide-react";
 import { ApiError, get } from "@/lib/api";
 import { useCandidate } from "@/lib/candidate";
+import { ExperienceQueue } from "@/components/ops/ExperienceQueue";
 
 type Row = Record<string, string | number | boolean | null>;
 type Overview = {
@@ -169,6 +170,8 @@ export default function OpsPage() {
               </div>
             ))}
           </section>
+
+          <ExperienceQueue />
 
           <div className="grid gap-4 lg:grid-cols-2">
             <Panel title="System" icon={Cpu}>

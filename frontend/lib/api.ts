@@ -214,6 +214,8 @@ export type Student = {
   readiness_score: number;
   /** An organization's student on the temporary password they were sent. */
   must_change_password: boolean;
+  /** Belongs to an organization (its posts may name the college, once the batch is big enough). */
+  in_org?: boolean;
 };
 /** How this install signs in: local = one student, password only (no email). */
 export type AuthMode = { local: boolean; signup_open: boolean };
@@ -342,6 +344,89 @@ export type Session = {
   history: { question: string; answer: string; evaluation: Evaluation }[];
   current: { question: string; intent: string; is_followup: boolean; is_final: boolean } | null;
   done: boolean;
+  /** Company practice: questions students reported, asked first and word for word. */
+  script?: string[];
+};
+
+// --- company interview experiences (server_companies.py) ------------------------------------
+
+export const ROUNDS: Record<string, string> = {
+  aptitude: "Aptitude",
+  technical: "Technical",
+  coding: "Coding",
+  hr: "HR",
+  group_discussion: "Group discussion",
+};
+export type CompanySummary = {
+  slug: string;
+  name: string;
+  careers_url: string;
+  posts: number;
+  questions: number;
+  rounds: Record<string, { posts: number; questions: number }>;
+};
+export type ReportedQuestion = {
+  kind: "open" | "mcq";
+  text: string;
+  options?: string[];
+  correct_index?: number;
+  explanation?: string;
+};
+/** An approved post: who shared it is only ever a label ("a student, 2026"). */
+export type ExperiencePost = {
+  id: number;
+  label: string;
+  role: string;
+  round: string;
+  interview_month: string;
+  tip: string;
+  questions: ReportedQuestion[];
+};
+export type CompanyDetail = {
+  slug: string;
+  name: string;
+  careers_url: string;
+  rounds: Record<string, { posts: number; questions: number }>;
+  posts: ExperiencePost[];
+};
+export type PracticeQuiz = {
+  company: string;
+  round: string;
+  /** "reported": students' questions; "ai": AI practice, never presented as reported. */
+  source: "reported" | "ai";
+  label: string;
+  notes: string[];
+  questions: { id: string; text: string; options: string[] }[];
+};
+export type PracticeResult = {
+  correct: number;
+  total: number;
+  score_pct: number;
+  source: string;
+  review: { id: string; chosen: number | null; correct_index: number; is_correct: boolean; explanation: string }[];
+};
+export type MyPost = {
+  id: number;
+  company: string;
+  role: string;
+  round: string;
+  interview_month: string;
+  status: "pending" | "approved" | "rejected" | "hidden";
+  reject_reason: string;
+  questions: number;
+};
+export type ModerationPost = {
+  id: number;
+  company: string;
+  known_company: boolean;
+  role: string;
+  round: string;
+  interview_month: string;
+  tip: string;
+  status: string;
+  flags: string[];
+  label: string;
+  questions: ReportedQuestion[];
 };
 export type TurnResult = {
   session: Session;

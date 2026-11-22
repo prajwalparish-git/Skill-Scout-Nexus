@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { motion } from "motion/react";
 import {
+  Building2,
   CalendarDays,
   Cpu,
   FileText,
@@ -32,6 +33,7 @@ const NAV: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/resume-builder", label: "Resume builder", icon: FileText },
   { href: "/quiz", label: "Quiz", icon: ListChecks },
   { href: "/interview", label: "Mock interview", icon: MessagesSquare },
+  { href: "/companies", label: "Company questions", icon: Building2 },
   { href: "/plan", label: "Study plan", icon: CalendarDays },
   { href: "/settings", label: "Settings", icon: Settings },
 ];

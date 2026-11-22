@@ -2,10 +2,24 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { Award, Check, Clock, Loader2, Mic, Send, ShieldCheck, TrendingDown } from "lucide-react";
+import { Award, Bot, Check, Clock, Loader2, Mic, Play, Send, ShieldCheck, TrendingDown, UserRound } from "lucide-react";
 import { get, postStream, type Evaluation, type Track, type TurnResult } from "@/lib/api";
 import { useCandidate } from "@/lib/candidate";
 import { Badge, ErrorNote, Loading, NeedsCandidate, PageHeader } from "@/components/ui";
+
+/** Company practice: whether a question was reported by a student or written by the AI. */
+function SourceChip({ script, question }: { script?: string[]; question: string }) {
+  if (!script?.length) return null;
+  return script.includes(question) ? (
+    <span className="chip mb-2 border-warn/40 text-warn">
+      <UserRound size={12} aria-hidden /> Reported by a student
+    </span>
+  ) : (
+    <span className="chip mb-2 border-primary/40 text-primary-ink">
+      <Bot size={12} aria-hidden /> AI question, not reported
+    </span>
+  );
+}
 
 const CRITERIA = ["relevance", "depth", "structure", "clarity"] as const;
 const MAX_ANSWER = 3000;
@@ -65,6 +79,14 @@ export default function InterviewPage() {
   const bottom = useRef<HTMLDivElement>(null);
   const stream = useRef<AbortController | null>(null);
   const candidateId = candidate?.id;
+  // Opened from Company questions (?company=&round=): reported questions are asked first.
+  const [companyPractice, setCompanyPractice] = useState<{ company: string; round: string } | null>(null);
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const company = q.get("company");
+    const round = q.get("round");
+    if (company && round) setCompanyPractice({ company, round });
+  }, []);
 
   // A live elapsed timer while the interview is in progress, ticking once a second.
   useEffect(() => {
@@ -177,6 +199,19 @@ export default function InterviewPage() {
 
       {!session && !tracks && !error && <Loading label="Loading interview tracks…" />}
 
+      {!session && companyPractice && (
+        <section className="card mb-4 border-ink/20" aria-label="Company practice">
+          <p className="eyebrow">Company practice</p>
+          <p className="mt-1 text-sm">
+            Questions students reported from this round come first, word for word; the AI interviewer then closes the session in its
+            style. Each question is marked as reported or AI.
+          </p>
+          <button type="button" className="btn-primary mt-3" disabled={busy} onClick={() => turn(companyPractice)}>
+            {busy ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <Play size={16} aria-hidden />} Start company practice
+          </button>
+        </section>
+      )}
+
       {!session && tracks && (
         <section className="card" aria-label="Choose a track">
           {Object.entries(groups).map(([group, list]) => (
@@ -261,6 +296,7 @@ export default function InterviewPage() {
 
           {session.history.map((h, i) => (
             <article key={i} className="card space-y-4">
+              <SourceChip script={session.script} question={h.question} />
               <p className="font-medium leading-relaxed">
                 <span className="mr-2 font-mono text-xs text-muted">Q{i + 1}</span>
                 {h.question}
@@ -288,6 +324,7 @@ export default function InterviewPage() {
 
           {session.current && !session.done && (
             <article className="card border-ink/30 shadow-[0_12px_40px_-24px_rgb(var(--ink)/0.4)]">
+              <SourceChip script={session.script} question={session.current.question} />
               <p className="eyebrow">
                 Question {session.history.length + 1}
                 {session.current.is_followup && " · a follow-up on your last answer"}
