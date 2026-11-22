@@ -20,16 +20,20 @@ import json
 import logging
 import random
 import uuid
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 from piq import agents, db, experience_checks, open_questions, question_bank, services, syllabus
 from piq.config import (
+    DIFFICULTIES,
     EXPERIENCE_DAILY_MAX,
     EXPERIENCE_PENDING_MAX,
     EXPERIENCE_ROUNDS,
     LABEL_MIN_POSTERS,
+    PROCESS_RESULTS,
+    PROCESS_ROUND_TYPES,
     REPORTS_TO_HIDE,
     settings,
 )
@@ -92,9 +96,9 @@ def submit(student_id: str, form: Mapping) -> Submitted:
         cleaned = experience_checks.clean_submission(form, own)
     except ExperienceRejected as e:
         raise ServiceError(str(e)) from e
-    questions, tip, flags = _screen(student_id, cleaned)
+    questions, tip, process, flags = _screen(student_id, cleaned)
     content_hash = experience_checks.content_hash(
-        cleaned.company_slug, [q["text"] for q in questions]
+        cleaned.company_slug, experience_checks.post_texts(questions, process)
     )
     if db.experience_hash_taken(content_hash):
         raise ServiceError("These questions have already been shared for this company.")
@@ -117,38 +121,48 @@ def submit(student_id: str, form: Mapping) -> Submitted:
             "content_hash": content_hash,
         },
         questions,
+        process,
     )
     return Submitted(exp_id, "pending", cleaned.removed)
 
 
 def _screen(
     student_id: str, cleaned: experience_checks.Cleaned
-) -> tuple[list[dict], str, list[str]]:
+) -> tuple[list[dict], str, dict | None, list[str]]:
     """Live mode: the screener may replace names the regexes missed and add flags (it can never
-    add text: checks.check_screen). MOCK_MODE: the deterministic cleaning alone."""
+    add text: checks.check_screen); the process summary is screened with the questions.
+    MOCK_MODE: the deterministic cleaning alone."""
     flags = list(cleaned.flags)
+    process = cleaned.process
     if settings().mock_mode:
-        return cleaned.questions, cleaned.tip, flags
+        return cleaned.questions, cleaned.tip, process, flags
+    texts = [q["text"] for q in cleaned.questions]
+    with_summary = bool(process and process["summary"])
     try:
         out = agents.screen_experience(
             {
                 "company": cleaned.company_name,
                 "round": EXPERIENCE_ROUNDS[cleaned.round],
-                "questions": [q["text"] for q in cleaned.questions],
+                "questions": [*texts, process["summary"]] if with_summary else texts,
                 "tip": cleaned.tip,
                 "student_id": student_id,
             }
         )
     except (LLMError, CriticRejected) as e:
         log.info("experience screening unavailable (%s); deterministic cleaning only", e)
-        return cleaned.questions, cleaned.tip, [*flags, "automatic name screening unavailable"]
-    questions = [{**q, "text": t} for q, t in zip(cleaned.questions, out.questions, strict=True)]
-    return questions, out.tip, [*flags, *(f"AI screen: {f}" for f in out.flags)]
+        unavailable = [*flags, "automatic name screening unavailable"]
+        return cleaned.questions, cleaned.tip, process, unavailable
+    screened = list(out.questions)
+    if with_summary:
+        process = {**process, "summary": screened.pop()}
+    questions = [{**q, "text": t} for q, t in zip(cleaned.questions, screened, strict=True)]
+    return questions, out.tip, process, [*flags, *(f"AI screen: {f}" for f in out.flags)]
 
 
 def my_posts(student_id: str) -> list[dict]:
     rows = db.experiences_of(student_id)
     qs = db.experience_questions([r["id"] for r in rows])
+    processes = db.experience_processes([r["id"] for r in rows])
     return [
         {
             "id": r["id"],
@@ -159,10 +173,23 @@ def my_posts(student_id: str) -> list[dict]:
             "status": r["status"],
             "reject_reason": r["reject_reason"],
             "questions": len(qs[r["id"]]),
+            "process": r["id"] in processes,
             "created_at": r["created_at"],
         }
         for r in rows
     ]
+
+
+def _process_out(row: Mapping) -> dict:
+    """A stored process (an experience_processes row, or a post joined with it), for display:
+    each round with its label."""
+    rounds = json.loads(row["rounds_json"])
+    return {
+        "rounds": [{**r, "label": PROCESS_ROUND_TYPES[r["type"]]} for r in rounds],
+        "result": row["result"],
+        "result_label": PROCESS_RESULTS[row["result"]],
+        "summary": row["summary"],
+    }
 
 
 # --- labels -----------------------------------------------------------------------------------
@@ -193,6 +220,7 @@ def review_queue(moderator: int | str) -> list[dict]:
     automated flags and the label they would show."""
     rows = db.experiences_to_review(None if moderator == OPS else int(moderator))
     qs = db.experience_questions([r["id"] for r in rows])
+    processes = db.experience_processes([r["id"] for r in rows])
     sizes = db.approved_posters_by_batch()
     return [
         {
@@ -208,6 +236,7 @@ def review_queue(moderator: int | str) -> list[dict]:
             "flags": json.loads(r["flags"] or "[]"),
             "label": label(r, sizes),
             "questions": [_question(q, reveal=True) for q in qs[r["id"]]],
+            "process": _process_out(processes[r["id"]]) if r["id"] in processes else None,
             "created_at": r["created_at"],
         }
         for r in rows
@@ -294,7 +323,15 @@ def companies_overview() -> list[dict]:
         c["posts"] += r["posts"]
         c["questions"] += r["questions"]
         c["rounds"][r["round"]] = {"posts": r["posts"], "questions": r["questions"]}
-    return sorted(out.values(), key=lambda c: (-c["posts"], c["name"].lower()))
+    processes = db.approved_process_counts()
+    for c in out.values():
+        c["processes"] = processes.get(c["slug"], 0)
+    for slug, n in processes.items():  # a company only processes were reported for
+        if slug not in out:
+            name = db.approved_experiences(slug)[0]["company_name"]
+            out[slug] = {"slug": slug, "name": name, "careers_url": "", "posts": 0,
+                         "questions": 0, "rounds": {}, "processes": n}  # fmt: skip
+    return sorted(out.values(), key=lambda c: (-c["posts"] - c["processes"], c["name"].lower()))
 
 
 def company_detail(slug: str, round_: str | None = None, student_id: str | None = None) -> dict:
@@ -318,6 +355,7 @@ def company_detail(slug: str, round_: str | None = None, student_id: str | None 
         "test_pattern": official_test_pattern(known),
         "open_practice": open_practice(student_id, name),
         "rounds": (overview or {}).get("rounds", {}),
+        "reported": bool(overview and (overview["posts"] or overview["processes"])),
         "posts": [
             {
                 "id": r["id"],
@@ -329,6 +367,52 @@ def company_detail(slug: str, round_: str | None = None, student_id: str | None 
                 "questions": [_question(q, reveal=True) for q in qs[r["id"]]],
             }
             for r in rows
+            if qs[r["id"]]  # a post with only its process is shown under the process
+        ],
+        "process": process_summary(slug, sizes),
+    }
+
+
+def process_summary(slug: str, sizes: Mapping[tuple[int, str], int] | None = None) -> dict:
+    """ "Interview process (from N reports)": the most common round order (a tie goes to the
+    most recent report), the average number of rounds, how hard each kind of round was and
+    overall, the results, and every report's own summary under its label, newest first."""
+    rows = db.approved_processes(slug)
+    if not rows:
+        return {"reports": 0}
+    sizes = db.approved_posters_by_batch() if sizes is None else sizes
+    reports = [(r, _process_out(r)) for r in rows]
+    orders = [tuple(x["type"] for x in p["rounds"]) for _, p in reports]
+    common, times = Counter(orders).most_common(1)[0]
+    by_type: dict[str, Counter] = {}
+    overall: Counter = Counter()
+    for _, p in reports:
+        for x in p["rounds"]:
+            by_type.setdefault(x["type"], Counter())[x["difficulty"]] += 1
+            overall[x["difficulty"]] += 1
+    spread = {d: overall[d] for d in DIFFICULTIES}
+    return {
+        "reports": len(rows),
+        "common_order": [PROCESS_ROUND_TYPES[t] for t in common],
+        "common_order_reports": times,
+        "average_rounds": round(sum(map(len, orders)) / len(orders), 1),
+        "difficulty": spread,
+        "difficulty_by_round": {
+            PROCESS_ROUND_TYPES[t]: {d: c[d] for d in DIFFICULTIES} for t, c in by_type.items()
+        },
+        "results": {
+            PROCESS_RESULTS[k]: v for k, v in Counter(r["result"] for r, _ in reports).items()
+        },
+        "summaries": [
+            {
+                "id": r["id"],
+                "label": label(r, sizes),
+                "role": r["role"],
+                "interview_month": r["interview_month"],
+                **p,
+                "tip": r["tip"],
+            }
+            for r, p in reports
         ],
     }
 

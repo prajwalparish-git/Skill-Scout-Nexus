@@ -20,6 +20,8 @@ from piq.config import (
     EXPERIENCE_QUESTION_MAX,
     EXPERIENCE_TEXT_MAX,
     EXPERIENCE_TIP_MAX,
+    PROCESS_MAX_ROUNDS,
+    PROCESS_SUMMARY_MAX,
 )
 from piq.services import ServiceError
 from server_auth import require_ops, require_student, session_id
@@ -83,14 +85,31 @@ class QuestionIn(BaseModel):
     explanation: str = Field("", max_length=EXPERIENCE_QUESTION_MAX)
 
 
+class ProcessRoundIn(BaseModel):
+    type: str = Field(max_length=30)
+    minutes: int | None = None
+    difficulty: str = Field(max_length=10)
+
+
+class ProcessIn(BaseModel):
+    """The interview process: rounds in order, the result, a short summary."""
+
+    rounds: list[ProcessRoundIn] = Field(default_factory=list, max_length=PROCESS_MAX_ROUNDS + 2)
+    result: str = Field(max_length=20)
+    summary: str = Field("", max_length=PROCESS_SUMMARY_MAX + 200)
+
+
 class ExperienceIn(BaseModel):
+    """Questions, an interview process, or both (at least one)."""
+
     company: str = Field(max_length=EXPERIENCE_TEXT_MAX + 40)
     role: str = Field(max_length=EXPERIENCE_TEXT_MAX + 40)
-    round: str = Field(max_length=30)
+    round: str = Field("", max_length=30)  # the questions' round (a process alone: its first)
     interview_month: str = Field(max_length=10)
     tip: str = Field("", max_length=EXPERIENCE_TIP_MAX + 200)
     show_college: bool = True
-    questions: list[QuestionIn] = Field(min_length=1, max_length=EXPERIENCE_MAX_QUESTIONS)
+    questions: list[QuestionIn] = Field(default_factory=list, max_length=EXPERIENCE_MAX_QUESTIONS)
+    process: ProcessIn | None = None
 
 
 @router.post("/api/experiences", dependencies=[Depends(submit_throttle)])
