@@ -1656,7 +1656,9 @@ def save_resume(
 ) -> tuple[str, int]:
     """Save a built resume as the student's next version and re-profile them from it (their
     readiness follows the resume). Without a student, a new one is created from it. The
-    first version locks the domain. Returns (student id, version number)."""
+    first version locks the domain. Returns (student id, version number). Date of birth and
+    address are dropped first: they are only ever in the PDF, never saved."""
+    resume = resume_builder.without_private(resume)
     role = resume.get("target_role", "")
     if role not in domain_roles(domain_id):
         raise ServiceError(f"{role!r} is not a role in this domain.")
@@ -2041,6 +2043,20 @@ def delete_certificate(student_id: str, cert_id: int) -> bool:
         return False
     (_certificate_dir(student_id) / row["stored_name"]).unlink(missing_ok=True)
     return True
+
+
+def resume_certificates(student_id: str | None) -> list[dict[str, str]]:
+    """The student's uploaded certificates as resume lines: {title, line}, newest first, e.g.
+    "AWS Cloud Practitioner, Amazon Web Services (Jan 2025)"."""
+    if not student_id:
+        return []
+    out = []
+    for r in db.certificates(student_id):
+        when = ""
+        if r["issue_date"]:
+            when = f" ({date.fromisoformat(r['issue_date']).strftime('%b %Y')})"
+        out.append({"title": r["title"], "line": f"{r['title']}, {r['issuer']}{when}"})
+    return out
 
 
 def remove_certificate_files(student_id: str) -> None:

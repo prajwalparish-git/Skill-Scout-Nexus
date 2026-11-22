@@ -442,6 +442,14 @@ PRIVATE_FIELDS = ("date_of_birth", "address")
 SAVED_PERSONAL = tuple(k for k in PERSONAL_FIELDS if k not in PRIVATE_FIELDS)
 
 
+def merge_certifications(typed: Sequence[str], uploaded: Sequence[Mapping[str, str]]) -> list[str]:
+    """Uploaded certificates ({title, line}) first, then the typed ones that do not repeat one
+    (by its title or full line, ignoring case)."""
+    known = {u[k].strip().casefold() for u in uploaded for k in ("title", "line")}
+    rest = [t.strip() for t in typed if t.strip() and t.strip().casefold() not in known]
+    return list(dict.fromkeys([*(u["line"] for u in uploaded), *rest]))
+
+
 def without_private(res: Mapping[str, Any]) -> dict[str, Any]:
     """A copy of the resume without date of birth or address anywhere: what may be saved."""
     out = copy.deepcopy(dict(res))
