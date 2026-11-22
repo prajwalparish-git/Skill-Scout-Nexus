@@ -143,8 +143,9 @@ def _certificates(sid: str) -> None:
                     _certificate_card(sid, row)
 
 
-def _topic_mastery(d: services.Dashboard) -> None:
-    """Every tracked topic, weakest first: weakness now, which way it moves, its scores."""
+def _topic_mastery(d: services.Dashboard, levels: dict[str, str]) -> None:
+    """Every tracked topic, weakest first: weakness now, which way it moves, its scores, and
+    the level its next quiz is asked at."""
     mastery = d.mastery
     st.subheader(
         formatter.topic_scores_headline({m.topic: m.scores for m in mastery}), anchor=False
@@ -154,13 +155,15 @@ def _topic_mastery(d: services.Dashboard) -> None:
         return
     st.caption(
         "Weakest topic first. Weakness is what the next plan uses; the line is every quiz "
-        "score on the topic, oldest to latest, on a 0-100% scale."
+        "score on the topic, oldest to latest, on a 0-100% scale. The level is where your next "
+        "quiz on the topic starts."
     )
     for start in range(0, len(mastery), 3):
         row = mastery[start : start + 3]
         for column, m in zip(st.columns(3, gap="small"), row, strict=False):
             with column, st.container(border=True, gap="small"):
                 st.markdown(formatter.mastery_line(m.topic, m.weakness, m.scores))
+                st.markdown(formatter.level_badge(levels.get(m.topic, "medium")))
                 if m.scores:
                     st.markdown(formatter.trend_md(m.trend))
                     st.vega_lite_chart(
@@ -326,7 +329,7 @@ ui.org_progress_card(sid)  # an organization's student: their stage against its 
 _kpis(d, streak)
 _syllabus(d)
 _certificates(sid)
-_topic_mastery(d)
+_topic_mastery(d, services.topic_levels(sid))
 accuracy_col, runs_col = st.columns(2, gap="medium")
 with accuracy_col, st.container(border=True, height="stretch"):
     _accuracy(d)

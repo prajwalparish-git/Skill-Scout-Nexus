@@ -147,16 +147,22 @@ def subtopic(question_id: str) -> str | None:
     return _load()[1].get(question_id)
 
 
-def similar(question_id: str, avoid: Iterable[str], seed: str) -> tuple[str, Question] | None:
+def similar(
+    question_id: str, avoid: Iterable[str], seed: str, prefer: str | None = None
+) -> tuple[str, Question] | None:
     """An unseen bank question like this one: the same fine-grained topic, at its difficulty
-    or an easier one (a missed question comes back no harder). None when there is none."""
+    or an easier one (a missed question comes back no harder). `prefer`: try this level first
+    when it is no harder (the student's level now). None when there is none."""
     found, sub = get(question_id), subtopic(question_id)
     if found is None or sub is None:
         return None
     topic, difficulty, _ = found
     banned = {text_hash(t) for t in avoid} | {question_id}
     subs = _load()[1]
-    for d in DIFFICULTIES[: DIFFICULTIES.index(difficulty) + 1][::-1]:  # same level, then easier
+    levels = DIFFICULTIES[: DIFFICULTIES.index(difficulty) + 1][::-1]  # same level, then easier
+    if prefer in levels:
+        levels = (prefer, *(d for d in levels if d != prefer))
+    for d in levels:
         pool = [
             q
             for q in _questions().get((topic, d), ())

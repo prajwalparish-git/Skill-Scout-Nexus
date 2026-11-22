@@ -945,11 +945,17 @@ def pick_questions(
         picked.append(Picked(difficulty, q, review))
         avoid.append(q.text)
 
+    # Reviews off the level must leave LEVEL_MIN_QUESTIONS at it, or the level could not move.
+    off_level_room = max(0, n - LEVEL_MIN_QUESTIONS)
     for row in db.due_reviews(student_id, topic, min(REVIEW_PER_QUIZ, n // 2)):
-        found = question_bank.similar(row["qid"], avoid, seed)
+        found = question_bank.similar(row["qid"], avoid, seed, prefer=level)
         d, q = found or (row["difficulty"], Question.model_validate_json(row["question_json"]))
         if any(question_bank.qid(p.question) == question_bank.qid(q) for p in picked):
             continue
+        if d != level:
+            if off_level_room <= 0:
+                continue  # it stays queued for a later quiz
+            off_level_room -= 1
         db.mark_review_served(student_id, row["qid"], question_bank.qid(q))
         take(d, q, review=True)
     room = n - len(picked)

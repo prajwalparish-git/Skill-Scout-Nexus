@@ -4,7 +4,7 @@ Pure functions, no Streamlit import, so every rendering decision is unit-testabl
 """
 
 import re
-from collections.abc import Collection, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from html import escape
@@ -1134,6 +1134,39 @@ def run_result_md(correct: int, wrong: int, skipped: int, total: int) -> str:
         f":primary[:material/task_alt:] {', '.join(parts)}. Each topic's score counts toward "
         "its weakness in next week's plan."
     )
+
+
+LEVEL_ICONS = {
+    "easy": "signal_cellular_1_bar",
+    "medium": "signal_cellular_3_bar",
+    "hard": "signal_cellular_4_bar",
+}
+
+
+def level_badge(level: str) -> str:
+    """A topic level as a small badge: what the student's next quiz on it uses."""
+    return f":blue-badge[:material/{LEVEL_ICONS.get(level, 'tune')}: Level: {level}]"
+
+
+def topic_levels_md(topics: Sequence[str], level_of: Callable[[str], str]) -> str:
+    """Each chosen topic with the level its questions will be at."""
+    return "  \n".join(f"{md_escape(t)} {level_badge(level_of(t))}" for t in topics)
+
+
+def level_changes_md(levels: Mapping[str, tuple[str, str]]) -> str:
+    """After a quiz: each topic's level, and whether it moved."""
+    lines = []
+    for topic, (before, after) in levels.items():
+        step = DIFFICULTIES.index(after) - DIFFICULTIES.index(before)
+        name = f"**{md_escape(topic)}**"
+        if step > 0:
+            lines.append(f":green[:material/trending_up:] {name}: level up, {before} → **{after}**")
+        elif step < 0:
+            icon = ":orange[:material/trending_down:]"
+            lines.append(f"{icon} {name}: easing off, {before} → **{after}**")
+        else:
+            lines.append(f":material/trending_flat: {name}: staying at **{after}**")
+    return "  \n".join(lines)
 
 
 def next_difficulty_md(next_by_topic: Mapping[str, str]) -> str:

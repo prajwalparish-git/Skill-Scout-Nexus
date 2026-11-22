@@ -30,7 +30,8 @@ NEXT = (
     ),
     (
         "autorenew",
-        "Each topic's score sets its next difficulty and its weakness in next week's plan.",
+        "Each topic has your level: 80% or more moves it up, under 50% eases off. The score "
+        "also sets the topic's weakness in next week's plan, and missed questions come back.",
     ),
 )
 
@@ -110,16 +111,30 @@ def _setup(sid: str, profile: services.StudentProfile) -> None:
         st.progress(
             min(total / QUIZ_MAX_TOTAL, 1.0), text=f"{total} of at most {QUIZ_MAX_TOTAL} questions"
         )
-        mix = _mix(setup, chosen)
+        manual = st.toggle(
+            "Choose the difficulty mix myself",
+            key=f"quiz_manual_{sid}",
+            help="Off: each topic is asked at your level, which moves up after a quiz of 80% or "
+            "more and down under 50%. Questions you missed come back in a later quiz.",
+        )
+        if manual:
+            mix = _mix(setup, chosen)
+        else:
+            mix = {"medium": 100}  # unused: each topic is asked at its level
+            st.markdown(formatter.topic_levels_md(chosen, setup.level))
         try:
             spec = services.quiz_spec(counts, mix, domain.topics)
         except services.ServiceError as e:
             st.error(formatter.md_escape(str(e)), icon=":material/error:")
             return
-        st.dataframe(formatter.spec_table(spec.parts()), width="stretch")
+        parts = spec.parts() if manual else [(t, setup.level(t), n) for t, n in spec.counts.items()]
+        st.dataframe(formatter.spec_table(parts), width="stretch")
         st.caption(formatter.spec_note(spec.total, spec.batches, settings().mock_mode))
         if st.button("Generate quiz", type="primary", icon=":material/quiz:"):
-            run = run_agent("Quiz agent", lambda ev: services.start_quiz_run(sid, spec, ev))
+            run = run_agent(
+                "Quiz agent",
+                lambda ev: services.start_quiz_run(sid, spec, ev, adaptive=not manual),
+            )
             if run:
                 st.session_state[RUN] = run
                 st.rerun()
@@ -177,10 +192,16 @@ def _take(sid: str, run: services.QuizRun) -> None:
                 shown = part.topic
             for q in part.questions:
                 n += 1
+                review = (
+                    " :orange-badge[:material/replay: You missed one like this before]"
+                    if run.is_review(q)
+                    else ""
+                )
                 with st.container(border=True):
                     chosen.append(
                         st.radio(
-                            f"**Q{n}.** :gray[{part.difficulty}] {formatter.md_escape(q.text)}",
+                            f"**Q{n}.** :gray[{part.difficulty}]{review} "
+                            f"{formatter.md_escape(q.text)}",
                             range(4),
                             format_func=lambda j, q=q: formatter.md_escape(q.options[j]),
                             index=None,
@@ -236,7 +257,15 @@ def _review(result: services.QuizRunResult) -> None:
         st.markdown(
             formatter.run_result_md(result.correct, result.wrong, result.skipped, result.total)
         )
-        st.markdown(formatter.next_difficulty_md(result.next_difficulty))
+        if result.levels:
+            st.markdown(formatter.level_changes_md(result.levels))
+        else:
+            st.markdown(formatter.next_difficulty_md(result.next_difficulty))
+        if result.wrong or result.skipped:
+            st.caption(
+                ":material/replay: Each question you missed is explained below and comes back, "
+                "or one like it, in a later quiz on the topic."
+            )
         with st.container(horizontal=True, vertical_alignment="center"):
             if st.button("New quiz", type="primary", icon=":material/restart_alt:"):
                 proctor_guard.reset_proctor_state()
@@ -294,9 +323,9 @@ def _review(result: services.QuizRunResult) -> None:
 
 page_header(
     "Quiz",
-    "Pick one or more topics, how many questions each and the mix of easy, medium and hard. "
-    "A critic checks every question before you see it; your scores set the next difficulty "
-    "and next week's plan.",
+    "Pick one or more topics and how many questions each; every topic is asked at your level "
+    "(or choose the mix yourself). A critic checks every question before you see it; your "
+    "scores move your level and shape next week's plan.",
 )
 sid, profile = require_profile()
 
