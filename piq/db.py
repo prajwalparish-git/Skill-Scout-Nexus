@@ -60,6 +60,14 @@ SESSION_ADDED = (
 )
 # Columns certificates gained (Google Drive: the copy in the student's Drive).
 CERTIFICATE_ADDED = (("drive_file_id", "TEXT"),)
+# Columns organizations gained (proctoring: off / required / required + Safe Exam Browser).
+ORG_ADDED = (
+    (
+        "proctoring",
+        "TEXT NOT NULL DEFAULT 'off' CHECK (proctoring IN ('off', 'required', 'seb'))",
+    ),
+    ("seb_config_keys", "TEXT NOT NULL DEFAULT ''"),
+)
 
 
 def _migrate(c: sqlite3.Connection) -> None:
@@ -88,6 +96,11 @@ def _migrate(c: sqlite3.Connection) -> None:
         for name, ddl in CERTIFICATE_ADDED:
             if name not in certificate_cols:
                 c.execute(f"ALTER TABLE certificates ADD COLUMN {name} {ddl}")  # fixed identifiers
+    org_cols = {r["name"] for r in c.execute("PRAGMA table_info(organizations)")}
+    if org_cols:
+        for name, ddl in ORG_ADDED:
+            if name not in org_cols:
+                c.execute(f"ALTER TABLE organizations ADD COLUMN {name} {ddl}")  # fixed identifiers
 
 
 def init_db() -> None:
@@ -1810,3 +1823,114 @@ def set_certificate_drive_id(student_id: str, cert_id: int, file_id: str | None)
             "UPDATE certificates SET drive_file_id = ? WHERE id = ? AND student_id = ?",
             (file_id, cert_id, student_id),
         )
+
+
+# --- proctoring (core/proctoring.py, piq/proctoring.py) -------------------------------------
+
+
+def organization_proctoring(org_id: int | None) -> tuple[str, str]:
+    """(mode, seb_config_keys) of the organization; ("off", "") without one."""
+    if org_id is None:
+        return "off", ""
+    with tx() as c:
+        row = c.execute(
+            "SELECT proctoring, seb_config_keys FROM organizations WHERE id = ?", (org_id,)
+        ).fetchone()
+    return (row["proctoring"], row["seb_config_keys"]) if row else ("off", "")
+
+
+def set_organization_proctoring(org_id: int, mode: str, seb_config_keys: str) -> None:
+    with tx() as c:
+        c.execute(
+            "UPDATE organizations SET proctoring = ?, seb_config_keys = ? WHERE id = ?",
+            (mode, seb_config_keys, org_id),
+        )
+
+
+def create_proctor_attempt(
+    attempt_id: str,
+    student_id: str,
+    kind: str,
+    label: str,
+    mode: str,
+    camera: str,
+    camera_note: str,
+    now: float,
+) -> None:
+    with tx() as c:
+        c.execute(
+            "INSERT INTO proctor_attempts (id, student_id, kind, label, mode, camera, "
+            "camera_note, consent_at, started_at, last_seen) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (attempt_id, student_id, kind, label, mode, camera, camera_note, now, now, now),
+        )
+
+
+def proctor_attempt(attempt_id: str) -> sqlite3.Row | None:
+    with tx() as c:
+        return c.execute("SELECT * FROM proctor_attempts WHERE id = ?", (attempt_id,)).fetchone()
+
+
+def proctor_event_count(attempt_id: str) -> int:
+    with tx() as c:
+        return c.execute(
+            "SELECT COUNT(*) FROM proctor_events WHERE attempt_id = ?", (attempt_id,)
+        ).fetchone()[0]
+
+
+def record_proctor_events(
+    attempt_id: str,
+    events: Sequence[tuple[str, str, bool, float, float | None]],
+    *,
+    strikes: int,
+    last_clear_at: float | None,
+    breached: bool,
+    now: float,
+) -> None:
+    """Store (kind, severity, strike, at_s, duration_s) rows and the attempt's new totals in one
+    transaction (an empty batch is a heartbeat)."""
+    with tx() as c:
+        c.executemany(
+            "INSERT INTO proctor_events (attempt_id, kind, severity, strike, at_s, duration_s) "
+            "VALUES (?,?,?,?,?,?)",
+            [(attempt_id, k, sev, int(st), at, d) for k, sev, st, at, d in events],
+        )
+        c.execute(
+            "UPDATE proctor_attempts SET strikes = ?, last_clear_at = ?, breached = ?, "
+            "last_seen = ? WHERE id = ?",
+            (strikes, last_clear_at, int(breached), now, attempt_id),
+        )
+
+
+def finish_proctor_attempt(
+    attempt_id: str,
+    now: float,
+    *,
+    quiz_run_id: int | None = None,
+    interview_session_id: str | None = None,
+) -> None:
+    """End the attempt (once) and link what it proctored."""
+    with tx() as c:
+        c.execute(
+            "UPDATE proctor_attempts SET ended_at = COALESCE(ended_at, ?), "
+            "quiz_run_id = COALESCE(?, quiz_run_id), "
+            "interview_session_id = COALESCE(?, interview_session_id) WHERE id = ?",
+            (now, quiz_run_id, interview_session_id, attempt_id),
+        )
+
+
+def proctor_attempts(student_id: str, limit: int = 50) -> list[sqlite3.Row]:
+    """The student's attempts, newest first."""
+    with tx() as c:
+        return c.execute(
+            "SELECT * FROM proctor_attempts WHERE student_id = ? ORDER BY started_at DESC LIMIT ?",
+            (student_id, limit),
+        ).fetchall()
+
+
+def proctor_events(attempt_id: str) -> list[sqlite3.Row]:
+    with tx() as c:
+        return c.execute(
+            "SELECT kind, severity, strike, at_s, duration_s FROM proctor_events "
+            "WHERE attempt_id = ? ORDER BY at_s, id",
+            (attempt_id,),
+        ).fetchall()

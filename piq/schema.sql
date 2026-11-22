@@ -19,6 +19,9 @@ CREATE TABLE IF NOT EXISTS organizations (
     academic_batch      TEXT NOT NULL DEFAULT '',
     quiz_cutoff_pct     INTEGER NOT NULL DEFAULT 70,
     voice_cutoff_score  INTEGER NOT NULL DEFAULT 10,
+    proctoring          TEXT NOT NULL DEFAULT 'off'
+                        CHECK (proctoring IN ('off', 'required', 'seb')),
+    seb_config_keys     TEXT NOT NULL DEFAULT '',
     admin_verified      INTEGER NOT NULL DEFAULT 0,
     admin_failures      INTEGER NOT NULL DEFAULT 0,
     admin_locked_until  REAL NOT NULL DEFAULT 0,
@@ -436,3 +439,38 @@ CREATE TABLE IF NOT EXISTS company_practice (
     total        INTEGER NOT NULL,
     at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Proctoring (core/proctoring.py): one row per proctored quiz or interview, and its events.
+-- Only event kinds and times are kept, never video, images or landmarks. The student and their
+-- organization's admin can see them; both tables go with the account (CASCADE).
+CREATE TABLE IF NOT EXISTS proctor_attempts (
+    id                   TEXT PRIMARY KEY,
+    student_id           TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    kind                 TEXT NOT NULL CHECK (kind IN ('quiz', 'interview')),
+    label                TEXT NOT NULL,
+    mode                 TEXT NOT NULL CHECK (mode IN ('practice', 'required', 'seb')),
+    camera               TEXT NOT NULL CHECK (camera IN ('on', 'unavailable')),
+    camera_note          TEXT NOT NULL DEFAULT '',
+    consent_at           REAL NOT NULL,
+    started_at           REAL NOT NULL,
+    last_seen            REAL NOT NULL,
+    ended_at             REAL,
+    strikes              INTEGER NOT NULL DEFAULT 0,
+    last_clear_at        REAL,
+    breached             INTEGER NOT NULL DEFAULT 0,
+    quiz_run_id          INTEGER,
+    interview_session_id TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_proctor_attempts_student
+    ON proctor_attempts (student_id, started_at);
+
+CREATE TABLE IF NOT EXISTS proctor_events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    attempt_id TEXT NOT NULL REFERENCES proctor_attempts(id) ON DELETE CASCADE,
+    kind       TEXT NOT NULL,
+    severity   TEXT NOT NULL CHECK (severity IN ('clear', 'review')),
+    strike     INTEGER NOT NULL DEFAULT 0,
+    at_s       REAL NOT NULL,
+    duration_s REAL
+);
+CREATE INDEX IF NOT EXISTS idx_proctor_events_attempt ON proctor_events (attempt_id, at_s);
