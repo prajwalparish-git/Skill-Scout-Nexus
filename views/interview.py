@@ -83,9 +83,12 @@ st.progress(value, text=words)
 
 
 def _source_badge(question: str) -> str:
-    """Company practice: whether a question was reported by a student or written by the AI."""
+    """Company practice: whether a question was reported by a student, came from the open question
+    bank (general practice, never the company's), or was written by the AI."""
     if not session.script:
         return ""
+    if question in session.script and session.interview_type.startswith("General practice"):
+        return ":green-badge[:material/menu_book: General practice (open question bank)]  \n"
     if question in session.script:
         return ":orange-badge[:material/person: Reported by a student]  \n"
     return ":violet-badge[:material/smart_toy: AI question, not reported]  \n"

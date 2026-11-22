@@ -1,8 +1,10 @@
 """Company questions: interview questions students reported from their own interviews, by
 company and round, in their own words (nothing copied from any website). Browse approved posts,
 practise them (reported multiple-choice questions as a quiz, open ones as a mock interview), or
-practise with AI questions in a company's style, always marked as AI. Share your own interview:
-it is cleaned of personal details and appears once a moderator approves it."""
+practise with AI questions in a company's style, always marked as AI. Until students report a
+company, practise by round from the open question bank, labelled general practice and never
+claimed as that company's. Share your own interview: it is cleaned of personal details and
+appears once a moderator approves it."""
 
 from datetime import date
 
@@ -104,13 +106,84 @@ def _practice(sid: str, slug: str, round_: str, detail: dict) -> None:
     )
 
 
+BADGES = {
+    "ai": ":violet-badge[:material/smart_toy: AI practice, not reported by a student]",
+    "reported": ":orange-badge[:material/person: Reported by students]",
+    "open": ":green-badge[:material/menu_book: General practice (open question bank)]",
+}
+
+
+def _open_quiz_button(sid: str, slug: str, round_: str, what: str, count: int) -> None:
+    st.markdown(f"**{experiences.OPEN_ROUNDS[round_]}**")
+    st.caption(what)
+    if st.button(
+        "Quiz", icon=":material/quiz:", key=f"cq_open_{round_}", disabled=not count, width="stretch"
+    ):
+        try:
+            st.session_state[QUIZ] = (slug, experiences.open_quiz(sid, slug, round_))
+            st.session_state.pop(RESULT, None)
+            st.rerun()
+        except services.ServiceError as e:
+            st.error(formatter.md_escape(str(e)), icon=":material/error:")
+
+
+def _open_interview_button(sid: str, slug: str, round_: str, label: str) -> None:
+    if st.button(
+        label, icon=":material/record_voice_over:", key=f"cq_open_iv_{round_}", width="stretch"
+    ):
+        session = run_agent(
+            "Interview agent", lambda ev: experiences.open_interview(sid, slug, round_, ev)
+        )
+        if session:
+            st.session_state["interview"] = session
+            st.switch_page("views/interview.py")
+
+
+def _open_practice(sid: str, slug: str, practice: dict) -> None:
+    """Practice by round from the open question bank: general practice, never the company's."""
+    rounds = practice["rounds"]
+    with st.container(border=True):
+        st.markdown(BADGES["open"])
+        st.markdown("**Practice by round**")
+        st.caption(formatter.md_escape(practice["note"]))
+        apt, tech, hr = st.columns(3, gap="small")
+        with apt.container(border=True):
+            what = f"{rounds['aptitude']:,} questions with worked answers"
+            _open_quiz_button(sid, slug, "aptitude", what, rounds["aptitude"])
+        with tech.container(border=True):
+            what = f"{rounds['technical']:,} questions on your topics"
+            _open_quiz_button(sid, slug, "technical", what, rounds["technical"])
+            if practice["technical_interview"]:
+                _open_interview_button(sid, slug, "technical", "Mock interview")
+        with hr.container(border=True):
+            st.markdown("**HR**")
+            st.caption(f"{rounds['hr']} common questions with model answers")
+            _open_interview_button(sid, slug, "hr", "Mock interview")
+        with st.expander("Common HR questions with model answers", icon=":material/forum:"):
+            for n, q in enumerate(practice["hr_questions"], 1):
+                st.markdown(
+                    f"**{n}. {formatter.md_escape(q['text'])}**  \n"
+                    + formatter.md_escape(q["model_answer"])
+                )
+                if q["credit"]:
+                    st.caption(f"Question: {q['credit']}. Model answer: our own.")
+        st.page_link(
+            "views/credits.py", label="Question sources & credits", icon=":material/license:"
+        )
+
+
+def _pattern(pattern: dict | None) -> None:
+    """A test pattern only when taken from the company's own page, with that link."""
+    if not pattern:
+        return
+    with st.container(border=True):
+        st.markdown("**Test pattern (from the company's official page)**")
+        st.markdown("\n".join(f"- {formatter.md_escape(x)}" for x in pattern["sections"]))
+        st.link_button("Official source", pattern["source_url"], icon=":material/open_in_new:")
+
+
 def _take(sid: str, slug: str, quiz: experiences.PracticeQuiz) -> None:
-    ai = quiz.source == "ai"
-    badge = (
-        ":violet-badge[:material/smart_toy: AI practice, not reported by a student]"
-        if ai
-        else ":orange-badge[:material/person: Reported by students]"
-    )
+    badge = BADGES[quiz.source]
     st.subheader(f"{quiz.company} · {EXPERIENCE_ROUNDS[quiz.round]}", anchor=False)
     st.markdown(badge)
     for note in quiz.notes:
@@ -158,6 +231,7 @@ def _result(quiz: experiences.PracticeQuiz, graded: dict) -> None:
         st.markdown(
             f"{mark} **Q{n}.** {formatter.md_escape(q.text)}  \n"
             f"Answer: **{answer}**  \n:gray[{formatter.md_escape(r['explanation'])}]"
+            + (f"  \n:gray[Source: {formatter.md_escape(r['credit'])}]" if r.get("credit") else "")
         )
     if st.button("Back to browsing", type="primary", icon=":material/arrow_back:"):
         st.session_state.pop(RESULT)
@@ -177,23 +251,34 @@ def _browse(sid: str) -> None:
     round_ = st.segmented_control(
         "Round", rounds, format_func=EXPERIENCE_ROUNDS.__getitem__, key="cq_round"
     )
-    detail = experiences.company_detail(slug, round_)
+    detail = experiences.company_detail(slug, round_, sid)
     c = by_slug[slug]
+    has_reports = bool(c["rounds"])
     with st.container(horizontal=True, vertical_alignment="center"):
         st.caption(_rounds_line(c["rounds"]))
         if c["careers_url"]:
             st.link_button("Official careers page", c["careers_url"], icon=":material/open_in_new:")
+    _pattern(detail["test_pattern"])
+    if not has_reports:
+        st.info(
+            "No student reports for this company yet. Until there are, practise by round from "
+            "the open question bank. Interviewed with them? Share it in the next tab.",
+            icon=":material/forum:",
+        )
+        _open_practice(sid, slug, detail["open_practice"])
+        return
     if round_:
-        _practice(sid, slug, round_, experiences.company_detail(slug, round_))
+        _practice(sid, slug, round_, detail)
     else:
         st.caption("Choose a round to practise it.")
     if not detail["posts"]:
-        st.info(
-            "No approved posts here yet. Interviewed with them? Share it in the next tab.",
-            icon=":material/forum:",
-        )
+        st.info("No approved posts for this round yet.", icon=":material/forum:")
+    else:
+        st.markdown("**Reported by students**")
     for p in detail["posts"]:
         _post(sid, p)
+    if st.toggle("More practice: general practice by round (open question bank)", key="cq_more"):
+        _open_practice(sid, slug, detail["open_practice"])  # it holds an expander: no nesting
 
 
 def _share(sid: str, in_org: bool) -> None:

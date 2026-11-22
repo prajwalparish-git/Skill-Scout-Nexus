@@ -135,6 +135,7 @@ else:
                 ),
                 st.Page("views/dashboard.py", title="Dashboard", icon=":material/monitoring:"),
                 st.Page("views/results.py", title="Results", icon=":material/fact_check:"),
+                st.Page("views/credits.py", title="Question credits", icon=":material/license:"),
             ],
         },
         position="sidebar",

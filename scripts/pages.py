@@ -30,6 +30,7 @@ PAGES = (
     AppPage("company_questions", "Company questions", "views/company_questions.py"),
     AppPage("dashboard", "Dashboard", "views/dashboard.py"),
     AppPage("results", "Results", "views/results.py"),
+    AppPage("credits", "Question credits", "views/credits.py"),
 )
 STUDENT_ONLY = {"projects"}  # in the navigation only once a (computing) student is chosen
 

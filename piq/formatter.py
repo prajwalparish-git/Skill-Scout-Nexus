@@ -1204,9 +1204,15 @@ def grid_table(grid: Mapping[tuple[str, str], object]) -> pd.DataFrame:
 
 
 def mistake_md(n: int, topic: str, difficulty: str, question: Question, chosen: int | None) -> str:
-    """A question answered wrong or left blank: where it came from, then the review."""
+    """A question answered wrong or left blank: where it came from, then the review (and, for
+    an open-bank question, its source and licence)."""
+    from piq import question_bank  # the bank loads data: only when a review is shown
+
     head = f":gray[{md_escape(topic)} · {difficulty}]"
-    return f"{head}  \n{review_md(n, question, chosen)}"
+    body = f"{head}  \n{review_md(n, question, chosen)}"
+    if credit := question_bank.credit(question_bank.qid(question)):
+        body += f"  \n:gray[Source: {md_escape(credit)}]"
+    return body
 
 
 def run_notes(
