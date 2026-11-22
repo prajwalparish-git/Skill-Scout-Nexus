@@ -200,6 +200,22 @@ DIFFICULTY_DOWN_BELOW = 50  # a score below this suggests the next difficulty do
 LEVEL_MIN_QUESTIONS = 4
 REVIEW_PER_QUIZ = 2  # at most this many missed questions come back in one quiz on a topic
 REVIEW_MAX_MISSES = 3  # a question missed this many times leaves the review queue
+# Company interview experiences (piq/experiences.py): reported by students, approved by a human.
+EXPERIENCE_ROUNDS = {
+    "aptitude": "Aptitude",
+    "technical": "Technical",
+    "coding": "Coding",
+    "hr": "HR",
+    "group_discussion": "Group discussion",
+}
+EXPERIENCE_DAILY_MAX = 5  # posts one student may send in a day
+EXPERIENCE_PENDING_MAX = 20  # posts one student may have waiting at once
+EXPERIENCE_MAX_QUESTIONS = 20
+EXPERIENCE_QUESTION_MIN, EXPERIENCE_QUESTION_MAX = 15, 1000  # characters per question
+EXPERIENCE_TIP_MAX = 600
+EXPERIENCE_TEXT_MAX = 120  # company and role
+REPORTS_TO_HIDE = 2  # reports that hide an approved post until its moderator looks again
+LABEL_MIN_POSTERS = 5  # a college is named only once this many of a batch have approved posts
 TREND_STEP = 10  # points the latest quiz must beat (or miss) the ones before by to count as a trend
 RESUME_MAX_PDF_PAGES = 30  # pages read from a PDF resume; the rest is ignored
 RESUME_MAX_DOCX_UNZIPPED = 25 * 1024 * 1024  # bytes a DOCX may unpack to (zip-bomb guard)

@@ -1511,3 +1511,219 @@ def record_reviews(
                          misses = review_queue.misses + 1, missed_at = CURRENT_TIMESTAMP""",
                     (student_id, h, topic, difficulty, q.model_dump_json()),
                 )
+
+
+# --- company interview experiences ---------------------------------------------------
+
+EXPERIENCE_FIELDS = (
+    "student_id",
+    "org_id",
+    "org_short",
+    "batch_year",
+    "show_college",
+    "company_slug",
+    "company_name",
+    "role",
+    "round",
+    "interview_month",
+    "tip",
+    "flags",
+    "content_hash",
+)
+
+
+def add_experience(fields: Mapping[str, object], questions: Sequence[Mapping[str, object]]) -> int:
+    """A cleaned, pending post and its questions, in one transaction."""
+    with tx() as c:
+        cur = c.execute(
+            f"INSERT INTO interview_experiences ({', '.join(EXPERIENCE_FIELDS)}) "
+            f"VALUES ({', '.join('?' * len(EXPERIENCE_FIELDS))})",
+            [fields[k] for k in EXPERIENCE_FIELDS],
+        )
+        c.executemany(
+            """INSERT INTO experience_questions
+               (experience_id, position, kind, text, options_json, correct_index, explanation)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            [
+                (
+                    cur.lastrowid,
+                    i,
+                    q["kind"],
+                    q["text"],
+                    json.dumps(q.get("options") or []),
+                    q.get("correct_index"),
+                    q.get("explanation", ""),
+                )
+                for i, q in enumerate(questions)
+            ],
+        )
+        return cur.lastrowid
+
+
+def experience_posts_since(student_id: str, since: str) -> int:
+    with tx() as c:
+        return c.execute(
+            "SELECT COUNT(*) FROM interview_experiences WHERE student_id = ? AND created_at >= ?",
+            (student_id, since),
+        ).fetchone()[0]
+
+
+def experience_pending_count(student_id: str) -> int:
+    with tx() as c:
+        return c.execute(
+            "SELECT COUNT(*) FROM interview_experiences "
+            "WHERE student_id = ? AND status = 'pending'",
+            (student_id,),
+        ).fetchone()[0]
+
+
+def experience_hash_taken(content_hash: str) -> bool:
+    """A pending, approved or hidden post with the same questions already exists."""
+    with tx() as c:
+        return (
+            c.execute(
+                "SELECT 1 FROM interview_experiences "
+                "WHERE content_hash = ? AND status != 'rejected'",
+                (content_hash,),
+            ).fetchone()
+            is not None
+        )
+
+
+def experience(experience_id: int) -> sqlite3.Row | None:
+    with tx() as c:
+        return c.execute(
+            "SELECT * FROM interview_experiences WHERE id = ?", (experience_id,)
+        ).fetchone()
+
+
+def experience_questions(experience_ids: Sequence[int]) -> dict[int, list[sqlite3.Row]]:
+    """Each post's questions, in order."""
+    if not experience_ids:
+        return {}
+    marks = ", ".join("?" * len(experience_ids))
+    with tx() as c:
+        rows = c.execute(
+            f"SELECT * FROM experience_questions WHERE experience_id IN ({marks}) "
+            "ORDER BY experience_id, position",
+            list(experience_ids),
+        ).fetchall()
+    out: dict[int, list[sqlite3.Row]] = {i: [] for i in experience_ids}
+    for r in rows:
+        out[r["experience_id"]].append(r)
+    return out
+
+
+def experiences_of(student_id: str) -> list[sqlite3.Row]:
+    with tx() as c:
+        return c.execute(
+            "SELECT * FROM interview_experiences WHERE student_id = ? ORDER BY id DESC",
+            (student_id,),
+        ).fetchall()
+
+
+def experiences_to_review(org_id: int | None) -> list[sqlite3.Row]:
+    """Pending or hidden posts for one moderator: an organization's own students' posts, or
+    (None) individual learners' posts, oldest first."""
+    clause = "org_id = ?" if org_id is not None else "org_id IS NULL"
+    params = (org_id,) if org_id is not None else ()
+    with tx() as c:
+        return c.execute(
+            f"SELECT * FROM interview_experiences WHERE {clause} "
+            "AND status IN ('pending', 'hidden') ORDER BY id",
+            params,
+        ).fetchall()
+
+
+def review_experience(
+    experience_id: int,
+    status: str,
+    reviewed_by: str,
+    reason: str = "",
+    company: tuple[str, str] | None = None,
+) -> None:
+    with tx() as c:
+        c.execute(
+            """UPDATE interview_experiences SET status = ?, reviewed_by = ?, reject_reason = ?,
+                 reviewed_at = CURRENT_TIMESTAMP,
+                 company_slug = COALESCE(?, company_slug), company_name = COALESCE(?, company_name)
+               WHERE id = ?""",
+            (status, reviewed_by, reason, *(company or (None, None)), experience_id),
+        )
+        if status == "approved":  # a fresh approval starts its report count again
+            c.execute("DELETE FROM experience_reports WHERE experience_id = ?", (experience_id,))
+
+
+def report_experience(experience_id: int, student_id: str, hide_at: int) -> int:
+    """Record one student's report; at `hide_at` reports the post is hidden. Returns reports."""
+    with tx() as c:
+        c.execute(
+            "INSERT OR IGNORE INTO experience_reports (experience_id, student_id) VALUES (?, ?)",
+            (experience_id, student_id),
+        )
+        n = c.execute(
+            "SELECT COUNT(*) FROM experience_reports WHERE experience_id = ?", (experience_id,)
+        ).fetchone()[0]
+        if n >= hide_at:
+            c.execute(
+                "UPDATE interview_experiences SET status = 'hidden' "
+                "WHERE id = ? AND status = 'approved'",
+                (experience_id,),
+            )
+        return n
+
+
+def approved_experience_counts() -> list[sqlite3.Row]:
+    """Per company and round: approved posts and their questions."""
+    with tx() as c:
+        return c.execute(
+            """SELECT e.company_slug, e.company_name, e.round, COUNT(DISTINCT e.id) AS posts,
+                      COUNT(q.id) AS questions
+               FROM interview_experiences e
+               LEFT JOIN experience_questions q ON q.experience_id = e.id
+               WHERE e.status = 'approved'
+               GROUP BY e.company_slug, e.company_name, e.round"""
+        ).fetchall()
+
+
+def approved_experiences(company_slug: str, round_: str | None = None) -> list[sqlite3.Row]:
+    with tx() as c:
+        return c.execute(
+            "SELECT * FROM interview_experiences WHERE status = 'approved' AND company_slug = ? "
+            "AND (? IS NULL OR round = ?) ORDER BY interview_month DESC, id DESC",
+            (company_slug, round_, round_),
+        ).fetchall()
+
+
+def approved_posters_by_batch() -> dict[tuple[int, str], int]:
+    """(org id, batch year) -> distinct students with an approved post: how big a batch is."""
+    with tx() as c:
+        rows = c.execute(
+            """SELECT org_id, batch_year, COUNT(DISTINCT student_id) AS n
+               FROM interview_experiences
+               WHERE status = 'approved' AND org_id IS NOT NULL GROUP BY org_id, batch_year"""
+        ).fetchall()
+    return {(r["org_id"], r["batch_year"]): r["n"] for r in rows}
+
+
+def approved_company_questions(company_slug: str, round_: str, kind: str) -> list[sqlite3.Row]:
+    with tx() as c:
+        return c.execute(
+            """SELECT q.* FROM experience_questions q
+               JOIN interview_experiences e ON e.id = q.experience_id
+               WHERE e.status = 'approved' AND e.company_slug = ? AND e.round = ? AND q.kind = ?
+               ORDER BY e.id DESC, q.position""",
+            (company_slug, round_, kind),
+        ).fetchall()
+
+
+def save_company_practice(
+    student_id: str, company_slug: str, round_: str, source: str, correct: int, total: int
+) -> None:
+    with tx() as c:
+        c.execute(
+            """INSERT INTO company_practice
+               (student_id, company_slug, round, source, correct, total)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (student_id, company_slug, round_, source, correct, total),
+        )

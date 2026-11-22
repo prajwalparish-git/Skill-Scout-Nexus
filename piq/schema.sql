@@ -344,3 +344,70 @@ CREATE TABLE IF NOT EXISTS review_queue (
 );
 
 CREATE INDEX IF NOT EXISTS idx_review_due ON review_queue (student_id, topic, status);
+
+-- Interview experiences students report in their own words (piq/experiences.py): our own bank,
+-- never copied from another site. Pending until a human approves: the poster's organization
+-- admin, or the operations view for an individual learner (org_id NULL). The poster is never
+-- shown: browse shows a label worked out when read ("a <college> student, <year>", or
+-- "a student, <year>" for small batches, hidden colleges and individual learners).
+CREATE TABLE IF NOT EXISTS interview_experiences (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id      TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    org_id          INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
+    org_short       TEXT NOT NULL DEFAULT '',
+    batch_year      TEXT NOT NULL DEFAULT '',
+    show_college    INTEGER NOT NULL DEFAULT 1,
+    company_slug    TEXT NOT NULL,
+    company_name    TEXT NOT NULL,
+    role            TEXT NOT NULL,
+    round           TEXT NOT NULL
+                    CHECK (round IN ('aptitude', 'technical', 'hr', 'coding', 'group_discussion')),
+    interview_month TEXT NOT NULL,
+    tip             TEXT NOT NULL DEFAULT '',
+    status          TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending', 'approved', 'rejected', 'hidden')),
+    flags           TEXT NOT NULL DEFAULT '[]',
+    reject_reason   TEXT NOT NULL DEFAULT '',
+    reviewed_by     TEXT NOT NULL DEFAULT '',
+    reviewed_at     TIMESTAMP,
+    content_hash    TEXT NOT NULL,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_experiences_browse ON interview_experiences (status, company_slug, round);
+CREATE INDEX IF NOT EXISTS idx_experiences_student ON interview_experiences (student_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_experiences_org ON interview_experiences (org_id, status);
+
+CREATE TABLE IF NOT EXISTS experience_questions (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    experience_id INTEGER NOT NULL REFERENCES interview_experiences(id) ON DELETE CASCADE,
+    position      INTEGER NOT NULL,
+    kind          TEXT NOT NULL CHECK (kind IN ('open', 'mcq')),
+    text          TEXT NOT NULL,
+    options_json  TEXT NOT NULL DEFAULT '[]',
+    correct_index INTEGER,
+    explanation   TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_experience_questions ON experience_questions (experience_id, position);
+
+-- One report per student per post; enough reports hide a post until its moderator looks again.
+CREATE TABLE IF NOT EXISTS experience_reports (
+    experience_id INTEGER NOT NULL REFERENCES interview_experiences(id) ON DELETE CASCADE,
+    student_id    TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (experience_id, student_id)
+);
+
+-- Company practice scores, kept apart from quiz_attempts: they never move a syllabus topic's
+-- level, weakness or the weekly plan.
+CREATE TABLE IF NOT EXISTS company_practice (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id   TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    company_slug TEXT NOT NULL,
+    round        TEXT NOT NULL,
+    source       TEXT NOT NULL CHECK (source IN ('reported', 'ai')),
+    correct      INTEGER NOT NULL,
+    total        INTEGER NOT NULL,
+    at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
