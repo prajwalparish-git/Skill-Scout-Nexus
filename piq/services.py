@@ -9,6 +9,7 @@ import csv
 import json
 import math
 import re
+import shutil
 import sqlite3
 import uuid
 from collections import Counter, defaultdict
@@ -16,6 +17,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal, Self
 from zoneinfo import ZoneInfo
 
@@ -24,6 +26,8 @@ from pydantic import BaseModel, model_validator
 from piq import agents, checks, db, degrees, question_bank, resume_builder, scorecard, syllabus
 from piq.config import (
     BULLET_MAX_CHARS,
+    CERTIFICATE_MAX_BYTES,
+    CERTIFICATE_TEXT_MAX,
     CRITERION_WEAK_BELOW,
     DATA_DIR,
     DEFAULT_SAMPLE,
@@ -45,6 +49,7 @@ from piq.config import (
     TREND_STEP,
     USERNAME_RE,
     WEAK_THRESHOLD,
+    settings,
 )
 from piq.graph import OnEvent
 from piq.resume import ResumeError as ResumeError  # re-exported: views catch it via services
@@ -178,6 +183,7 @@ def delete_student(student_id: str | None, confirm_username: str | None) -> None
     if (confirm_username or "").strip().lower() != student["username"]:
         raise ServiceError("That is not this account's username; nothing was deleted.")
     db.delete_student(student["id"])
+    remove_certificate_files(student["id"])
 
 
 def list_students() -> list[sqlite3.Row]:
@@ -1648,3 +1654,114 @@ def evaluation_scorecard(summary: Mapping | None = None) -> scorecard.Scorecard 
     return scorecard.build(
         summary, _csv_rows("cases.csv"), _csv_rows("questions.csv"), _csv_rows("interviews.csv")
     )
+
+
+# --- certificates ----------------------------------------------------------------------
+
+PDF_MAGIC = b"%PDF-"
+_SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_UNSAFE_NAME_CHARS = re.compile(r"[^A-Za-z0-9._ ()-]+")
+
+
+def _certificate_dir(student_id: str) -> Path:
+    """The student's own folder; their id is a hex uuid, checked so it can never be a path."""
+    if not _SAFE_ID.match(student_id):
+        raise ServiceError("This account cannot store files.")
+    return settings().certificates_dir / student_id
+
+
+def _clean_filename(filename: str) -> str:
+    """The base name only, in safe characters, ending in .pdf."""
+    name = re.split(r"[\/]", filename or "")[-1].strip()
+    if not name.lower().endswith(".pdf"):
+        raise ServiceError("Upload a PDF file (its name must end in .pdf).")
+    stem = _UNSAFE_NAME_CHARS.sub("_", name[:-4]).strip(" ._") or "certificate"
+    return stem[: CERTIFICATE_TEXT_MAX - 4] + ".pdf"
+
+
+def _required_text(value: str, what: str) -> str:
+    value = (value or "").strip()
+    if not 1 <= len(value) <= CERTIFICATE_TEXT_MAX:
+        raise ServiceError(f"{what} is required, up to {CERTIFICATE_TEXT_MAX} characters.")
+    return value
+
+
+def _issue_date(value: str | date | None) -> str | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, date):
+        day = value
+    else:
+        try:
+            day = date.fromisoformat(value.strip())
+        except ValueError as e:
+            raise ServiceError("The issue date must be a date like 2026-05-31.") from e
+    if day > datetime.now(ZoneInfo(TIMEZONE)).date():
+        raise ServiceError("The issue date cannot be in the future.")
+    return day.isoformat()
+
+
+def save_certificate(
+    student_id: str,
+    *,
+    title: str,
+    issuer: str,
+    filename: str,
+    data: bytes,
+    issue_date: str | date | None = None,
+) -> int:
+    """Check and store an uploaded certificate: a real PDF (by its first bytes, not only its
+    name) of at most CERTIFICATE_MAX_BYTES. The file is written first under a random name,
+    and removed again if the row cannot be saved. Returns the certificate's id."""
+    fields: dict[str, object] = {
+        "title": _required_text(title, "A title"),
+        "issuer": _required_text(issuer, "The issuer"),
+        "issue_date": _issue_date(issue_date),
+        "filename": _clean_filename(filename),
+    }
+    if not data:
+        raise ServiceError("The file is empty.")
+    if len(data) > CERTIFICATE_MAX_BYTES:
+        raise ServiceError(f"A certificate can be at most {CERTIFICATE_MAX_BYTES // 2**20} MB.")
+    if not data.startswith(PDF_MAGIC):
+        raise ServiceError("That file is not a PDF.")
+    folder = _certificate_dir(student_id)
+    folder.mkdir(parents=True, exist_ok=True)
+    stored = f"{uuid.uuid4().hex}.pdf"
+    path = folder / stored
+    path.write_bytes(data)
+    fields |= {"stored_name": stored, "size_bytes": len(data)}
+    try:
+        return db.add_certificate(student_id, fields)
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
+
+
+def certificates(student_id: str) -> list[sqlite3.Row]:
+    return db.certificates(student_id)
+
+
+def certificate_file(student_id: str, cert_id: int) -> tuple[sqlite3.Row, Path] | None:
+    """The certificate and its file, or None when it is not this student's or the file is
+    gone."""
+    row = db.certificate(student_id, cert_id)
+    if row is None:
+        return None
+    path = _certificate_dir(student_id) / row["stored_name"]
+    return (row, path) if path.is_file() else None
+
+
+def delete_certificate(student_id: str, cert_id: int) -> bool:
+    """Delete the certificate and its file; False when it is not this student's."""
+    row = db.delete_certificate(student_id, cert_id)
+    if row is None:
+        return False
+    (_certificate_dir(student_id) / row["stored_name"]).unlink(missing_ok=True)
+    return True
+
+
+def remove_certificate_files(student_id: str) -> None:
+    """Every certificate file of a deleted account (its rows went with it, by cascade)."""
+    if _SAFE_ID.match(student_id):
+        shutil.rmtree(settings().certificates_dir / student_id, ignore_errors=True)
