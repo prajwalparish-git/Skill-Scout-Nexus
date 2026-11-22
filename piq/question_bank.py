@@ -1,10 +1,12 @@
 """The question bank: vetted multiple-choice questions, served instantly or mixed into quizzes.
 
-data/questions/mcq_bank.csv is the bank (its raw source, MCQ.csv, is not committed);
-data/bank_topics.json maps each of its fine-grained topics to the syllabus topic it serves
-(career_catalog.json), or to null. Without the CSV the bank is empty and every quiz question
-is generated, as before. Questions whose
-options repeat, whose answer letter is invalid or whose text repeats another's are skipped.
+data/questions/mcq_bank.csv is our own bank (its raw source, MCQ.csv, is not committed), and
+data/questions/open_bank.csv the open question bank: openly licensed questions with answers,
+each row naming its source and licence (piq/open_questions.py; open_bank_full.csv, the optional
+full import, replaces it when present). data/bank_topics.json maps each fine-grained topic to the
+syllabus topic it serves (career_catalog.json), or to null. Without the CSVs the bank is empty
+and every quiz question is generated, as before. Questions whose options repeat, whose answer
+letter is invalid or whose text repeats another's are skipped (our own bank comes first).
 Pure data, no Streamlit.
 """
 
@@ -13,9 +15,11 @@ import json
 import random
 from collections.abc import Iterable
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import ValidationError
 
+from piq import open_questions
 from piq.checks import text_hash
 from piq.config import DATA_DIR, DIFFICULTIES
 from piq.schemas import Question
@@ -31,45 +35,106 @@ def topic_map() -> dict[str, str | None]:
     return json.loads(TOPIC_MAP.read_text(encoding="utf-8"))["topics"]
 
 
-def _question(row: dict[str, str]) -> Question | None:
+def problems(row: dict[str, str]) -> str | None:
+    """Why a bank row cannot be a question (None when it can): four non-empty options that
+    differ, one valid answer letter, and a question the quiz schema accepts. Used by the
+    loader, scripts/verify_and_ingest_mcq.py and scripts/import_open_questions.py."""
     options = [(row.get(f"option_{c}") or "").strip() for c in "abcd"]
     letter = (row.get("correct_option") or "").strip().upper()
-    if letter not in _LETTERS or not all(options) or len({o.lower() for o in options}) < 4:
-        return None
+    if not all(options):
+        return "an option is empty"
+    if len({" ".join(o.lower().split()) for o in options}) < 4:
+        return "options repeat"
+    if len(letter) != 1 or letter not in _LETTERS:
+        return "no valid answer letter"
     try:
-        return Question(
-            text=(row.get("question") or "").strip(),
-            options=options,
-            correct_index=_LETTERS.index(letter),
-            explanation=(row.get("explanation") or "").strip() or "From the question bank.",
-            bloom_level=row.get("bloom_level") or "understand",
-        )
+        _build(row, options, letter)
     except ValidationError:
-        return None
+        return "the question or explanation is not usable"
+    return None
+
+
+def _build(row: dict[str, str], options: list[str], letter: str) -> Question:
+    return Question(
+        text=(row.get("question") or "").strip(),
+        options=options,
+        correct_index=_LETTERS.index(letter),
+        explanation=(row.get("explanation") or "").strip() or "From the question bank.",
+        bloom_level=row.get("bloom_level") or "understand",
+    )
+
+
+def as_question(row: dict[str, str]) -> Question:
+    """A row that passed problems() as a quiz question."""
+    options = [(row.get(f"option_{c}") or "").strip() for c in "abcd"]
+    return _build(row, options, (row.get("correct_option") or "").strip().upper())
+
+
+def _question(row: dict[str, str]) -> Question | None:
+    return None if problems(row) else as_question(row)
+
+
+def _files() -> list[tuple[str, Path]]:
+    """(default source, path): our own bank first, then the open bank (the full import when
+    present). A row's own `source` column wins over the default."""
+    full = open_questions.OPEN_BANK_FULL
+    return [("own", BANK), ("open", full if full.is_file() else open_questions.OPEN_BANK)]
+
+
+Loaded = tuple[
+    dict[tuple[str, str], tuple[Question, ...]], dict[str, str], dict[str, tuple[str, bool]]
+]
 
 
 @lru_cache(maxsize=1)
-def _load() -> tuple[dict[tuple[str, str], tuple[Question, ...]], dict[str, str]]:
+def _load() -> Loaded:
     """((syllabus topic, difficulty) -> distinct valid questions in file order, question id ->
-    the bank's own fine-grained topic, e.g. SQL_Joins: what "a similar question" shares)."""
-    if not BANK.is_file():
-        return {}, {}
+    the bank's own fine-grained topic, e.g. SQL_Joins: what "a similar question" shares,
+    question id -> (source key, modified))."""
     mapping = topic_map()
     out: dict[tuple[str, str], list[Question]] = {}
     subtopics: dict[str, str] = {}
-    with BANK.open(encoding="utf-8", newline="") as f:
-        for row in csv.DictReader(f):
-            raw = (row.get("topic") or "").strip()
-            topic = mapping.get(raw)
-            difficulty = (row.get("difficulty") or "").strip().lower()
-            if topic is None or difficulty not in DIFFICULTIES:
-                continue
-            q = _question(row)
-            if q is None or (h := text_hash(q.text)) in subtopics:
-                continue
-            subtopics[h] = raw
-            out.setdefault((topic, difficulty), []).append(q)
-    return {k: tuple(v) for k, v in out.items()}, subtopics
+    origin: dict[str, tuple[str, bool]] = {}
+    for default, path in _files():
+        if not path.is_file():
+            continue
+        with path.open(encoding="utf-8", newline="") as f:
+            for row in csv.DictReader(f):
+                raw = (row.get("topic") or "").strip()
+                topic = mapping.get(raw)
+                difficulty = (row.get("difficulty") or "").strip().lower()
+                if topic is None or difficulty not in DIFFICULTIES:
+                    continue
+                q = _question(row)
+                if q is None or (h := text_hash(q.text)) in subtopics:
+                    continue
+                subtopics[h] = raw
+                origin[h] = (row.get("source") or default, row.get("modified") == "1")
+                out.setdefault((topic, difficulty), []).append(q)
+    return {k: tuple(v) for k, v in out.items()}, subtopics, origin
+
+
+def own_hashes() -> set[str]:
+    """Duplicate hashes of every question in our own bank (the import never repeats one)."""
+    return {h for h, (src, _) in _load()[2].items() if src == "own"}
+
+
+def source(question_id: str) -> tuple[str, bool] | None:
+    """(source key, modified) of a bank question: "own", "aqua_rat", "mmlu", ..."""
+    return _load()[2].get(question_id)
+
+
+def credit(question_id: str) -> str:
+    """The credit line for an open-bank question ("" for our own and unknown questions)."""
+    found = source(question_id)
+    return open_questions.credit(*found) if found else ""
+
+
+def counts_by_source() -> dict[str, int]:
+    out: dict[str, int] = {}
+    for src, _ in _load()[2].values():
+        out[src] = out.get(src, 0) + 1
+    return out
 
 
 def _questions() -> dict[tuple[str, str], tuple[Question, ...]]:
@@ -177,3 +242,4 @@ def clear_cache() -> None:
     topic_map.cache_clear()
     _load.cache_clear()
     _by_id.cache_clear()
+    open_questions.clear_cache()
