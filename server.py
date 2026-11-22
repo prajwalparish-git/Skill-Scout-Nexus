@@ -209,21 +209,57 @@ def roles_for_degree(degree: str, specialization: str = "", status: str = "Compl
 def quiz(
     request: Request,
     topic: str,
-    difficulty: str = "medium",
+    difficulty: str | None = None,
     count: int = INSTANT_QUIZ_SIZE,
     candidate_id: str | None = None,
 ) -> dict:
-    """Bank questions without their answers: the submit route grades them. A guest names no
-    student; naming one needs that student's session."""
+    """Questions without their answers: the submit route grades them. A guest names no
+    student; naming one needs that student's session. A student who names no difficulty gets
+    their level on the topic (adaptive: missed questions come back, flagged `review`); naming
+    one keeps it exactly as asked, from the bank."""
     authorize(request, candidate_id)
-    q = services.instant_quiz(topic, difficulty, count, candidate_id or None)
+    if candidate_id and difficulty is None:
+        a = services.adaptive_quiz(candidate_id, topic, count)
+        return {
+            "topic": a.topic,
+            "difficulty": a.level,
+            "level": a.level,
+            "adaptive": True,
+            "questions": [
+                {
+                    "id": question_bank.qid(p.question),
+                    "text": p.question.text,
+                    "options": p.question.options,
+                    "difficulty": p.difficulty,
+                    "review": p.review,
+                }
+                for p in a.items
+            ],
+        }
+    q = services.instant_quiz(topic, difficulty or "medium", count, candidate_id or None)
     return {
         "topic": q.topic,
         "difficulty": q.difficulty,
+        "level": services.suggested_difficulty(candidate_id, topic) if candidate_id else None,
+        "adaptive": False,
         "questions": [
-            {"id": question_bank.qid(x), "text": x.text, "options": x.options} for x in q.questions
+            {
+                "id": question_bank.qid(x),
+                "text": x.text,
+                "options": x.options,
+                "difficulty": q.difficulty,
+                "review": False,
+            }
+            for x in q.questions
         ],
     }
+
+
+@app.get("/api/quiz/levels/{candidate_id}", dependencies=[Depends(owner)])
+def quiz_levels(candidate_id: str) -> dict:
+    """The student's level per topic (topics never quizzed are absent: they start at medium)."""
+    _student(candidate_id)
+    return {"levels": services.topic_levels(candidate_id)}
 
 
 class Answer(BaseModel):
@@ -265,6 +301,9 @@ def quiz_submit(body: QuizSubmission, request: Request) -> dict:
         "correct": result.correct,
         "total": len(result.chosen),
         "next_difficulty": result.next_difficulty,
+        "level_before": result.level_before,
+        "level_after": result.level_after,
+        "level_changed": result.level_before != result.level_after,
         "review": review,
         "weakness": weakness,
     }
@@ -346,6 +385,7 @@ def dashboard(candidate_id: str) -> dict:
         "mastery": [asdict(m) for m in d.mastery],
         "quiz_history": _rows(d.quiz_history),
         "sessions": _rows(d.sessions),
+        "levels": services.topic_levels(candidate_id),
     }
 
 
