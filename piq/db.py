@@ -1318,3 +1318,49 @@ def project_updates(student_id: str) -> list[sqlite3.Row]:
                WHERE p.student_id = ? ORDER BY u.created_at DESC, u.id DESC""",
             (student_id,),
         ).fetchall()
+
+
+# --- certificates ---------------------------------------------------------------
+
+CERTIFICATE_FIELDS = ("title", "issuer", "issue_date", "filename", "stored_name", "size_bytes")
+
+
+def add_certificate(student_id: str, fields: Mapping[str, object]) -> int:
+    """Record an uploaded certificate (the caller has validated it and written the file)."""
+    with tx() as c:
+        cur = c.execute(
+            """INSERT INTO certificates
+               (student_id, title, issuer, issue_date, filename, stored_name, size_bytes)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (student_id, *(fields[k] for k in CERTIFICATE_FIELDS)),
+        )
+        return cur.lastrowid
+
+
+def certificates(student_id: str) -> list[sqlite3.Row]:
+    """The student's certificates, newest upload first."""
+    with tx() as c:
+        return c.execute(
+            "SELECT * FROM certificates WHERE student_id = ? ORDER BY uploaded_at DESC, id DESC",
+            (student_id,),
+        ).fetchall()
+
+
+def certificate(student_id: str, cert_id: int) -> sqlite3.Row | None:
+    """One certificate, only when it is this student's."""
+    with tx() as c:
+        return c.execute(
+            "SELECT * FROM certificates WHERE id = ? AND student_id = ?", (cert_id, student_id)
+        ).fetchone()
+
+
+def delete_certificate(student_id: str, cert_id: int) -> sqlite3.Row | None:
+    """Delete one of the student's certificates; returns the deleted row (so the caller can
+    remove its file), or None when it is not theirs."""
+    with tx() as c:
+        row = c.execute(
+            "SELECT * FROM certificates WHERE id = ? AND student_id = ?", (cert_id, student_id)
+        ).fetchone()
+        if row is not None:
+            c.execute("DELETE FROM certificates WHERE id = ?", (cert_id,))
+        return row

@@ -164,6 +164,9 @@ EXPERIENCE_TYPES = (
 )
 RESUME_MASTERY_AT = 70  # recent quiz average (%) at which a topic's skills belong on the resume
 PROJECT_STATUSES = ("Idea", "In progress", "Done")
+# Certificates a student uploads (piq/services.py): PDFs only, checked by their first bytes.
+CERTIFICATE_MAX_BYTES = 5 * 1024 * 1024
+CERTIFICATE_TEXT_MAX = 120  # title, issuer and file name
 INTERVIEW_MAX_TURNS = 5
 CRITERION_WEAK_BELOW = 3.0  # an interview criterion averaging below this gets a tip
 # One fixed tip per rubric criterion (the evaluator's four), shown when it averages low.
@@ -324,6 +327,8 @@ class Settings:
     smtp_host: str = SMTP_HOST
     smtp_port: int = SMTP_PORT
     mail_outbox_path: Path = DATA_DIR / ".mail_outbox.log"
+    # Uploaded certificate PDFs, one folder per student (git-ignored).
+    certificates_dir: Path = DATA_DIR / "certificates"
     app_url: str = "http://localhost:3000"  # the links in every email (core/mailer.py)
     support_email: str = ""  # shown in the email footer when set
     # core/auth.py: an optional secret mixed into every password hash (never stored in the DB).
@@ -435,6 +440,7 @@ def settings() -> Settings:
         smtp_host=os.getenv("SMTP_HOST", "").strip() or SMTP_HOST,
         smtp_port=_number("SMTP_PORT", SMTP_PORT),
         mail_outbox_path=Path(os.getenv("MAIL_OUTBOX_PATH", str(DATA_DIR / ".mail_outbox.log"))),
+        certificates_dir=Path(os.getenv("CERTIFICATES_DIR", str(DATA_DIR / "certificates"))),
         app_url=(os.getenv("APP_URL", "").strip() or "http://localhost:3000").rstrip("/"),
         support_email=os.getenv("SUPPORT_EMAIL", "").strip(),
         auth_pepper=os.getenv("AUTH_PEPPER", ""),

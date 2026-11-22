@@ -21,13 +21,13 @@ import threading
 from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager
 from dataclasses import asdict
-from typing import Any
+from typing import Annotated, Any
 
 from dotenv import dotenv_values
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, ValidationError
 
 from core import calendar_export
@@ -43,6 +43,7 @@ from piq import (
     syllabus,
 )
 from piq.config import (
+    CERTIFICATE_MAX_BYTES,
     INSTANT_QUIZ_SIZE,
     QUIZ_MAX_PER_TOPIC,
     RESUME_MAX_EDUCATION,
@@ -346,6 +347,82 @@ def dashboard(candidate_id: str) -> dict:
         "quiz_history": _rows(d.quiz_history),
         "sessions": _rows(d.sessions),
     }
+
+
+# --- certificates: PDFs the student uploads ----------
+
+CERTIFICATE_FORM_SLACK = 64 * 1024  # room for the multipart framing and the text fields
+
+
+def _certificate(row: Any) -> dict:
+    return {
+        k: row[k]
+        for k in ("id", "title", "issuer", "issue_date", "filename", "size_bytes", "uploaded_at")
+    }
+
+
+def _certificate_list(candidate_id: str) -> list[dict]:
+    return [_certificate(r) for r in services.certificates(candidate_id)]
+
+
+@app.get("/api/certificates/{candidate_id}", dependencies=[Depends(owner)])
+def certificates(candidate_id: str) -> list[dict]:
+    """The student's certificates, newest first."""
+    return _certificate_list(candidate_id)
+
+
+@app.post("/api/certificates/{candidate_id}", dependencies=[Depends(owner)])
+def certificate_upload(
+    candidate_id: str,
+    request: Request,
+    file: Annotated[UploadFile, File()],
+    title: Annotated[str, Form(max_length=500)],
+    issuer: Annotated[str, Form(max_length=500)],
+    issue_date: Annotated[str | None, Form(max_length=20)] = None,
+) -> dict:
+    """Upload one certificate PDF (multipart form): at most 5 MB, checked by its first bytes."""
+    too_big = f"A certificate can be at most {CERTIFICATE_MAX_BYTES // 2**20} MB."
+    length = request.headers.get("content-length", "")
+    if length.isdigit() and int(length) > CERTIFICATE_MAX_BYTES + CERTIFICATE_FORM_SLACK:
+        raise ServiceError(too_big)
+    data = file.file.read(CERTIFICATE_MAX_BYTES + 1)  # one byte over is enough to refuse
+    cert_id = services.save_certificate(
+        candidate_id,
+        title=title,
+        issuer=issuer,
+        issue_date=issue_date,
+        filename=file.filename or "",
+        data=data,
+    )
+    found = services.certificate_file(candidate_id, cert_id)
+    if found is None:  # only if the disk lost the file it was just given
+        raise HTTPException(500, "The certificate was not saved. Try again.")
+    return _certificate(found[0])
+
+
+@app.get("/api/certificates/{candidate_id}/{cert_id}/file", dependencies=[Depends(owner)])
+def certificate_download(candidate_id: str, cert_id: int) -> FileResponse:
+    """The PDF itself, shown in the browser (inline); its name comes from the upload."""
+    found = services.certificate_file(candidate_id, cert_id)
+    if found is None:
+        raise HTTPException(404, "No such certificate.")
+    row, path = found
+    return FileResponse(
+        path,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{row["filename"]}"',
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@app.post("/api/certificates/{candidate_id}/{cert_id}/delete", dependencies=[Depends(owner)])
+def certificate_delete(candidate_id: str, cert_id: int) -> list[dict]:
+    """Delete one certificate and its file; returns the list that remains."""
+    if not services.delete_certificate(candidate_id, cert_id):
+        raise HTTPException(404, "No such certificate.")
+    return _certificate_list(candidate_id)
 
 
 # --- interviews: server-sent events ----------

@@ -5,6 +5,7 @@ import streamlit as st
 
 from core import calendar_export
 from piq import charts, formatter, services, ui
+from piq.config import CERTIFICATE_TEXT_MAX
 from piq.ui import Stat, empty_state, page_header, require_profile, stat_row
 
 
@@ -71,6 +72,75 @@ def _syllabus(d: services.Dashboard) -> None:
                     st.caption("None: you have tried every topic of your domain.")
         if syl.others:
             st.caption("Add any topic of your domain to a quiz; it is tracked from then on.")
+
+
+def _certificate_card(sid: str, row) -> None:
+    cid = row["id"]
+    with st.container(border=True, gap="small"):
+        st.markdown(f"**{formatter.md_escape(row['title'])}**")
+        issued = f" · issued {row['issue_date']}" if row["issue_date"] else ""
+        st.caption(f"{formatter.md_escape(row['issuer'])}{issued}")
+        st.caption(f"{formatter.md_escape(row['filename'])} · {row['size_bytes'] / 1024:,.0f} KB")
+        found = services.certificate_file(sid, cid)
+        with st.container(horizontal=True):
+            if found:
+                st.download_button(
+                    "View PDF",
+                    data=found[1].read_bytes(),
+                    file_name=row["filename"],
+                    mime="application/pdf",
+                    icon=":material/visibility:",
+                    key=f"cert_view_{cid}",
+                    on_click="ignore",
+                )
+            else:
+                st.caption("The file is missing.")
+            with st.popover("Delete", icon=":material/delete:"):
+                st.markdown(f"Delete **{formatter.md_escape(row['title'])}**?")
+                if st.button("Delete for good", type="primary", key=f"cert_del_{cid}"):
+                    services.delete_certificate(sid, cid)
+                    st.rerun()
+
+
+def _certificates(sid: str) -> None:
+    """Certificates the student uploaded (PDFs), as cards, with a form to add one."""
+    rows = services.certificates(sid)
+    with st.container(border=True):
+        st.subheader("Your certificates", anchor=False)
+        with (
+            st.expander("Upload a certificate", icon=":material/upload_file:", expanded=not rows),
+            st.form("cert_upload", border=False, clear_on_submit=True),
+        ):
+            title = st.text_input("Title", max_chars=CERTIFICATE_TEXT_MAX)
+            issuer = st.text_input("Issued by", max_chars=CERTIFICATE_TEXT_MAX)
+            issued = st.date_input(
+                "Issue date (optional)", value=None, max_value=formatter.local_today()
+            )
+            pdf = st.file_uploader("Certificate PDF (up to 5 MB)", type=["pdf"])
+            if st.form_submit_button("Upload", type="primary", icon=":material/upload:"):
+                try:
+                    if pdf is None:
+                        raise services.ServiceError("Choose a PDF file to upload.")
+                    services.save_certificate(
+                        sid,
+                        title=title,
+                        issuer=issuer,
+                        issue_date=issued,
+                        filename=pdf.name,
+                        data=pdf.getvalue(),
+                    )
+                except services.ServiceError as e:
+                    st.error(formatter.md_escape(str(e)), icon=":material/error:")
+                else:
+                    st.rerun()
+        if not rows:
+            st.caption("No certificates yet. Upload one above; it appears here as a card.")
+        for start in range(0, len(rows), 3):
+            for column, row in zip(
+                st.columns(3, gap="small"), rows[start : start + 3], strict=False
+            ):
+                with column:
+                    _certificate_card(sid, row)
 
 
 def _topic_mastery(d: services.Dashboard) -> None:
@@ -255,6 +325,7 @@ streak = d.streak
 ui.org_progress_card(sid)  # an organization's student: their stage against its pass marks
 _kpis(d, streak)
 _syllabus(d)
+_certificates(sid)
 _topic_mastery(d)
 accuracy_col, runs_col = st.columns(2, gap="medium")
 with accuracy_col, st.container(border=True, height="stretch"):
