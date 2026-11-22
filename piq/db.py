@@ -1696,12 +1696,15 @@ def approved_experiences(company_slug: str, round_: str | None = None) -> list[s
 
 
 def approved_posters_by_batch() -> dict[tuple[int, str], int]:
-    """(org id, batch year) -> distinct students with an approved post: how big a batch is."""
+    """(org id, batch year) -> distinct students with an approved post who let their college be
+    shown: how many could stand behind a "<college> student, <year>" label. Posters who hid
+    their college are not counted, since they never appear under the college's name."""
     with tx() as c:
         rows = c.execute(
             """SELECT org_id, batch_year, COUNT(DISTINCT student_id) AS n
                FROM interview_experiences
-               WHERE status = 'approved' AND org_id IS NOT NULL GROUP BY org_id, batch_year"""
+               WHERE status = 'approved' AND org_id IS NOT NULL AND show_college = 1
+               GROUP BY org_id, batch_year"""
         ).fetchall()
     return {(r["org_id"], r["batch_year"]): r["n"] for r in rows}
 
