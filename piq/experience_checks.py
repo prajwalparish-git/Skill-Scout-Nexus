@@ -278,6 +278,16 @@ def _process(raw: Mapping, own: Sequence[str], found: set[str], flags: list[str]
     return {"rounds": rounds, "result": result, "summary": summary}
 
 
+def clean_text(value: str, what: str, own: Sequence[str], found: set[str]) -> str:
+    """Personal data replaced (the kinds found added to `found`); abuse and spam refused."""
+    return _clean_text(value, what, own, found)
+
+
+def meaningful(text: str) -> str:
+    """The text without placeholders: what is left to judge."""
+    return _meaningful(text)
+
+
 def clean_submission(form: Mapping, own: Sequence[str], today: date | None = None) -> Cleaned:
     """Validate and clean a post: questions, an interview process, or both. Raises
     ExperienceRejected with the reason."""

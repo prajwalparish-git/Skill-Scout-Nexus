@@ -25,7 +25,16 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
-from piq import agents, db, experience_checks, open_questions, question_bank, services, syllabus
+from piq import (
+    agents,
+    contributions,
+    db,
+    experience_checks,
+    open_questions,
+    question_bank,
+    services,
+    syllabus,
+)
 from piq.config import (
     DIFFICULTIES,
     EXPERIENCE_DAILY_MAX,
@@ -503,22 +512,28 @@ def open_practice(student_id: str | None, company: str) -> dict:
     rounds = {
         "aptitude": sum(question_bank.open_count(t) for t in open_topics(student_id, "aptitude")),
         "technical": sum(question_bank.open_count(t) for t in open_topics(student_id, "technical")),
-        "hr": len(open_questions.for_round("hr")),
+        "hr": len(interview_pool("hr")),
     }
     return {
         "label": open_questions.OPEN_LABEL,
         "note": open_questions.NOT_ASKED.format(company=company),
         "rounds": rounds,
-        "technical_interview": len(open_questions.for_round("technical")),
+        "technical_interview": len(interview_pool("technical")),
         "hr_questions": [
             {"text": q["text"], "model_answer": q["model_answer"], "credit": _open_credit(q)}
-            for q in open_questions.for_round("hr")
+            for q in interview_pool("hr")
         ],
     }
 
 
+def interview_pool(round_: str) -> list[dict]:
+    """Open interview questions for a round: the open question bank's, then approved community
+    contributions (both with model answers)."""
+    return [*open_questions.for_round(round_), *contributions.interview_questions(round_)]
+
+
 def _open_credit(q: Mapping) -> str:
-    return open_questions.credit(q["source"], False)
+    return open_questions.credit(q["source"], False, q.get("by", ""))
 
 
 def open_quiz(student_id: str, slug: str, round_: str, count: int = 10) -> PracticeQuiz:
@@ -570,7 +585,7 @@ def open_interview(
     if round_ not in ("hr", "technical"):
         raise ServiceError("General practice interviews cover the HR and technical rounds.")
     name = _company_name(slug)
-    pool = [q["text"] for q in open_questions.for_round(round_)]
+    pool = [q["text"] for q in interview_pool(round_)]
     if not pool:
         raise ServiceError("The open question bank has no interview questions for this round.")
     script = random.Random(uuid.uuid4().hex).sample(pool, min(OPEN_SCRIPT, len(pool)))

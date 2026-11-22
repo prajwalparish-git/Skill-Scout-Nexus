@@ -142,6 +142,14 @@
       },
       "attribution": "Tech Interview Handbook, Copyright (c) 2017-Present Yangshun Tay. MIT License. Only the generic list of common behavioural questions is used, word for word; its per-company lists cite Glassdoor and are not used. The model answers are our own.",
       "modifications": []
+    },
+    "contrib": {
+      "name": "Community contributions",
+      "short": "Community",
+      "homepage": "",
+      "licence_id": "CC-BY-4.0",
+      "attribution": "Questions contributed by placed students, alumni and professionals, each published by its author under CC BY 4.0 and credited by the display name they chose, or as an anonymous contributor.",
+      "modifications": []
     }
   },
   "licences": {
@@ -154,6 +162,10 @@
     "MIT": {
       "name": "MIT License",
       "url": "https://opensource.org/license/mit"
+    },
+    "CC-BY-4.0": {
+      "name": "Creative Commons Attribution 4.0 International",
+      "url": "https://creativecommons.org/licenses/by/4.0/legalcode"
     }
   }
 }

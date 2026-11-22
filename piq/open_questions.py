@@ -45,14 +45,17 @@ def sources() -> dict[str, dict]:
     return registry()["sources"]
 
 
-def credit(source: str, modified: bool) -> str:
-    """The short credit line shown under a question, e.g. "AQuA-RAT · Apache-2.0 · modified"."""
+def credit(source: str, modified: bool, by: str = "") -> str:
+    """The short credit line shown under a question, e.g. "AQuA-RAT · Apache-2.0 · modified",
+    or for a contribution "Community · CC-BY-4.0 · by <display name>"."""
     s = sources().get(source)
     if s is None or source == "own":
         return ""
     parts = [s.get("short", s["name"]), s["licence_id"]]
     if modified:
         parts.append("modified")
+    if by:
+        parts.append(f"by {by}")
     return " · ".join(parts)
 
 

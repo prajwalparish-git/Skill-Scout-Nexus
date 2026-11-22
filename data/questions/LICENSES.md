@@ -94,6 +94,12 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## Community contributions
+
+- Licence: Creative Commons Attribution 4.0 International (CC-BY-4.0), https://creativecommons.org/licenses/by/4.0/legalcode
+- Attribution: Questions contributed by placed students, alumni and professionals, each published by its author under CC BY 4.0 and credited by the display name they chose, or as an anonymous contributor.
+- Each author accepts the licence on the contribution form; the database records it, with the time it was accepted, for every question.
+
 ## Full text: Apache License, Version 2.0
 
 ```text

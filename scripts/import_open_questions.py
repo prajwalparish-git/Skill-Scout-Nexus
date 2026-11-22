@@ -554,6 +554,16 @@ def write_licences(texts: dict[str, str]) -> None:
                 "marked `modified=1` with its changes listed in its `changes` column."
             )
         parts.append(f"\nThe licence file at that commit, unchanged:\n\n```text\n{texts[key]}```\n")
+    contrib = reg["sources"].get("contrib")
+    if contrib:
+        cc = reg["licences"][contrib["licence_id"]]
+        parts.append(f"## {contrib['name']}\n")
+        parts.append(f"- Licence: {cc['name']} ({contrib['licence_id']}), {cc['url']}")
+        parts.append(f"- Attribution: {contrib['attribution']}")
+        parts.append(
+            "- Each author accepts the licence on the contribution form; the database records "
+            "it, with the time it was accepted, for every question.\n"
+        )
     for lid, lic in reg["licences"].items():
         if lic.get("full_text_file"):
             parts.append(f"## Full text: {lic['name']}\n")

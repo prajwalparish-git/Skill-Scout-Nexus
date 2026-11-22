@@ -13,7 +13,8 @@ Pure data, no Streamlit.
 import csv
 import json
 import random
-from collections.abc import Iterable
+import sqlite3
+from collections.abc import Iterable, Iterator
 from functools import lru_cache
 from pathlib import Path
 
@@ -82,51 +83,77 @@ def _files() -> list[tuple[str, Path]]:
 
 
 Loaded = tuple[
-    dict[tuple[str, str], tuple[Question, ...]], dict[str, str], dict[str, tuple[str, bool]]
+    dict[tuple[str, str], tuple[Question, ...]], dict[str, str], dict[str, tuple[str, bool, str]]
 ]
 
 
-@lru_cache(maxsize=1)
-def _load() -> Loaded:
+def _version() -> object:
+    """The approved contributions' version: they live in the database, so every process sees an
+    approval without a restart. None before there is a database (an import script)."""
+    from piq import db  # the bank is pure data until contributions are asked for
+
+    try:
+        return db.contributions_version()
+    except (sqlite3.Error, OSError):
+        return None
+
+
+def _rows(version: object) -> Iterator[tuple[str, dict[str, str]]]:
+    """(default source, row): our own bank, the open bank, then approved contributions."""
+    for default, path in _files():
+        if path.is_file():
+            with path.open(encoding="utf-8", newline="") as f:
+                for row in csv.DictReader(f):
+                    yield default, row
+    if version is not None:
+        from piq import contributions
+
+        for row in contributions.bank_rows():
+            yield "contrib", row
+
+
+@lru_cache(maxsize=2)
+def _load_at(version: object) -> Loaded:
     """((syllabus topic, difficulty) -> distinct valid questions in file order, question id ->
     the bank's own fine-grained topic, e.g. SQL_Joins: what "a similar question" shares,
-    question id -> (source key, modified))."""
+    question id -> (source key, modified, credited author or ""))."""
     mapping = topic_map()
     out: dict[tuple[str, str], list[Question]] = {}
     subtopics: dict[str, str] = {}
-    origin: dict[str, tuple[str, bool]] = {}
-    for default, path in _files():
-        if not path.is_file():
+    origin: dict[str, tuple[str, bool, str]] = {}
+    for default, row in _rows(version):
+        raw = (row.get("topic") or "").strip()
+        topic = mapping.get(raw) or row.get("syllabus_topic")
+        difficulty = (row.get("difficulty") or "").strip().lower()
+        if topic is None or difficulty not in DIFFICULTIES:
             continue
-        with path.open(encoding="utf-8", newline="") as f:
-            for row in csv.DictReader(f):
-                raw = (row.get("topic") or "").strip()
-                topic = mapping.get(raw)
-                difficulty = (row.get("difficulty") or "").strip().lower()
-                if topic is None or difficulty not in DIFFICULTIES:
-                    continue
-                q = _question(row)
-                if q is None or (h := text_hash(q.text)) in subtopics:
-                    continue
-                subtopics[h] = raw
-                origin[h] = (row.get("source") or default, row.get("modified") == "1")
-                out.setdefault((topic, difficulty), []).append(q)
+        q = _question(row)
+        if q is None or (h := text_hash(q.text)) in subtopics:
+            continue
+        subtopics[h] = raw
+        origin[h] = (row.get("source") or default, row.get("modified") == "1", row.get("by", ""))
+        out.setdefault((topic, difficulty), []).append(q)
     return {k: tuple(v) for k, v in out.items()}, subtopics, origin
+
+
+def _load() -> Loaded:
+    return _load_at(_version())
 
 
 def own_hashes() -> set[str]:
     """Duplicate hashes of every question in our own bank (the import never repeats one)."""
-    return {h for h, (src, _) in _load()[2].items() if src == "own"}
+    return {h for h, (src, _, _) in _load()[2].items() if src == "own"}
 
 
 def source(question_id: str) -> tuple[str, bool] | None:
-    """(source key, modified) of a bank question: "own", "aqua_rat", "mmlu", ..."""
-    return _load()[2].get(question_id)
+    """(source key, modified) of a bank question: "own", "aqua_rat", "mmlu", "contrib", ..."""
+    found = _load()[2].get(question_id)
+    return found[:2] if found else None
 
 
 def credit(question_id: str) -> str:
     """The credit line for an open-bank question ("" for our own and unknown questions)."""
-    found = source(question_id)
+    found = _load()[2].get(question_id)
     return open_questions.credit(*found) if found else ""
 
 
@@ -165,7 +192,7 @@ def draw_open(
 
 def counts_by_source() -> dict[str, int]:
     out: dict[str, int] = {}
-    for src, _ in _load()[2].values():
+    for src, _, _ in _load()[2].values():
         out[src] = out.get(src, 0) + 1
     return out
 
@@ -179,9 +206,13 @@ def qid(q: Question) -> str:
     return text_hash(q.text)
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=2)
+def _by_id_at(version: object) -> dict[str, tuple[str, str, Question]]:
+    return {qid(q): (t, d, q) for (t, d), qs in _load_at(version)[0].items() for q in qs}
+
+
 def _by_id() -> dict[str, tuple[str, str, Question]]:
-    return {qid(q): (t, d, q) for (t, d), qs in _questions().items() for q in qs}
+    return _by_id_at(_version())
 
 
 def get(question_id: str) -> tuple[str, str, Question] | None:
@@ -273,6 +304,6 @@ def similar(
 
 def clear_cache() -> None:
     topic_map.cache_clear()
-    _load.cache_clear()
-    _by_id.cache_clear()
+    _load_at.cache_clear()
+    _by_id_at.cache_clear()
     open_questions.clear_cache()

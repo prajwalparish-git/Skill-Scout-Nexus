@@ -59,6 +59,8 @@ from server_auth import authorize, owner, require_student
 from server_auth import router as auth_router
 from server_companies import ops_router as companies_ops_router
 from server_companies import router as companies_router
+from server_contribute import ops_router as contribute_ops_router
+from server_contribute import router as contribute_router
 from server_drive import require_drive
 from server_drive import router as drive_router
 from server_handsfree import router as handsfree_router
@@ -107,6 +109,8 @@ app.include_router(companies_ops_router)
 app.include_router(drive_router)
 app.include_router(proctor_router)
 app.include_router(handsfree_router)
+app.include_router(contribute_router)
+app.include_router(contribute_ops_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins(),
