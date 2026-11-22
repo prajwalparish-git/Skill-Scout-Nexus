@@ -9,6 +9,7 @@ from functools import partial
 
 import streamlit as st
 
+from core import drive
 from core import github_readme as gh
 from piq import charts, formatter, resume_builder, resume_templates, services, ui
 from piq.config import EXPERIENCE_TYPES, RESUME_MAX_EDUCATION, RESUME_MAX_EXPERIENCE
@@ -742,6 +743,9 @@ if built and built[0] == domain.id and built[1]["target_role"] == role:
             icon=":material/download:",
             on_click="ignore",
         )
+        to_drive = drive.connected(sid) and st.button(
+            "Save to Drive", icon=":material/add_to_drive:", key="resume_to_drive"
+        )
         label_save = f"Save as version {len(versions) + 1}" if sid else "Save and start coaching"
         save = st.button(label_save, type="primary", icon=":material/save:")
         if st.session_state.get(TAILORED) and st.button("Undo tailoring", icon=":material/undo:"):
@@ -749,6 +753,16 @@ if built and built[0] == domain.id and built[1]["target_role"] == role:
             st.session_state.pop(BUILT, None)
             st.toast("Tailoring removed: build the resume again.", icon=":material/undo:")
             st.rerun()
+    if to_drive:
+        try:
+            saved_file = services.save_resume_to_drive(sid, res, name=pdf_name)
+        except drive.DriveError as e:
+            st.error(formatter.md_escape(str(e)), icon=":material/error:")
+        else:
+            st.success(
+                f"Saved to your Drive: [{formatter.md_escape(pdf_name)}]({saved_file['link']})",
+                icon=":material/cloud_done:",
+            )
     if save:
         saved = ui.run_agent(
             "Profile agent", lambda ev: services.save_resume(sid, domain.id, res, ev)

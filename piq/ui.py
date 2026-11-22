@@ -4,6 +4,7 @@ cards, chips, badges)."""
 
 import json
 import re
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
@@ -11,7 +12,7 @@ from functools import lru_cache
 import streamlit as st
 from streamlit.delta_generator import DeltaGenerator
 
-from core import local_ai
+from core import drive, local_ai
 from piq import accounts, devices, formatter, journey, orgs, prefs, services
 from piq.config import (
     CODE_AFTER_FAILURES,
@@ -309,6 +310,7 @@ def _settings(student: dict) -> None:
         if wanted != current:
             prefs.update(sid, wanted)
         _local_model(sid)
+        _drive(sid)
         st.markdown("**Signed-in devices**")
         here = st.session_state.get(TOKEN)
         rows = accounts.sessions(sid, here)
@@ -328,6 +330,75 @@ def _settings(student: dict) -> None:
         ):
             accounts.end_other_sessions(sid, here or "", current_device())
             st.rerun()
+
+
+DRIVE_LINK = "drive_connect_link"  # (sign-in address, when made): one per 9 minutes
+
+
+def _drive(sid: str) -> None:
+    """Google Drive: connect, open the folder, back up certificates, disconnect. Nothing at all
+    unless the server has the Google keys (core/drive.py)."""
+    if not drive.enabled():
+        return
+    st.markdown("**Google Drive**")
+    status = drive.status(sid)
+    if not status["connected"]:
+        st.caption(
+            "Keep copies of your certificates and resumes in your own Google Drive. The app "
+            "sees only the files it puts there, nothing else in your Drive."
+        )
+        link, made = st.session_state.get(DRIVE_LINK) or ("", 0.0)
+        if not link or time.time() - made > drive.STATE_TTL_S - 60:
+            try:
+                link = drive.start(sid, "streamlit")
+            except drive.DriveError as e:
+                st.error(formatter.md_escape(str(e)), icon=":material/error:")
+                return
+            st.session_state[DRIVE_LINK] = (link, time.time())
+        st.link_button("Connect Google Drive", link, icon=":material/add_to_drive:")
+        return
+    st.session_state.pop(DRIVE_LINK, None)
+    st.markdown(
+        f":green-badge[:material/check: Connected] [Open the folder]({status['folder_link']})"
+    )
+    with st.container(horizontal=True):
+        if st.button("Back up certificates", icon=":material/backup:", key="drive_backup"):
+            try:
+                n = services.backup_certificates(sid)
+            except drive.DriveError as e:
+                st.error(formatter.md_escape(str(e)), icon=":material/error:")
+            else:
+                st.toast(
+                    f"{n} certificate{'s' if n != 1 else ''} copied to Drive."
+                    if n
+                    else "Every certificate is already in Drive.",
+                    icon=":material/check_circle:",
+                )
+        if st.button("Disconnect", key="drive_disconnect"):
+            drive.disconnect(sid)
+            st.toast("Google Drive disconnected. Files already there stay in your Drive.")
+            st.rerun()
+
+
+def finish_drive_sign_in(student: dict | None) -> None:
+    """Back from Google's consent page (?state=&code= or ?error=): finish connecting Drive for
+    the signed-in student, then clear the address bar."""
+    q = st.query_params
+    if not drive.enabled() or ("state" not in q and "error" not in q):
+        return
+    state, code, error = q.get("state", ""), q.get("code", ""), q.get("error", "")
+    q.clear()
+    if student is None:
+        st.toast("Sign in, then connect Google Drive again.", icon=":material/info:")
+    elif error or not state:
+        st.toast("Google Drive was not connected.", icon=":material/info:")
+    else:
+        try:
+            drive.finish(state, code, signed_in=student["id"], ui="streamlit")
+        except drive.DriveError as e:
+            st.toast(str(e), icon=":material/error:")
+        else:
+            st.toast("Google Drive connected.", icon=":material/check_circle:")
 
 
 def _local_model(sid: str) -> None:

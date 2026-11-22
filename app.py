@@ -9,6 +9,7 @@ from piq.config import BRAND_DIR, ConfigError, settings
 from piq.ui import (
     account_sidebar,
     admin_sidebar,
+    finish_drive_sign_in,
     flush_cookie,
     load_css,
     password_banner,
@@ -50,6 +51,8 @@ _startup()
 # anyone else (no live session cookie) only the sign-in page.
 admin = signed_in_admin()
 student = None if admin else signed_in_student()
+if admin is None:
+    finish_drive_sign_in(student)  # back from Google's consent page
 if admin is not None:
     admin_sidebar(admin)
     engine = journey.engine_status()

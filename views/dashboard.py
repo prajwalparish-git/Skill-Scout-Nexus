@@ -3,7 +3,7 @@ interview scores), then how the agents and the critic behave, kept apart."""
 
 import streamlit as st
 
-from core import calendar_export
+from core import calendar_export, drive
 from piq import charts, formatter, services, ui
 from piq.config import CERTIFICATE_TEXT_MAX
 from piq.ui import Stat, empty_state, page_header, require_profile, stat_row
@@ -95,6 +95,20 @@ def _certificate_card(sid: str, row) -> None:
                 )
             else:
                 st.caption("The file is missing.")
+            if drive.connected(sid):
+                if row["drive_file_id"]:
+                    st.badge("In Drive", icon=":material/cloud_done:", color="green")
+                elif found and st.button(
+                    "Retry Drive", icon=":material/cloud_upload:", key=f"cert_drive_{cid}"
+                ):
+                    try:
+                        ok = services.retry_certificate_drive(sid, cid)
+                    except (services.ServiceError, drive.DriveError) as e:
+                        st.error(formatter.md_escape(str(e)), icon=":material/error:")
+                    else:
+                        if not ok:
+                            st.error("Google Drive did not take it. Try again later.")
+                        st.rerun()
             with st.popover("Delete", icon=":material/delete:"):
                 st.markdown(f"Delete **{formatter.md_escape(row['title'])}**?")
                 if st.button("Delete for good", type="primary", key=f"cert_del_{cid}"):

@@ -2251,11 +2251,13 @@ def retry_certificate_drive(student_id: str, cert_id: int) -> bool:
     return _mirror_to_drive(student_id, cert_id, row["filename"], path.read_bytes())
 
 
-def save_resume_to_drive(student_id: str, resume: Mapping) -> dict[str, str]:
+def save_resume_to_drive(
+    student_id: str, resume: Mapping, *, name: str | None = None
+) -> dict[str, str]:
     """The resume's PDF, in its template, into the student's Drive (Resumes). Nothing about it
     is kept here; the PDF may carry details (date of birth, address) only the student sees."""
     pdf = resume_builder.generate_ats_pdf(resume)
-    return drive.upload(student_id, "resumes", _resume_pdf_name(resume), pdf)
+    return drive.upload(student_id, "resumes", name or _resume_pdf_name(resume), pdf)
 
 
 def _resume_pdf_name(resume: Mapping) -> str:
