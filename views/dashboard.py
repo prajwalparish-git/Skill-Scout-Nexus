@@ -3,8 +3,8 @@ interview scores), then how the agents and the critic behave, kept apart."""
 
 import streamlit as st
 
-from core import calendar_export, drive
-from piq import charts, formatter, services, ui
+from core import calendar_export, drive, proctor_guard
+from piq import charts, formatter, proctoring, services, ui
 from piq.config import CERTIFICATE_TEXT_MAX
 from piq.ui import Stat, empty_state, page_header, require_profile, stat_row
 
@@ -343,6 +343,11 @@ ui.org_progress_card(sid)  # an organization's student: their stage against its 
 _kpis(d, streak)
 _syllabus(d)
 _certificates(sid)
+
+if attempts := proctoring.history(sid):  # transparency: the same record the admin sees
+    with st.container(border=True):
+        st.subheader("Your proctoring record", anchor=False)
+        proctor_guard.render_record(attempts)
 _topic_mastery(d, services.topic_levels(sid))
 accuracy_col, runs_col = st.columns(2, gap="medium")
 with accuracy_col, st.container(border=True, height="stretch"):

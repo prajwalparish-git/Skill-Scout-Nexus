@@ -14,7 +14,21 @@ from datetime import UTC, datetime
 
 import streamlit as st
 
-from piq import charts, cohort, experiences, formatter, journey, org_insights, orgs, services, ui
+from core import proctor_guard
+from core import proctoring as proctor_rules
+from piq import (
+    charts,
+    cohort,
+    db,
+    experiences,
+    formatter,
+    journey,
+    org_insights,
+    orgs,
+    proctoring,
+    services,
+    ui,
+)
 from piq.config import (
     ACCOUNT_STATUSES,
     ACTIVE_WITHIN_DAYS,
@@ -627,14 +641,17 @@ def _profile(sid: str) -> None:
         )
         ui.step_bars(org_insights.journey_steps(row, cut))
 
-        skills, quizzes, voices, actions = st.tabs(
+        skills, quizzes, voices, watched, actions = st.tabs(
             [
                 ":material/checklist: Skills and plan",
                 ":material/quiz: Quizzes",
                 ":material/graphic_eq: Voice sessions",
+                ":material/shield: Proctoring",
                 ":material/manage_accounts: Admin actions",
             ]
         )
+        with watched:
+            proctor_guard.render_record(proctoring.history(sid), for_admin=True)
         with skills:
             if d.match_percent is None:
                 st.caption("No resume scan yet. Every skill of the target role is still to build.")
@@ -813,6 +830,55 @@ def _actions(sid: str, acct: dict, row, cand) -> None:  # type: ignore[no-untype
 # --- tab 4: settings and placement drives -----------------------------------------------------
 
 
+PROCTOR_MODES = {
+    "off": "Off: students may proctor practice tests themselves",
+    "required": "Required: every quiz and mock interview is proctored in the browser",
+    "seb": "Required in Safe Exam Browser (web app): the browser is locked down",
+}
+
+
+def _proctoring_settings() -> None:
+    """Whether this organization's students take quizzes and interviews proctored."""
+    mode, keys = db.organization_proctoring(org.id)
+    with st.container(border=True):
+        st.subheader("Proctoring", anchor=False)
+        st.caption(
+            "Proctoring detects (it cannot prevent) switching tabs or windows, leaving "
+            "fullscreen, copying and pasting, and with the camera a second person or a phone. "
+            "Only those are strikes; 3 strikes submit the test. Looking away, posture and light "
+            "are only noted for your review. No video or image is stored; students see their "
+            "own record. Safe Exam Browser actually locks the computer during a test."
+        )
+        with st.form("org_proctoring", border=False):
+            picked = st.radio(
+                "Proctoring for your students",
+                list(PROCTOR_MODES),
+                index=list(PROCTOR_MODES).index(mode),
+                format_func=PROCTOR_MODES.__getitem__,
+                key="org_proctor_mode",
+            )
+            config_keys = st.text_area(
+                "Safe Exam Browser Config Key(s)",
+                value=keys,
+                height=80,
+                help="In SEB Config Tool open your .seb file: the Config Key is shown under "
+                "Exam > Advanced (64 hexadecimal characters). One per line; keep the old key "
+                "while students switch to a new .seb file. Set the file's start URL to "
+                "your site's /quiz or /interview page.",
+                key="org_proctor_keys",
+            )
+            go = st.form_submit_button("Save proctoring", type="primary", icon=":material/shield:")
+        if go:
+            try:
+                proctoring.set_org_mode(org.id, picked, config_keys)
+            except services.ServiceError as e:
+                st.error(formatter.md_escape(str(e)), icon=":material/error:")
+            else:
+                st.toast("Proctoring saved.", icon=":material/check_circle:")
+                st.rerun()
+        st.caption(f"Strikes end a test at {proctor_rules.MAX_STRIKES}.")
+
+
 def _settings() -> None:
     with st.container(border=True):
         st.subheader("Organization profile and pass marks", anchor=False)
@@ -851,6 +917,8 @@ def _settings() -> None:
             else:
                 st.toast("Saved.", icon=":material/check_circle:")
                 st.rerun()
+
+    _proctoring_settings()
 
     with st.container(border=True):
         st.subheader("Placement drive shortlist", anchor=False)

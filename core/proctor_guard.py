@@ -192,5 +192,55 @@ def outcome_banner(flags: list[str]) -> None:
         st.info("Proctored. Your proctoring record is in Settings.", icon=":material/shield:")
 
 
-def history(sid: str) -> list[proctoring.AttemptView]:
-    return proctoring.history(sid)
+REVIEW_NOTE = (
+    "For review only, never a strike: these misfire with glasses, a disability, a poor camera, "
+    "or someone looking away to think."
+)
+
+
+def render_record(attempts: list[proctoring.AttemptView], *, for_admin: bool = False) -> None:
+    """Each proctored attempt with its events, labelled Clear (strikes) or For review. The
+    student and their organization's admin see the same record."""
+    if not attempts:
+        st.caption("No proctored tests yet.")
+        return
+    if not for_admin:
+        st.caption(
+            "What was recorded during your proctored tests: events and times only, never video "
+            "or images. Your organization's admin sees the same record."
+        )
+    for a in attempts:
+        mode = {"practice": "practice", "required": "required", "seb": "Safe Exam Browser"}
+        verdict = (
+            f":red-badge[Submitted after {a.strikes} strikes]"
+            if a.breached
+            else f":orange-badge[{a.strikes} strike{'s' if a.strikes != 1 else ''}]"
+            if a.strikes
+            else ":green-badge[No strikes]"
+        )
+        camera = " :blue-badge[Camera checks skipped]" if a.camera == "unavailable" else ""
+        title = f"{'Quiz' if a.kind == 'quiz' else 'Interview'}: {a.label}"
+        with st.expander(
+            f"{a.started[:16].replace('T', ' ')} UTC · {title}",
+            icon=":material/shield:",
+            expanded=a.breached and for_admin,
+        ):
+            minutes = max(1, round(a.duration_s / 60))
+            st.markdown(f"{verdict}{camera} · {mode[a.mode]} · about {minutes} min")
+            if a.camera_note:
+                st.caption(f"Camera: {formatter.md_escape(a.camera_note)}")
+            if a.clear:
+                st.markdown("**Clear (strikes)**")
+                st.markdown(
+                    "\n".join(
+                        f"- {formatter.md_escape(e.text)}"
+                        + ("" if e.strike else " :gray[(same incident, not another strike)]")
+                        for e in a.clear
+                    )
+                )
+            if a.review:
+                st.markdown("**For review**")
+                st.caption(REVIEW_NOTE)
+                st.markdown("\n".join(f"- :gray[{formatter.md_escape(e.text)}]" for e in a.review))
+            if not a.clear and not a.review:
+                st.caption("Nothing was recorded.")
