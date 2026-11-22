@@ -195,6 +195,11 @@ WEAK_THRESHOLD = 0.5  # weakness above this marks a topic as weak
 WEAK_MIN_SHARE = 0.5  # weak topics must get at least this share of weekly minutes
 DIFFICULTY_UP_AT = 80  # a quiz score (%) at or above this suggests the next difficulty up
 DIFFICULTY_DOWN_BELOW = 50  # a score below this suggests the next difficulty down
+# Adaptive quizzes: a topic's level moves by the rule above, but only on questions asked at the
+# level, and only when at least this many were (a one- or two-question part proves little).
+LEVEL_MIN_QUESTIONS = 4
+REVIEW_PER_QUIZ = 2  # at most this many missed questions come back in one quiz on a topic
+REVIEW_MAX_MISSES = 3  # a question missed this many times leaves the review queue
 TREND_STEP = 10  # points the latest quiz must beat (or miss) the ones before by to count as a trend
 RESUME_MAX_PDF_PAGES = 30  # pages read from a PDF resume; the rest is ignored
 RESUME_MAX_DOCX_UNZIPPED = 25 * 1024 * 1024  # bytes a DOCX may unpack to (zip-bomb guard)

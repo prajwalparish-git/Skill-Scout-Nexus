@@ -18,19 +18,15 @@ import re
 
 from piq import mock, question_bank
 from piq.checks import weak_topics
-from piq.config import CRITERION_WEAK_BELOW, DIFFICULTIES, INTERVIEW_TIPS
+from piq.config import CRITERION_WEAK_BELOW, INTERVIEW_TIPS
 
 
 def _quiz(ctx: dict) -> dict:
     """Bank questions first (asked difficulty, then the others nearest to it); generic
     practice questions only if the bank has too few for the topic."""
     want, topic, asked = ctx["count"], ctx["topic"], list(ctx["previous"])
-    order = sorted(
-        DIFFICULTIES,
-        key=lambda d: abs(DIFFICULTIES.index(d) - DIFFICULTIES.index(ctx["difficulty"])),
-    )
     picked = []
-    for difficulty in order:
+    for difficulty in question_bank.nearest_levels(ctx["difficulty"]):
         if len(picked) >= want:
             break
         seed = f"offline:{topic}:{difficulty}:{len(asked)}"

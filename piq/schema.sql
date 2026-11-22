@@ -301,3 +301,45 @@ CREATE TABLE IF NOT EXISTS student_local_ai (
     preferred  INTEGER NOT NULL DEFAULT 0,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Adaptive quizzes (piq/services.py): each student's level per topic. A topic with no row
+-- starts from the suggestion its latest attempt gives (medium before the first quiz).
+CREATE TABLE IF NOT EXISTS topic_levels (
+    student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    topic      TEXT NOT NULL,
+    level      TEXT NOT NULL CHECK (level IN ('easy', 'medium', 'hard')),
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (student_id, topic)
+);
+
+-- Questions the AI wrote when the bank ran out at a level, kept whole so a quiz served over
+-- the API can be graded and a missed one asked again. source 'ai' passed the critic and may be
+-- reused for anyone; 'mock' (MOCK_MODE samples) is only ever graded, never reused.
+CREATE TABLE IF NOT EXISTS generated_questions (
+    qid           TEXT PRIMARY KEY,
+    topic         TEXT NOT NULL,
+    difficulty    TEXT NOT NULL CHECK (difficulty IN ('easy', 'medium', 'hard')),
+    question_json TEXT NOT NULL,
+    source        TEXT NOT NULL CHECK (source IN ('ai', 'mock')),
+    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_generated_topic ON generated_questions (topic, difficulty);
+
+-- Questions a student got wrong (or left blank), brought back in a later quiz on the topic:
+-- a similar bank question when there is one (served_qid), else the same question again.
+-- Right on review: done. Wrong again: misses + 1, dropped after REVIEW_MAX_MISSES.
+CREATE TABLE IF NOT EXISTS review_queue (
+    student_id    TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    qid           TEXT NOT NULL,
+    topic         TEXT NOT NULL,
+    difficulty    TEXT NOT NULL,
+    question_json TEXT NOT NULL,
+    misses        INTEGER NOT NULL DEFAULT 1,
+    status        TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'served', 'done')),
+    served_qid    TEXT,
+    missed_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (student_id, qid)
+);
+
+CREATE INDEX IF NOT EXISTS idx_review_due ON review_queue (student_id, topic, status);

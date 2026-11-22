@@ -13,7 +13,7 @@ from pathlib import Path
 
 from piq.checks import text_hash
 from piq.config import settings
-from piq.schemas import AnswerEvaluation, QuizSet, StudentProfile, WeeklyPlan
+from piq.schemas import AnswerEvaluation, Question, QuizSet, StudentProfile, WeeklyPlan
 
 SCHEMA = Path(__file__).with_name("schema.sql")
 FAILED = "failed: "  # reject_reason prefix of an agent_logs row whose call or check failed
@@ -1408,3 +1408,117 @@ def last_model_used(student_id: str) -> str | None:
             (student_id, f"{FAILED}%"),
         ).fetchone()
         return row["model_used"] if row else None
+
+
+# --- adaptive quizzes: levels, AI-written questions, the review queue ---------------
+
+
+def topic_levels(student_id: str) -> dict[str, str]:
+    with tx() as c:
+        rows = c.execute(
+            "SELECT topic, level FROM topic_levels WHERE student_id = ?", (student_id,)
+        ).fetchall()
+    return {r["topic"]: r["level"] for r in rows}
+
+
+def set_topic_levels(student_id: str, levels: Mapping[str, str]) -> None:
+    with tx() as c:
+        c.executemany(
+            """INSERT INTO topic_levels (student_id, topic, level) VALUES (?, ?, ?)
+               ON CONFLICT (student_id, topic) DO UPDATE SET level = excluded.level,
+                 updated_at = CURRENT_TIMESTAMP""",
+            [(student_id, t, lvl) for t, lvl in levels.items()],
+        )
+
+
+def save_generated(topic: str, difficulty: str, questions: Sequence[Question], source: str) -> None:
+    """Keep AI-written questions (by their text hash); one already kept is left as it is."""
+    with tx() as c:
+        c.executemany(
+            """INSERT OR IGNORE INTO generated_questions
+               (qid, topic, difficulty, question_json, source) VALUES (?, ?, ?, ?, ?)""",
+            [
+                (text_hash(q.text), topic, difficulty, q.model_dump_json(), source)
+                for q in questions
+            ],
+        )
+
+
+def generated(qid: str) -> tuple[str, str, Question] | None:
+    """(topic, difficulty, question) of a kept AI-written question, or None."""
+    with tx() as c:
+        row = c.execute(
+            "SELECT topic, difficulty, question_json FROM generated_questions WHERE qid = ?",
+            (qid,),
+        ).fetchone()
+    if row is None:
+        return None
+    return row["topic"], row["difficulty"], Question.model_validate_json(row["question_json"])
+
+
+def reusable_generated(topic: str, difficulty: str, limit: int = 200) -> list[Question]:
+    """Critic-approved AI questions on the topic at the level (never MOCK_MODE samples)."""
+    with tx() as c:
+        rows = c.execute(
+            """SELECT question_json FROM generated_questions
+               WHERE topic = ? AND difficulty = ? AND source = 'ai' ORDER BY created_at LIMIT ?""",
+            (topic, difficulty, limit),
+        ).fetchall()
+    return [Question.model_validate_json(r["question_json"]) for r in rows]
+
+
+def due_reviews(student_id: str, topic: str, k: int) -> list[sqlite3.Row]:
+    """Up to `k` missed questions on the topic still to bring back, oldest miss first."""
+    if k <= 0:
+        return []
+    with tx() as c:
+        return c.execute(
+            """SELECT qid, difficulty, question_json FROM review_queue
+               WHERE student_id = ? AND topic = ? AND status != 'done'
+               ORDER BY missed_at, rowid LIMIT ?""",
+            (student_id, topic, k),
+        ).fetchall()
+
+
+def mark_review_served(student_id: str, qid: str, served_qid: str) -> None:
+    with tx() as c:
+        c.execute(
+            "UPDATE review_queue SET status = 'served', served_qid = ? "
+            "WHERE student_id = ? AND qid = ?",
+            (served_qid, student_id, qid),
+        )
+
+
+def record_reviews(
+    student_id: str,
+    answered: Sequence[tuple[str, str, Question, bool]],
+    max_misses: int,
+) -> None:
+    """After a quiz: (topic, difficulty, question, right?) for each answer. A question that
+    stood in for a queued one (or was one) settles it: right -> done, wrong -> one more miss
+    (done after `max_misses`). Any other wrong answer joins the queue."""
+    with tx() as c:
+        for topic, difficulty, q, right in answered:
+            h = text_hash(q.text)
+            pending = c.execute(
+                """SELECT qid, misses FROM review_queue WHERE student_id = ? AND status != 'done'
+                     AND (served_qid = ? OR (qid = ? AND served_qid IS NOT NULL))""",
+                (student_id, h, h),
+            ).fetchall()
+            for row in pending:
+                misses = row["misses"] + (0 if right else 1)
+                status = "done" if right or misses >= max_misses else "queued"
+                c.execute(
+                    """UPDATE review_queue SET misses = ?, status = ?, served_qid = NULL,
+                         missed_at = CASE WHEN ? THEN missed_at ELSE CURRENT_TIMESTAMP END
+                       WHERE student_id = ? AND qid = ?""",
+                    (misses, status, right, student_id, row["qid"]),
+                )
+            if not right and not pending:
+                c.execute(
+                    """INSERT INTO review_queue
+                       (student_id, qid, topic, difficulty, question_json) VALUES (?, ?, ?, ?, ?)
+                       ON CONFLICT (student_id, qid) DO UPDATE SET status = 'queued',
+                         misses = review_queue.misses + 1, missed_at = CURRENT_TIMESTAMP""",
+                    (student_id, h, topic, difficulty, q.model_dump_json()),
+                )

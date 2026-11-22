@@ -49,25 +49,31 @@ def _question(row: dict[str, str]) -> Question | None:
 
 
 @lru_cache(maxsize=1)
-def _questions() -> dict[tuple[str, str], tuple[Question, ...]]:
-    """(syllabus topic, difficulty) -> distinct valid questions, in file order."""
+def _load() -> tuple[dict[tuple[str, str], tuple[Question, ...]], dict[str, str]]:
+    """((syllabus topic, difficulty) -> distinct valid questions in file order, question id ->
+    the bank's own fine-grained topic, e.g. SQL_Joins: what "a similar question" shares)."""
     if not BANK.is_file():
-        return {}
+        return {}, {}
     mapping = topic_map()
     out: dict[tuple[str, str], list[Question]] = {}
-    seen: set[str] = set()
+    subtopics: dict[str, str] = {}
     with BANK.open(encoding="utf-8", newline="") as f:
         for row in csv.DictReader(f):
-            topic = mapping.get((row.get("topic") or "").strip())
+            raw = (row.get("topic") or "").strip()
+            topic = mapping.get(raw)
             difficulty = (row.get("difficulty") or "").strip().lower()
             if topic is None or difficulty not in DIFFICULTIES:
                 continue
             q = _question(row)
-            if q is None or (h := text_hash(q.text)) in seen:
+            if q is None or (h := text_hash(q.text)) in subtopics:
                 continue
-            seen.add(h)
+            subtopics[h] = raw
             out.setdefault((topic, difficulty), []).append(q)
-    return {k: tuple(v) for k, v in out.items()}
+    return {k: tuple(v) for k, v in out.items()}, subtopics
+
+
+def _questions() -> dict[tuple[str, str], tuple[Question, ...]]:
+    return _load()[0]
 
 
 def qid(q: Question) -> str:
@@ -113,7 +119,55 @@ def draw(topic: str, difficulty: str, k: int, avoid: Iterable[str], seed: str) -
     return random.Random(seed).sample(pool, min(k, len(pool)))
 
 
+def nearest_levels(level: str) -> list[str]:
+    """Every difficulty, the given one first, then the others nearest to it (easier first)."""
+    return sorted(
+        DIFFICULTIES,
+        key=lambda d: (abs(DIFFICULTIES.index(d) - DIFFICULTIES.index(level)), d != "easy"),
+    )
+
+
+def draw_nearest(
+    topic: str, level: str, k: int, avoid: Iterable[str], seed: str
+) -> list[tuple[str, Question]]:
+    """Up to `k` unseen (difficulty, question) pairs: the asked level first, then the nearest."""
+    avoid = list(avoid)
+    out: list[tuple[str, Question]] = []
+    for d in nearest_levels(level):
+        if len(out) >= k:
+            break
+        for q in draw(topic, d, k - len(out), avoid, f"{seed}|{d}"):
+            out.append((d, q))
+            avoid.append(q.text)
+    return out
+
+
+def subtopic(question_id: str) -> str | None:
+    """The bank's fine-grained topic of a bank question (None: not a bank question)."""
+    return _load()[1].get(question_id)
+
+
+def similar(question_id: str, avoid: Iterable[str], seed: str) -> tuple[str, Question] | None:
+    """An unseen bank question like this one: the same fine-grained topic, at its difficulty
+    or an easier one (a missed question comes back no harder). None when there is none."""
+    found, sub = get(question_id), subtopic(question_id)
+    if found is None or sub is None:
+        return None
+    topic, difficulty, _ = found
+    banned = {text_hash(t) for t in avoid} | {question_id}
+    subs = _load()[1]
+    for d in DIFFICULTIES[: DIFFICULTIES.index(difficulty) + 1][::-1]:  # same level, then easier
+        pool = [
+            q
+            for q in _questions().get((topic, d), ())
+            if subs.get(h := text_hash(q.text)) == sub and h not in banned
+        ]
+        if pool:
+            return d, random.Random(seed).choice(pool)
+    return None
+
+
 def clear_cache() -> None:
     topic_map.cache_clear()
-    _questions.cache_clear()
+    _load.cache_clear()
     _by_id.cache_clear()
