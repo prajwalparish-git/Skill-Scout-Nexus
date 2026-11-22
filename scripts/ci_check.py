@@ -205,6 +205,7 @@ def api() -> None:
             company_questions(c, sid)
             drive(c, sid)
             proctoring_checks(c, sid)
+            handsfree_checks(c, sid)
             c.post("/api/auth/logout")
             tailor = c.post(
                 "/api/resume/tailor", json={**SAMPLE_RESUME, "job_description": "x" * 90}
@@ -734,6 +735,199 @@ def proctoring_checks(c: "TestClient", sid: str) -> None:
         )
     else:
         print("  skip MediaPipe download check (no Node.js or frontend packages here)")
+
+
+def handsfree_checks(c: "TestClient", sid: str) -> None:
+    """Hands-free voice interview, keyless and mic-less: the rules (the same for everyone,
+    frozen per run), 16 kHz mono 16-bit WAV only (120 s fits the limit), attempts within the
+    retry count, fallbacks noted, spoken questions only from the server's own cache, a full
+    5-question voice run with proctoring, everything gone with the account, and a missing VAD
+    file never failing the frontend install or build."""
+    import io
+    import shutil
+    import subprocess
+    import wave
+
+    from core import speech_router
+    from piq import db, services
+    from piq import handsfree as hf
+    from piq import proctoring as pr
+    from piq.db import tx
+
+    def wav(seconds: float, rate: int = 16000, channels: int = 1) -> bytes:
+        b = io.BytesIO()
+        with wave.open(b, "wb") as w:
+            w.setnchannels(channels)
+            w.setsampwidth(2)
+            w.setframerate(rate)
+            w.writeframes(b"\0\1" * int(seconds * rate) * channels)
+        return b.getvalue()
+
+    def turn(body: dict) -> dict:
+        r = c.post("/api/interview/turn", json={"candidate_id": sid, **body})
+        for block in r.text.split("\n\n"):
+            kind, _, data = block.partition("\ndata: ")
+            if kind == "event: result":
+                return json.loads(data)
+            if kind == "event: error":
+                return {"error": json.loads(data)}
+        return {"error": r.text[:200]}
+
+    def send(run: str, q: int, n: int, audio: bytes) -> "Response":
+        return c.post(
+            f"/api/handsfree/runs/{run}/transcribe",
+            data={"question_index": q, "attempt_no": n},
+            files={"audio": ("answer.wav", audio, "audio/wav")},
+        )
+
+    shown = c.get("/api/handsfree/rules").json()
+    check(
+        shown["think_s"] == 5
+        and shown["max_answer_s"] == 120
+        and shown["silence_s"] == 2.5
+        and shown["retries"] == 1
+        and shown["typed_max_s"] == 300
+        and shown["sample_rate"] == 16000,
+        "Hands-free: the rules every student gets are published",
+    )
+    run = c.post("/api/handsfree/runs").json()["run_id"]
+    old_think = hf.HANDSFREE_THINK_S
+    hf.HANDSFREE_THINK_S = 99  # the rules change after the run started ...
+    try:
+        frozen = hf.run_rules(db.handsfree_run(run)).think_s
+        fresh = c.post("/api/handsfree/runs").json()["rules"]["think_s"]
+    finally:
+        hf.HANDSFREE_THINK_S = old_think
+    check(frozen == 5 and fresh == 99, "Hands-free: a run keeps the rules it started with")
+
+    full = wav(120)
+    first = send(run, 0, 1, full)
+    check(
+        len(full) < 5 * 1024 * 1024
+        and first.status_code == 200
+        and first.json()["text"]
+        and first.json()["retries_left"] == 1,
+        f"Hands-free: a 120 s 16 kHz mono WAV ({len(full) // 1024} KB) is accepted{_why(first)}",
+    )
+    check(
+        send(run, 0, 2, wav(5, 44100, 2)).status_code == 400
+        and send(run, 0, 2, wav(5, 8000)).status_code == 400
+        and send(run, 0, 2, wav(125)).status_code == 400
+        and send(run, 0, 2, b"RIFF0000WAVEnot really").status_code == 400
+        and send(run, 0, 2, b"\0" * (5 * 1024 * 1024 + 10)).status_code == 400,
+        "Hands-free: 44.1 kHz stereo, 8 kHz, over 120 s, non-WAV and over 5 MB are refused",
+    )
+    check(
+        send(run, 0, 3, wav(2)).status_code == 409
+        and send(run, 0, 2, wav(2)).status_code == 200
+        and send(run, 0, 3, wav(2)).status_code == 409,
+        "Hands-free: spoken attempts go in order, within 1 + retries",
+    )
+    original = hf._transcribe
+    hf._transcribe = lambda audio: ("", "")  # no transcriber available
+    try:
+        empty = send(run, 1, 1, wav(3)).json()
+    finally:
+        hf._transcribe = original
+    noted = c.post(
+        f"/api/handsfree/runs/{run}/note",
+        json={"question_index": 1, "input": "typed", "reason": "transcription unavailable"},
+    )
+    check(
+        empty.get("fallback") == "transcription unavailable"
+        and noted.status_code == 200
+        and c.post(
+            f"/api/handsfree/runs/{run}/note",
+            json={"question_index": 1, "input": "typed", "reason": "felt like it"},
+        ).status_code
+        == 400
+        and c.post(
+            f"/api/handsfree/runs/{run}/note",
+            json={"question_index": 1, "input": "telepathy", "reason": "chose to type"},
+        ).status_code
+        == 400,
+        "Hands-free: no transcript falls back to typing, noted with a known reason",
+    )
+    other = db.create_student("Voice Other", "voiceother", "Software Engineer")
+    theirs, _ = hf.start(other)
+    check(
+        send(theirs, 0, 1, wav(2)).status_code == 403
+        and c.post(f"/api/handsfree/runs/{theirs}/finish").status_code == 403,
+        "Hands-free: another student's run is refused (403)",
+    )
+
+    # Spoken questions: only clips the server made, through a token for this student.
+    text = "Hands-free ci clip question?"
+    speech_router._store(speech_router.audio_path(speech_router.clip(text), ".mp3"), b"ID3ci-clip")
+    from server_handsfree import speech_for
+
+    spoken = speech_for(sid, text)
+    got = c.get(spoken["url"]) if spoken.get("url") else None
+    check(
+        got is not None
+        and got.status_code == 200
+        and got.content == b"ID3ci-clip"
+        and c.get("/api/handsfree/clip/not-a-token").status_code == 404
+        and c.get(spoken["url"].replace(spoken["url"][-6:], "AAAAAA")).status_code == 404
+        and speech_for(sid, "a line nobody synthesised, no keys here").get("browser") is True,
+        "Hands-free: question audio is served only from the server's cache, by token",
+    )
+
+    # A full five-question voice interview with proctoring, no clicks needed server-side.
+    attempt = pr.start(sid, "interview", "ci voice", camera="unavailable", consent=True)
+    vrun = c.post("/api/handsfree/runs").json()["run_id"]
+    track = c.get(f"/api/interview/tracks/{sid}").json()[0]["name"]
+    voice = {"voice": True, "handsfree_run_id": vrun, "proctor_attempt_id": attempt}
+    out = turn({"track": track, **voice})
+    ok = "speech" in out and out.get("session", {}).get("current")
+    for i in range(6):
+        if "error" in out or out["session"]["done"]:
+            break
+        said = send(vrun, i, 1, wav(4)).json().get("text", "")
+        out = turn({"session": out["session"], "answer": said, **voice})
+        ok = ok and ("error" in out or out["session"]["done"] or "speech" in out)
+    session_id = out.get("session", {}).get("session_id")
+    linked = db.handsfree_run(vrun)
+    watched = db.proctor_attempt(attempt)
+    check(
+        bool(ok)
+        and out.get("session", {}).get("done")
+        and out.get("handsfree", {}).get("voice") == 5
+        and (out.get("proctoring") or {}).get("attempt_id") == attempt
+        and linked["interview_session_id"] == session_id
+        and linked["ended_at"]
+        and watched["ended_at"],
+        f"Hands-free: a 5-question voice interview with proctoring completes "
+        f"({out.get('handsfree')})",
+    )
+
+    services.delete_student(other, "voiceother")
+    with tx() as conn:
+        runs = conn.execute(
+            "SELECT COUNT(*) FROM handsfree_runs WHERE id = ?", (theirs,)
+        ).fetchone()[0]
+        answers = conn.execute(
+            "SELECT COUNT(*) FROM handsfree_answers WHERE run_id = ?", (theirs,)
+        ).fetchone()[0]
+    check(runs == 0 and answers == 0, "Hands-free: runs and answers go with the account")
+
+    node = shutil.which("node")
+    script = ROOT / "frontend" / "scripts" / "copy-vad.mjs"
+    if node and script.exists():
+        out_dir = Path(tempfile.mkdtemp(prefix="ci-vad-"))
+        env = {**os.environ, "VAD_OUT": str(out_dir), "VAD_FROM": str(out_dir / "missing")}
+        ran = subprocess.run(
+            [node, str(script)], env=env, capture_output=True, text=True, timeout=60, check=False
+        )
+        manifest = json.loads((out_dir / "manifest.json").read_text())
+        check(
+            ran.returncode == 0
+            and "loudness" in ran.stderr + ran.stdout
+            and manifest.get("ok") is False,
+            "Hands-free: missing voice-detection files warn, exit 0 and fall back",
+        )
+    else:
+        print("  skip voice-detection copy check (no Node.js here)")
 
 
 def _fake_local_model() -> tuple[object, int]:
