@@ -42,10 +42,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     let res: Response;
     try {
+      // A FormData body sets its own multipart Content-Type (with the boundary); JSON otherwise.
+      const json: Record<string, string> = init?.body instanceof FormData ? {} : { "Content-Type": "application/json" };
       res = await fetch(`${API}${path}`, {
         ...init,
         signal: controller.signal,
-        headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+        headers: { ...json, ...(init?.headers ?? {}) },
       });
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") {
@@ -91,6 +93,8 @@ export async function download(path: string, fallback: string): Promise<void> {
 export const get = <T>(path: string) => request<T>(path);
 export const post = <T>(path: string, body: unknown) =>
   request<T>(path, { method: "POST", body: JSON.stringify(body) });
+/** POST a multipart form (a file upload). */
+export const upload = <T>(path: string, form: FormData) => request<T>(path, { method: "POST", body: form });
 
 export function qs(params: Record<string, string | number | undefined | null>): string {
   const p = new URLSearchParams();
@@ -275,6 +279,16 @@ export type DashboardPayload = {
   mastery: Mastery[];
   quiz_history: { attempted_at: string; topic: string; difficulty: string; score_pct: number }[];
   sessions: { started: string; interview_type: string; avg_overall: number }[];
+};
+/** A certificate PDF the student uploaded; the file is at /api/certificates/{student}/{id}/file. */
+export type Certificate = {
+  id: number;
+  title: string;
+  issuer: string;
+  issue_date: string | null;
+  filename: string;
+  size_bytes: number;
+  uploaded_at: string;
 };
 export type Track = { name: string; focus: string; group: string };
 export type Evaluation = {

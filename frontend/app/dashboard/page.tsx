@@ -7,6 +7,7 @@ import { ArrowRight, CalendarDays, CheckCircle2, Flame, ListChecks, MessagesSqua
 import { get, type DashboardPayload, type Mastery } from "@/lib/api";
 import { useCandidate } from "@/lib/candidate";
 import { BarList, LineChart } from "@/components/charts";
+import { Certificates } from "@/components/dashboard/Certificates";
 import { Badge, Empty, ErrorNote, Loading, NeedsCandidate, PageHeader, Ring, Stat } from "@/components/ui";
 
 const TREND: Record<string, "ok" | "warn" | "todo" | "info"> = {
@@ -277,6 +278,8 @@ export default function DashboardPage() {
               )}
             </section>
           </div>
+
+          <Certificates candidateId={candidate.id} />
         </>
       )}
     </>
