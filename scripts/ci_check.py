@@ -8,8 +8,10 @@ repository proves the product itself works.
    usable questions; every catalog role has a skill list; every bank topic maps to a real
    syllabus topic (or none).
 3. The API answers (server.py through FastAPI's TestClient): health, catalog, a guest quiz,
-   the resume audit, a local sign-up, the student's plan, calendar and dashboard, and the
-   refusals (signed out, the operations view, an invalid body).
+   the resume audit, a local sign-up, the student's plan, calendar and dashboard, their
+   certificates (upload, list, download, delete; a fake PDF, a non-.pdf name and an oversize
+   file refused), and the refusals (signed out, another student, the operations view, an
+   invalid body).
 4. The app starts: every page renders headless (Streamlit AppTest) in mock mode, with no
    student and with the demo student, on throwaway databases. No network, no secrets.
 
@@ -23,6 +25,11 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # the API check imports them lazily, after the environment is set
+    from fastapi.testclient import TestClient
+    from httpx import Response
 
 ROOT = Path(__file__).resolve().parent.parent
 CODE = ("agents", "core", "database", "piq", "views", "scripts", "evaluation")
@@ -97,7 +104,7 @@ def _why(response: object) -> str:
     if 200 <= status < 300:
         return ""
     try:
-        return f" -> {status}: {response.json().get('detail')}"  # type: ignore[attr-defined]
+        return f" -> {status}: {response.json().get('detail')}"
     except ValueError:
         return f" -> {status}"
 
@@ -171,8 +178,52 @@ def api() -> None:
                 "GET /api/plan/{id}/calendar.ics",
             )
             check(c.get(f"/api/dashboard/{sid}").status_code == 200, "GET /api/dashboard/{id}")
+            certificates(c, sid)
             c.post("/api/auth/logout")
             check(c.get(f"/api/plan/{sid}").status_code == 401, "signed out: the plan is refused")
+            check(
+                c.get(f"/api/certificates/{sid}").status_code == 401,
+                "signed out: the certificates are refused",
+            )
+
+
+def certificates(c: "TestClient", sid: str) -> None:
+    """Upload, list, download and delete a certificate, and the uploads that are refused."""
+    url = f"/api/certificates/{sid}"
+    form = {"title": "CI Certificate", "issuer": "CI Board", "issue_date": "2025-01-31"}
+    pdf = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n"
+
+    def send(name: str, data: bytes, fields: dict = form) -> "Response":
+        return c.post(url, data=fields, files={"file": (name, data, "application/pdf")})
+
+    up = send("ci.pdf", pdf)
+    cid = up.json().get("id") if up.status_code == 200 else None
+    check(cid is not None, f"POST /api/certificates/{{id}} (a PDF){_why(up)}")
+    listed = c.get(url)
+    check(
+        listed.status_code == 200 and [x["id"] for x in listed.json()] == [cid],
+        "GET /api/certificates/{id}",
+    )
+    got = c.get(f"{url}/{cid}/file")
+    check(
+        got.status_code == 200
+        and got.content == pdf
+        and got.headers.get("content-type", "").startswith("application/pdf"),
+        "GET /api/certificates/{id}/{cert}/file",
+    )
+    check(send("fake.pdf", b"not a pdf").status_code == 400, "a non-PDF named .pdf is refused")
+    check(send("ci.txt", pdf).status_code == 400, "a file not named .pdf is refused")
+    check(
+        send("big.pdf", pdf + b"0" * (5 * 2**20)).status_code == 400, "a PDF over 5 MB is refused"
+    )
+    check(
+        c.get("/api/certificates/someone-else").status_code == 403, "another student's are refused"
+    )
+    gone = c.post(f"{url}/{cid}/delete")
+    check(
+        gone.status_code == 200 and gone.json() == [], "POST /api/certificates/{id}/{cert}/delete"
+    )
+    check(c.get(f"{url}/{cid}/file").status_code == 404, "a deleted certificate is gone")
 
 
 def pages() -> None:
@@ -223,6 +274,7 @@ def main() -> int:
         AUDIO_CACHE_DIR=str(tmp / "audio"),
         PRELOAD_CACHE_DIR=str(tmp / "preload"),
         MAIL_OUTBOX_PATH=str(tmp / "outbox.log"),
+        CERTIFICATES_DIR=str(tmp / "certificates"),
         LOCAL_MODE="true",  # one student, password only: the API check signs up without email
     )
     for key in (
