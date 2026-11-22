@@ -81,7 +81,12 @@ class Cleaned:
 
     @property
     def content_hash(self) -> str:
-        return text_hash(self.company_slug + "|" + "|".join(q["text"] for q in self.questions))
+        return content_hash(self.company_slug, [q["text"] for q in self.questions])
+
+
+def content_hash(company_slug: str, texts: Sequence[str]) -> str:
+    """Same company, same questions: the same post (a duplicate is refused)."""
+    return text_hash(company_slug + "|" + "|".join(texts))
 
 
 # --- companies -----------------------------------------------------------------------------

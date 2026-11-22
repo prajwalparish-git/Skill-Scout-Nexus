@@ -37,6 +37,7 @@ from piq.config import (
     DIFFICULTY_UP_AT,
     EMAIL_RE,
     INSTANT_QUIZ_SIZE,
+    INTERVIEW_MAX_TURNS,
     INTERVIEW_TIPS,
     INTERVIEW_TYPES,
     LEVEL_MIN_QUESTIONS,
@@ -1088,6 +1089,10 @@ class InterviewSession(BaseModel):
     history: list[AnsweredTurn] = []
     current: InterviewTurn | None = None
     done: bool = False
+    # Company practice (piq/experiences.py): questions students reported, asked first and word
+    # for word, then the AI interviewer continues with this focus (None: the track's own).
+    script: list[str] = []
+    custom_focus: str | None = None
 
     @model_validator(mode="after")
     def _finished_has_no_open_question(self) -> Self:
@@ -1177,19 +1182,45 @@ def _track_focus(profile: StudentProfile, name: str) -> str:
     return track.focus
 
 
+REPORTED_INTENT = "Reported by a student who had this interview"
+
+
+def _scripted(question: str) -> InterviewTurn:
+    """A question a student reported, asked word for word (never written by the AI)."""
+    return InterviewTurn(
+        question=question, intent=REPORTED_INTENT, is_followup=False, is_final=False
+    )
+
+
 def start_interview(
-    student_id: str, interview_type: str, on_event: OnEvent | None = None
+    student_id: str,
+    interview_type: str,
+    on_event: OnEvent | None = None,
+    *,
+    script: Sequence[str] = (),
+    focus: str | None = None,
 ) -> InterviewSession:
-    """`interview_type`: a generic type or one of the student's tracks (interview_tracks)."""
+    """`interview_type`: a generic type or one of the student's tracks (interview_tracks).
+    Company practice passes `script` (reported questions, asked first, verbatim; the AI then
+    closes the session) and its own `focus`, so the type need not be a track."""
     profile = _require_profile(student_id)
-    focus = _track_focus(profile, interview_type)
+    track_focus = focus if focus is not None else _track_focus(profile, interview_type)
     session_id = uuid.uuid4().hex
     past = db.past_turns(student_id, exclude_session=session_id)
-    first = agents.next_question(
-        profile, interview_type, [], past, student_id, on_event, focus=focus
-    )
+    script = [q for q in script if q.strip()][: INTERVIEW_MAX_TURNS - 1]  # room for a close
+    if script:
+        first = _scripted(script[0])
+    else:
+        first = agents.next_question(
+            profile, interview_type, [], past, student_id, on_event, focus=track_focus
+        )
     return InterviewSession(
-        session_id=session_id, interview_type=interview_type, past=past, current=first
+        session_id=session_id,
+        interview_type=interview_type,
+        past=past,
+        current=first,
+        script=script,
+        custom_focus=focus,
     )
 
 
@@ -1222,6 +1253,11 @@ def continue_interview(
     if session.phase != "awaiting_question":
         raise ServiceError("This session is not waiting for a new question.")
     profile = _require_profile(student_id)
+    if len(session.history) < len(session.script):  # reported questions first, verbatim
+        return session.model_copy(
+            update={"current": _scripted(session.script[len(session.history)])}
+        )
+    focus = session.custom_focus
     nxt = agents.next_question(
         profile,
         session.interview_type,
@@ -1229,7 +1265,7 @@ def continue_interview(
         session.past,
         student_id,
         on_event,
-        focus=_track_focus(profile, session.interview_type),
+        focus=focus if focus is not None else _track_focus(profile, session.interview_type),
     )
     return session.model_copy(update={"current": nxt})
 
