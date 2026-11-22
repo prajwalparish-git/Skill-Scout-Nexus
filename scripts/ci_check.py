@@ -10,8 +10,10 @@ repository proves the product itself works.
 3. The API answers (server.py through FastAPI's TestClient): health, catalog, a guest quiz,
    the resume audit, a local sign-up, the student's plan, calendar and dashboard, their
    certificates (upload, list, download, delete; a fake PDF, a non-.pdf name and an oversize
-   file refused), and the refusals (signed out, another student, the operations view, an
-   invalid body).
+   file refused), their own local model (only loopback addresses, no redirects, Test
+   connection against a stand-in on 127.0.0.1, their AI call answered by it and never cached,
+   a fallback once it stops, 403 when LOCAL_AI is off), and the refusals (signed out, another
+   student, the operations view, an invalid body).
 4. The app starts: every page renders headless (Streamlit AppTest) in mock mode, with no
    student and with the demo student, on throwaway databases. No network, no secrets.
 
@@ -179,6 +181,7 @@ def api() -> None:
             )
             check(c.get(f"/api/dashboard/{sid}").status_code == 200, "GET /api/dashboard/{id}")
             certificates(c, sid)
+            local_model(c, sid)
             c.post("/api/auth/logout")
             check(c.get(f"/api/plan/{sid}").status_code == 401, "signed out: the plan is refused")
             check(
@@ -224,6 +227,135 @@ def certificates(c: "TestClient", sid: str) -> None:
         gone.status_code == 200 and gone.json() == [], "POST /api/certificates/{id}/{cert}/delete"
     )
     check(c.get(f"{url}/{cid}/file").status_code == 404, "a deleted certificate is gone")
+
+
+def _fake_local_model() -> tuple[object, int]:
+    """A stand-in for Ollama and LM Studio on 127.0.0.1 (stdlib only, no network): model lists,
+    one chat answer for the bullet agent, and a redirect that must never be followed."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    answer = json.dumps({"bullet": "Built the feature end to end, measured by a passing check."})
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args: object) -> None:
+            pass
+
+        def _reply(self, status: int, body: object = None, location: str = "") -> None:
+            data = json.dumps(body).encode() if body is not None else b""
+            self.send_response(status)
+            if location:
+                self.send_header("Location", location)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_GET(self) -> None:
+            if self.path == "/api/tags":
+                self._reply(200, {"models": [{"name": "ci-model:latest"}]})
+            elif self.path == "/v1/models":
+                self._reply(200, {"data": [{"id": "ci-lmstudio-model"}]})
+            else:
+                self._reply(302, location="http://example.com/")  # never followed
+
+        def do_POST(self) -> None:
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            if self.path == "/api/chat":
+                self._reply(200, {"message": {"content": answer}})
+            elif self.path == "/v1/chat/completions":
+                self._reply(200, {"choices": [{"message": {"content": f"```json\n{answer}\n```"}}]})
+            else:
+                self._reply(404, {})
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, server.server_address[1]
+
+
+def local_model(c: "TestClient", sid: str) -> None:
+    """A student's own local model: the address guard, Test connection, routing their AI call
+    to it (mock mode: when preferred), never caching its answer, the indicator, and the 403s
+    once LOCAL_AI is off."""
+    from core import ai_router, local_ai
+    from piq import db
+    from piq.config import settings
+
+    for bad in (
+        "http://example.com",
+        "http://10.0.0.1:11434",
+        "http://169.254.169.254",
+        "http://0.0.0.0:11434",
+        "http://localhost.evil.com",
+        "http://user@127.0.0.1:11434",
+        "ftp://127.0.0.1:11434",
+        "http://127.0.0.1:11434/?x=1",
+    ):
+        r = c.post("/api/auth/local-ai/test", json={"provider": "ollama", "base_url": bad})
+        check(r.status_code == 400, f"local model: {bad} is refused")
+    good = [local_ai.normalize_url("ollama", u) for u in ("http://localhost:1", "http://[::1]:1")]
+    check(good == ["http://127.0.0.1:1", "http://[::1]:1"], "local model: loopback addresses pass")
+
+    server, port = _fake_local_model()
+    try:
+        base = f"http://localhost:{port}"
+        listed = c.post("/api/auth/local-ai/test", json={"provider": "ollama", "base_url": base})
+        check(
+            listed.status_code == 200 and listed.json()["models"] == ["ci-model:latest"],
+            f"POST /api/auth/local-ai/test (Ollama models listed){_why(listed)}",
+        )
+        lms = c.post("/api/auth/local-ai/test", json={"provider": "lmstudio", "base_url": base})
+        check(
+            lms.status_code == 200 and lms.json()["models"] == ["ci-lmstudio-model"],
+            "POST /api/auth/local-ai/test (LM Studio models listed)",
+        )
+        try:
+            local_ai._send("GET", f"{base}/elsewhere", who="CI", read_timeout=2, max_bytes=999)
+            check(False, "local model: a redirect is refused")
+        except local_ai.LocalAIError:
+            check(True, "local model: a redirect is refused")
+        for provider, model in (("lmstudio", "ci-lmstudio-model"), ("ollama", "ci-model:latest")):
+            saved = c.post(
+                "/api/auth/local-ai",
+                json={"provider": provider, "base_url": base, "model": model, "preferred": True},
+            )
+            check(saved.status_code == 200, f"POST /api/auth/local-ai ({provider}){_why(saved)}")
+            bullet = {"text": "built the feature", "role": "Software Engineer"}
+            out = c.post("/api/resume/enhance-bullet", json=bullet)
+            check(
+                out.status_code == 200 and db.last_model_used(sid) == f"local:{model}",
+                f"a preferred {provider} model answers the student's AI call{_why(out)}",
+            )
+        me = c.get("/api/auth/me").json()
+        check(me.get("local_ai") == {"model": "ci-model:latest"}, "GET /api/auth/me shows local_ai")
+        check(
+            not ai_router.prompt_cache().path.exists()
+            or "local:" not in ai_router.prompt_cache().path.read_text(encoding="utf-8"),
+            "a local model's answer is never cached",
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+    out = c.post("/api/resume/enhance-bullet", json=bullet)
+    check(
+        out.status_code == 200 and db.last_model_used(sid) == "mock",
+        "a stopped local model falls back to the mock answers",
+    )
+
+    os.environ["LOCAL_AI"] = "false"
+    settings.cache_clear()
+    try:
+        check(c.get("/api/auth/local-ai").json().get("allowed") is False, "LOCAL_AI=false: off")
+        for path, body in (
+            ("/api/auth/local-ai/test", {"provider": "ollama"}),
+            ("/api/auth/local-ai", {"provider": "ollama", "model": "x"}),
+            ("/api/auth/local-ai/delete", {}),
+        ):
+            check(c.post(path, json=body).status_code == 403, f"LOCAL_AI=false: {path} is 403")
+    finally:
+        os.environ["LOCAL_AI"] = "auto"
+        settings.cache_clear()
+    gone = c.post("/api/auth/local-ai/delete")
+    check(gone.status_code == 200 and gone.json()["config"] is None, "local model removed")
 
 
 def pages() -> None:
@@ -285,6 +417,8 @@ def main() -> int:
         "SMTP_EMAIL",
         "SMTP_APP_PASSWORD",
         "DEV_SECRET",
+        "LOCAL_AI",  # auto: on, since LOCAL_MODE is (the local-model checks need it)
+        "RENDER",
     ):
         os.environ.pop(key, None)
     sys.path.insert(0, str(ROOT))
