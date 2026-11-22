@@ -6,6 +6,7 @@ import { Activity, Cpu, Database, LogOut, RefreshCw, ShieldAlert, Users } from "
 import { ApiError, get } from "@/lib/api";
 import { useCandidate } from "@/lib/candidate";
 import { ExperienceQueue } from "@/components/ops/ExperienceQueue";
+import { ContributionQueue } from "@/components/ops/ContributionQueue";
 
 type Row = Record<string, string | number | boolean | null>;
 type Overview = {
@@ -172,6 +173,7 @@ export default function OpsPage() {
           </section>
 
           <ExperienceQueue />
+          <ContributionQueue />
 
           <div className="grid gap-4 lg:grid-cols-2">
             <Panel title="System" icon={Cpu}>

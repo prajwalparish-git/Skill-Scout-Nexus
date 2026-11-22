@@ -491,13 +491,25 @@ export default function SettingsPage() {
           <section className="card" aria-label="Account">
             <p className="text-sm font-semibold">{candidate.name}</p>
             <p className="font-mono text-xs text-muted">
-              @{candidate.username} · {candidate.target_role}
+              @{candidate.username} · {candidate.account_kind === "contributor" ? "contributor" : candidate.target_role}
             </p>
           </section>
-          <Preferences />
-          <LocalModel />
-          <GoogleDrive studentId={candidate.id} />
-          <ProctorRecord />
+          {candidate.account_kind === "contributor" ? (
+            <section className="card text-sm" aria-label="Contributor">
+              Your credit and contributions are on{" "}
+              <Link href="/contribute" className="font-medium underline underline-offset-2">
+                Contribute a question
+              </Link>
+              .
+            </section>
+          ) : (
+            <>
+              <Preferences />
+              <LocalModel />
+              <GoogleDrive studentId={candidate.id} />
+              <ProctorRecord />
+            </>
+          )}
           <Devices />
           <Password />
           <section className="card" aria-label="Question sources">

@@ -216,6 +216,8 @@ export type Student = {
   must_change_password: boolean;
   /** Belongs to an organization (its posts may name the college, once the batch is big enough). */
   in_org?: boolean;
+  /** "contributor": a placed student, alumnus or professional who shares questions only. */
+  account_kind?: "student" | "contributor";
 };
 /** How this install signs in: local = one student, password only (no email). */
 export type AuthMode = { local: boolean; signup_open: boolean };
@@ -621,3 +623,40 @@ export type Ats = {
   suggestions: string[];
   degree_fit: string;
 };
+
+// --- contributed questions (server_contribute.py) -------------------------------------------
+
+export type ContributeOptions = {
+  rounds: Record<string, string>;
+  topics: Record<string, string[]>;
+  licence: string;
+  licence_note: string;
+};
+export type Contribution = {
+  id: number;
+  kind: "mcq" | "open";
+  round: string;
+  topic: string;
+  difficulty: string;
+  text: string;
+  options: string[];
+  correct_index: number | null;
+  explanation: string;
+  model_answer: string;
+  licence: string;
+  status: "pending" | "approved" | "rejected" | "hidden";
+  reject_reason?: string;
+  flags?: string[];
+  created_at: string;
+};
+export type ContributorProfile = {
+  kind: "student" | "contributor";
+  company_joined: string;
+  credit_opt_in: boolean;
+  display_name: string;
+  shown_as: string;
+  approved: number;
+  badge: string;
+};
+export type Leaderboard = { season: string; since: string; top: { name: string; approved: number }[] };
+export type ContributeMe = { profile: ContributorProfile; contributions: Contribution[]; leaderboard: Leaderboard };

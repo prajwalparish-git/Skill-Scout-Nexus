@@ -10,6 +10,7 @@ import {
   Cpu,
   FileText,
   Gauge,
+  HandHeart,
   Home,
   ListChecks,
   MessagesSquare,
@@ -35,11 +36,15 @@ const NAV: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/interview", label: "Mock interview", icon: MessagesSquare },
   { href: "/companies", label: "Company questions", icon: Building2 },
   { href: "/plan", label: "Study plan", icon: CalendarDays },
+  { href: "/contribute", label: "Contribute a question", icon: HandHeart },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
+/** What a contributor account sees: it shares questions, it has no student tools. */
+const CONTRIBUTOR_NAV = new Set(["/companies", "/contribute", "/settings"]);
+
 /** Public pages: the floating top bar, full-bleed content and the footer, no app sidebar. */
-const PUBLIC = new Set(["/", "/organizations", "/privacy", "/terms", "/cookies"]);
+const PUBLIC = new Set(["/", "/organizations", "/privacy", "/terms", "/cookies", "/credits"]);
 
 const initials = (name: string) =>
   name
@@ -150,6 +155,8 @@ function StatusBar({ path }: { path: string }) {
 
 export function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
+  const { candidate } = useCandidate();
+  const nav = candidate?.account_kind === "contributor" ? NAV.filter((n) => CONTRIBUTOR_NAV.has(n.href)) : NAV;
 
   if (path.startsWith("/ops")) return <>{children}</>; // a page of its own, without the app's chrome
 
@@ -181,7 +188,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <nav aria-label="Pages" className="-mx-1 overflow-x-auto lg:mx-0 lg:mt-8 lg:overflow-visible">
               <p className="eyebrow mb-2 hidden px-3 lg:block">Tools</p>
               <ul className="flex gap-1 px-1 lg:flex-col lg:px-0">
-                {NAV.map(({ href, label, icon: Icon }) => {
+                {nav.map(({ href, label, icon: Icon }) => {
                   const active = path.startsWith(href);
                   return (
                     <li key={href}>

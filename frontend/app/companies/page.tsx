@@ -20,6 +20,7 @@ import { ShareForm } from "@/components/companies/ShareForm";
 import { OfficialPattern, OpenPractice } from "@/components/companies/OpenPractice";
 import { SharePanel } from "@/components/companies/SharePanel";
 import { ProcessSummary } from "@/components/companies/ProcessSummary";
+import { ContributeButton } from "@/components/contribute/Contribute";
 
 const LETTERS = "ABCD";
 const STATUS: Record<MyPost["status"], { state: "ok" | "info" | "warn" | "todo"; text: string }> = {
@@ -198,6 +199,11 @@ function Company({ slug, onBack, inOrg, onShared }: { slug: string; onBack: () =
       </div>
       <aside className="space-y-4 lg:sticky lg:top-24" aria-label="Share your experience">
         {detail ? <SharePanel company={detail.name} inOrg={inOrg} onShared={onShared} /> : null}
+        <section className="card text-sm">
+          <p className="font-medium">Know a good practice question, with its answer?</p>
+          <p className="mt-1 text-muted">Add it to the open question bank for every student (CC BY 4.0, moderated).</p>
+          <ContributeButton className="btn-ghost mt-3" />
+        </section>
       </aside>
       </div>
     </div>
@@ -240,6 +246,7 @@ export default function CompaniesPage() {
         eyebrow="Company questions"
         title="Interview questions, from students who were asked them"
         lead="Reported by students in their own words, by company and round, and approved by a moderator before anyone sees them. Practise them, or practise with AI questions in a company's style, always marked AI. Nothing here is copied from another website."
+        actions={<ContributeButton />}
       />
       <ErrorNote message={error} />
       {selected && candidate ? (
