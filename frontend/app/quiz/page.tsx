@@ -8,6 +8,8 @@ import { useCandidate } from "@/lib/candidate";
 import { domainOf, useCatalog } from "@/lib/catalog";
 import { Badge, ErrorNote, Kbd, PageHeader, Ring } from "@/components/ui";
 import { SPRING_UI } from "@/lib/site";
+import { useProctor } from "@/lib/proctor/useProctor";
+import { ProctorChoice, ProctorLayer, ProctorSummary } from "@/components/proctor/Proctor";
 
 const LEVELS = ["easy", "medium", "hard"] as const;
 const COUNTS = [5, 10, 15, 20];
@@ -39,6 +41,9 @@ function LevelChange({ before, after, topic }: { before: string; after: string; 
 export default function QuizPage() {
   const { catalog, error: catalogError } = useCatalog();
   const { candidate } = useCandidate();
+  // A proctored quiz (required by the student's organization, or chosen as practice): a breach
+  // submits what was answered, through the same ref the keyboard uses.
+  const proctor = useProctor({ kind: "quiz", signedIn: Boolean(candidate), onBreach: () => void submitLatest.current() });
   const [domainId, setDomainId] = useState<string>("");
   const [topic, setTopic] = useState("");
   const [difficulty, setDifficulty] = useState<string>("medium");
@@ -114,14 +119,22 @@ export default function QuizPage() {
           topic: quiz.topic,
           difficulty: quiz.difficulty,
           answers: quiz.questions.map((q, i) => ({ id: q.id, choice: answers[i] })),
+          proctor_attempt_id: proctor.currentAttemptId(),
         }),
       );
+      if (proctor.phase === "running") await proctor.end();
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
     }
+  }
+
+  /** Start a quiz: through the proctoring check first when this quiz is proctored. */
+  function begin(level?: string) {
+    if (proctor.wanted) proctor.open(topic, () => start(level));
+    else void start(level);
   }
 
   // The listener below is registered once per question, so it calls the latest submit through a
@@ -183,6 +196,7 @@ export default function QuizPage() {
         {announce}
       </p>
       <ErrorNote message={catalogError} />
+      <ProctorLayer proctor={proctor} />
       {catalog && topics.length === 0 && (
         <p className="mb-6 text-sm text-muted">
           No question bank is installed for this domain (data/questions/mcq_bank.csv). The Streamlit quiz still works:
@@ -256,7 +270,7 @@ export default function QuizPage() {
           </fieldset>
         </div>
         <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-hair pt-5">
-          <button type="button" className="btn-primary" disabled={!topic || busy} aria-describedby="quiz-bank-note" onClick={() => start()}>
+          <button type="button" className="btn-primary" disabled={!topic || busy} aria-describedby="quiz-bank-note" onClick={() => begin()}>
             {busy && !quiz ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <ArrowRight size={16} aria-hidden />}
             Start {count}-question {topic || "topic"} quiz
           </button>
@@ -272,6 +286,9 @@ export default function QuizPage() {
               {candidate ? "; you get only those you have not answered" : ""}
             </p>
           )}
+          <div className="w-full">
+            <ProctorChoice proctor={proctor} what="quiz" />
+          </div>
           {candidate && (
             <label className="ml-auto flex cursor-pointer items-center gap-2 text-xs text-muted">
               <input type="checkbox" className="h-4 w-4 accent-[rgb(var(--ink))]" checked={manual} onChange={(e) => setManual(e.target.checked)} />
@@ -306,12 +323,13 @@ export default function QuizPage() {
                     {graded.review.some((r) => !r.is_correct) ? "; the questions you missed come back in a later quiz." : "."}
                   </p>
                 )}
+                <ProctorSummary outcome={graded.proctoring} />
               </div>
               <div className="flex flex-wrap gap-2">
-                <button type="button" className="btn-ghost" onClick={() => start(quiz.difficulty)}>
+                <button type="button" className="btn-ghost" onClick={() => begin(quiz.difficulty)}>
                   <RotateCcw size={16} aria-hidden /> Retry at the same difficulty
                 </button>
-                <button type="button" className="btn-primary" onClick={() => (adaptive ? start() : start(graded.next_difficulty))}>
+                <button type="button" className="btn-primary" onClick={() => (adaptive ? begin() : begin(graded.next_difficulty))}>
                   {adaptive ? `Next quiz at your level (${graded.next_difficulty})` : `Start next quiz (${graded.next_difficulty})`}{" "}
                   <ArrowRight size={16} aria-hidden />
                 </button>

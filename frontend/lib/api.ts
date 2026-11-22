@@ -281,6 +281,8 @@ export type Graded = {
   level_changed?: boolean;
   review: { id: string; chosen: number | null; correct_index: number; is_correct: boolean; explanation: string }[];
   weakness: Record<string, number> | null;
+  /** Set when the quiz was proctored. */
+  proctoring?: ProctorOutcome | null;
 };
 export type DayPlan = {
   day: number;
@@ -436,6 +438,46 @@ export type TurnResult = {
   session: Session;
   average: number | null;
   summary?: { averages: Record<string, number>; strongest: string; weakest: string; tips: Record<string, string> };
+  /** Set on the last turn of a proctored interview (or when it was breached). */
+  proctoring?: ProctorOutcome | null;
+};
+/** GET /api/proctor/policy: practice (proctoring optional), required, or required in Safe Exam Browser. */
+export type ProctorPolicy = {
+  mode: "practice" | "required" | "seb";
+  required: boolean;
+  seb: boolean;
+  consent_text: string;
+  max_strikes: number;
+  heartbeat_s: number;
+  clear: string[];
+};
+/** The server's count after an event batch: it decides severity and strikes. */
+export type ProctorProgress = { strikes: number; breached: boolean; warning: string | null };
+export type ProctorOutcome = { attempt_id: string; strikes: number; breached: boolean; flags: string[] };
+export type ProctorEvent = {
+  kind: string;
+  severity: "clear" | "review";
+  strike: boolean;
+  at_s: number;
+  duration_s: number | null;
+  /** e.g. "looked away 14s at 03:42" */
+  text: string;
+};
+/** One proctored attempt as the student (and their admin) sees it. */
+export type ProctorAttempt = {
+  id: string;
+  kind: "quiz" | "interview";
+  label: string;
+  mode: "practice" | "required" | "seb";
+  camera: "on" | "unavailable";
+  camera_note: string;
+  started: string;
+  duration_s: number;
+  strikes: number;
+  breached: boolean;
+  finished: boolean;
+  clear: ProctorEvent[];
+  review: ProctorEvent[];
 };
 /** A resume layout for a kind of employer (piq/resume_templates.py). */
 export type ResumeTemplate = { id: string; name: string; best_for: string; one_page: boolean; fields: string[] };

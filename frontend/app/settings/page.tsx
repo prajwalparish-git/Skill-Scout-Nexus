@@ -15,6 +15,7 @@ import {
 } from "@/lib/api";
 import { useCandidate } from "@/lib/candidate";
 import { useDrive } from "@/lib/drive";
+import { ProctorRecord } from "@/components/proctor/Record";
 import { ErrorNote, Loading, NeedsCandidate, PageHeader } from "@/components/ui";
 
 const when = (raw: string | number | null) => {
@@ -495,6 +496,7 @@ export default function SettingsPage() {
           <Preferences />
           <LocalModel />
           <GoogleDrive studentId={candidate.id} />
+          <ProctorRecord />
           <Devices />
           <Password />
         </div>

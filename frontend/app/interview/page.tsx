@@ -6,6 +6,8 @@ import { Award, Bot, Check, Clock, Loader2, Mic, Play, Send, ShieldCheck, Trendi
 import { get, postStream, type Evaluation, type Track, type TurnResult } from "@/lib/api";
 import { useCandidate } from "@/lib/candidate";
 import { Badge, ErrorNote, Loading, NeedsCandidate, PageHeader } from "@/components/ui";
+import { useProctor } from "@/lib/proctor/useProctor";
+import { ProctorChoice, ProctorLayer, ProctorSummary } from "@/components/proctor/Proctor";
 
 /** Company practice: whether a question was reported by a student or written by the AI. */
 function SourceChip({ script, question }: { script?: string[]; question: string }) {
@@ -126,6 +128,28 @@ export default function InterviewPage() {
     bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [result, steps]);
 
+  // A proctored interview: a breach submits the answer typed so far, after any turn in flight.
+  const [breachPending, setBreachPending] = useState(false);
+  const proctor = useProctor({ kind: "interview", signedIn: Boolean(candidate), onBreach: () => setBreachPending(true) });
+  useEffect(() => {
+    if (!breachPending || busy) return;
+    setBreachPending(false);
+    const s = result?.session;
+    if (s?.current) void turn({ session: s, answer: answer.trim() || "[Submitted after 3 proctoring strikes]" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [breachPending, busy]);
+
+  /** Start (a track or company practice): through the proctoring check when proctored. */
+  function begin(label: string, body: Record<string, unknown>) {
+    const go = async () => {
+      setStartedAt(Date.now());
+      setNow(Date.now());
+      await turn(body);
+    };
+    if (proctor.wanted) proctor.open(label, go);
+    else void go();
+  }
+
   async function turn(body: Record<string, unknown>) {
     if (!candidate) return;
     stream.current?.abort();
@@ -138,13 +162,15 @@ export default function InterviewPage() {
     try {
       await postStream(
         "/api/interview/turn",
-        { candidate_id: candidate.id, ...body },
+        { candidate_id: candidate.id, proctor_attempt_id: proctor.currentAttemptId(), ...body },
         (event, data) => {
           if (event === "step") setSteps((s) => [...s, String(data)]);
           else if (event === "result") {
             ended = true;
-            setResult(data as TurnResult);
+            const r = data as TurnResult;
+            setResult(r);
             setAnswer("");
+            if (r.proctoring) void proctor.end();
           } else if (event === "error") {
             ended = true;
             setError(String(data?.detail ?? "Something went wrong. Try again."));
@@ -196,6 +222,7 @@ export default function InterviewPage() {
         lead="Five questions on a track from your field. A critic checks every question before you see it; each answer is scored on relevance, depth, structure and clarity."
       />
       <ErrorNote message={error} />
+      <ProctorLayer proctor={proctor} />
 
       {!session && !tracks && !error && <Loading label="Loading interview tracks…" />}
 
@@ -206,7 +233,10 @@ export default function InterviewPage() {
             Questions students reported from this round come first, word for word; the AI interviewer then closes the session in its
             style. Each question is marked as reported or AI.
           </p>
-          <button type="button" className="btn-primary mt-3" disabled={busy} onClick={() => turn(companyPractice)}>
+          <div className="mt-3">
+            <ProctorChoice proctor={proctor} what="interview" />
+          </div>
+          <button type="button" className="btn-primary mt-3" disabled={busy} onClick={() => begin("Company practice", companyPractice)}>
             {busy ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <Play size={16} aria-hidden />} Start company practice
           </button>
         </section>
@@ -247,15 +277,14 @@ export default function InterviewPage() {
             </fieldset>
           ))}
           <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-hair pt-5">
+            <div className="w-full">
+              <ProctorChoice proctor={proctor} what="interview" />
+            </div>
             <button
               type="button"
               className="btn-primary"
               disabled={!track || busy}
-              onClick={() => {
-                setStartedAt(Date.now());
-                setNow(Date.now());
-                turn({ track });
-              }}
+              onClick={() => begin(track, { track })}
             >
               {busy ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <Mic size={16} aria-hidden />}
               Start mock interview{track ? `: ${track}` : ""}
@@ -354,6 +383,23 @@ export default function InterviewPage() {
             </article>
           )}
 
+          {!session.done && result?.proctoring?.breached && (
+            <article className="card">
+              <p className="eyebrow">Interview submitted</p>
+              <ProctorSummary outcome={result.proctoring} />
+              <button
+                type="button"
+                className="btn-primary mt-5"
+                onClick={() => {
+                  setResult(null);
+                  setStartedAt(null);
+                }}
+              >
+                Start a new mock interview
+              </button>
+            </article>
+          )}
+
           {session.done && result?.summary && (
             <article className="card surface-light">
               <p className="eyebrow">Session summary</p>
@@ -373,6 +419,7 @@ export default function InterviewPage() {
                   </li>
                 ))}
               </ul>
+              <ProctorSummary outcome={result.proctoring} />
               <button
                 type="button"
                 className="btn-primary mt-5"
