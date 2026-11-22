@@ -19,6 +19,7 @@ from core import proctoring as proctor_rules
 from piq import (
     charts,
     cohort,
+    contributions,
     db,
     experiences,
     formatter,
@@ -1074,7 +1075,52 @@ def _interview_posts() -> None:
                     st.rerun()
 
 
-waiting = len(experiences.review_queue(org.id))
+def _contributed_questions() -> None:
+    """Questions the organization's own students contributed to the open bank (CC BY 4.0),
+    waiting for approval: multiple choice joins the quiz bank, open ones the interviews."""
+    st.subheader("Contributed questions", anchor=False)
+    queue = contributions.review_queue(org.id)
+    if not queue:
+        st.caption("No contributed questions waiting.")
+        return
+    for c in queue:
+        with st.container(border=True):
+            st.caption(
+                f"{contributions.ROUNDS[c['round']]} · {formatter.md_escape(c['topic'])} · "
+                f"{c['difficulty']} · {c['licence']}"
+            )
+            for f in c["flags"]:
+                st.markdown(f":orange[:material/flag: {formatter.md_escape(f)}]")
+            st.markdown(f"**{formatter.md_escape(c['text'])}**")
+            if c["kind"] == "mcq":
+                st.markdown(
+                    "  \n".join(
+                        f"{'ABCD'[j]}. {formatter.md_escape(o)}"
+                        + (" :green[:material/check:]" if j == c["correct_index"] else "")
+                        for j, o in enumerate(c["options"])
+                    )
+                )
+                st.caption(f"Explanation: {formatter.md_escape(c['explanation'])}")
+            else:
+                st.caption(f"Model answer: {formatter.md_escape(c['model_answer'])}")
+            with st.form(f"contrib_review_{c['id']}", border=False):
+                reason = st.text_input("Reason (needed to reject; the author sees it)")
+                approve_col, reject_col = st.columns(2, gap="small")
+                approve = approve_col.form_submit_button(
+                    "Approve", type="primary", icon=":material/check:"
+                )
+                reject = reject_col.form_submit_button("Reject", icon=":material/close:")
+            if approve or reject:
+                try:
+                    contributions.review(org.id, c["id"], bool(approve), reason)
+                except services.ServiceError as e:
+                    st.error(formatter.md_escape(str(e)), icon=":material/error:")
+                else:
+                    st.toast("Approved." if approve else "Rejected.", icon=":material/check:")
+                    st.rerun()
+
+
+waiting = len(experiences.review_queue(org.id)) + len(contributions.review_queue(org.id))
 overview_tab, provisioning_tab, students_tab, posts_tab, settings_tab = st.tabs(
     [
         ":material/dashboard: Overview",
@@ -1092,5 +1138,6 @@ with students_tab:
     _directory()
 with posts_tab:
     _interview_posts()
+    _contributed_questions()
 with settings_tab:
     _settings()

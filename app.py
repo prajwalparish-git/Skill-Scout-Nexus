@@ -75,6 +75,26 @@ elif student is None:
         [st.Page("views/onboard.py", title="Sign in", icon=":material/login:", default=True)],
         position="hidden",
     )
+elif student.get("account_kind") == "contributor":
+    # A contributor shares questions only: no profile, plan or student tools.
+    account_sidebar(student)
+    engine = journey.engine_status()
+    sidebar_context(mock_mode=cfg.mock_mode, ai=engine.active_ai, engine=engine.line)
+    page = st.navigation(
+        {
+            "Contribute": [
+                st.Page(
+                    "views/contribute.py",
+                    title="Contribute a question",
+                    icon=":material/volunteer_activism:",
+                    default=True,
+                ),
+                st.Page("views/credits.py", title="Question credits", icon=":material/license:"),
+            ]
+        },
+        position="sidebar",
+        expanded=True,
+    )
 else:
     account_sidebar(student)
     engine = journey.engine_status()  # one router check feeds both the badge and the footer
@@ -135,6 +155,11 @@ else:
                 ),
                 st.Page("views/dashboard.py", title="Dashboard", icon=":material/monitoring:"),
                 st.Page("views/results.py", title="Results", icon=":material/fact_check:"),
+                st.Page(
+                    "views/contribute.py",
+                    title="Contribute a question",
+                    icon=":material/volunteer_activism:",
+                ),
                 st.Page("views/credits.py", title="Question credits", icon=":material/license:"),
             ],
         },
