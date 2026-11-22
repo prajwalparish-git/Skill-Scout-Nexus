@@ -3,11 +3,45 @@
 import { Suspense, useEffect, useId, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
-import { Download, Loader2, Plus, Sparkles, Trash2, Wand2 } from "lucide-react";
-import { API, failure, get, post, qs, saveFile, type Ats, type Catalog, type RoleFit } from "@/lib/api";
+import { Download, LayoutTemplate, Loader2, Lock, Plus, Sparkles, Trash2, Undo2, Wand2 } from "lucide-react";
+import {
+  API,
+  failure,
+  get,
+  post,
+  qs,
+  saveFile,
+  type Ats,
+  type Catalog,
+  type ResumeLayout,
+  type ResumeTemplate,
+  type RoleFit,
+  type Tailoring,
+} from "@/lib/api";
+import { useCandidate } from "@/lib/candidate";
 import { useCatalog } from "@/lib/catalog";
 import { Badge, ErrorNote, PageHeader, Ring } from "@/components/ui";
+import { ResumePreview } from "@/components/resume/Preview";
+import { TailorPanel } from "@/components/resume/Tailor";
 import { CONSENT_TEXT, SPRING_UI } from "@/lib/site";
+
+const NEW_EXTRAS = {
+  leetcode_url: "",
+  codeforces_url: "",
+  portfolio_url: "",
+  achievements: "",
+  exam_scores: "",
+  nationality: "",
+  languages: "",
+  date_of_birth: "", // never saved anywhere: printed on this PDF only
+  address: "", // never saved anywhere: printed on this PDF only
+  declaration_place: "",
+};
+const lines = (text: string) =>
+  text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
 
 type Edu = {
   degree: string;
@@ -125,6 +159,56 @@ function Builder() {
   const [polished, setPolished] = useState("");
   const [polishBusy, setPolishBusy] = useState(false);
   const [polishConsent, setPolishConsent] = useState(false);
+  const { candidate } = useCandidate();
+  const [templates, setTemplates] = useState<ResumeTemplate[]>([]);
+  const [template, setTemplate] = useState("standard");
+  const [templatePicked, setTemplatePicked] = useState(false); // the student chose one themselves
+  const [extras, setExtras] = useState({ ...NEW_EXTRAS });
+  const [uploaded, setUploaded] = useState<{ title: string; line: string }[]>([]);
+  const [chosenCerts, setChosenCerts] = useState<string[]>([]);
+  const [layout, setLayout] = useState<ResumeLayout | null>(null);
+  const [summaryOverride, setSummaryOverride] = useState("");
+  const [beforeTailor, setBeforeTailor] = useState<{ jobs: Job[]; project: { title: string; tech: string; desc: string } } | null>(null);
+
+  const current = templates.find((t) => t.id === template);
+  const uses = new Set(current?.fields ?? []);
+  const setExtra = (k: keyof typeof NEW_EXTRAS) => (v: string) => setExtras((x) => ({ ...x, [k]: v }));
+
+  // The layouts, and the one this domain's students start from (until the student picks one).
+  useEffect(() => {
+    let live = true;
+    get<{ templates: ResumeTemplate[]; default: string }>(`/api/resume/templates?${qs({ domain: domainId })}`).then(
+      (r) => {
+        if (!live) return;
+        setTemplates(r.templates);
+        if (!templatePicked) setTemplate(r.default);
+      },
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [domainId, templatePicked]);
+
+  // A signed-in student's uploaded certificates, all ticked to start with.
+  const candidateId = candidate?.id;
+  useEffect(() => {
+    setUploaded([]);
+    setChosenCerts([]);
+    if (!candidateId) return;
+    let live = true;
+    get<{ certificates: { title: string; line: string }[] }>("/api/resume/certificates").then(
+      (r) => {
+        if (!live) return;
+        setUploaded(r.certificates);
+        setChosenCerts(r.certificates.map((c) => c.line));
+      },
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [candidateId]);
 
   const domain = catalog?.domains.find((d) => d.id === domainId) ?? catalog?.domains[0];
   const roleInfo = domain?.roles.find((r) => r.name === role) ?? domain?.roles[0];
@@ -142,9 +226,19 @@ function Builder() {
       project_title: project.title,
       project_tech: project.tech,
       project_desc: project.desc,
-      certifications: certs.split("\n").map((c) => c.trim()).filter(Boolean),
+      // Uploaded certificates first; a typed line repeating one (by title or line) is dropped.
+      certifications: (() => {
+        const known = new Set(uploaded.flatMap((u) => [u.title, u.line].map((x) => x.trim().toLowerCase())));
+        const picked = uploaded.filter((u) => chosenCerts.includes(u.line)).map((u) => u.line);
+        return [...new Set([...picked, ...lines(certs).filter((t) => !known.has(t.toLowerCase()))])];
+      })(),
+      template,
+      ...extras,
+      achievements: lines(extras.achievements),
+      exam_scores: lines(extras.exam_scores),
+      summary: summaryOverride,
     }),
-    [contact, roleInfo, skills, extraSkills, education, jobs, project, certs],
+    [contact, roleInfo, skills, extraSkills, education, jobs, project, certs, uploaded, chosenCerts, template, extras, summaryOverride],
   );
 
   // Live ATS score: the local audit, debounced so typing never waits on it. A reply for an older
@@ -153,10 +247,11 @@ function Builder() {
     if (!body.role_name) return;
     let current = true;
     const t = setTimeout(() => {
-      post<{ ats: Ats }>("/api/resume/ats", body).then(
+      post<{ ats: Ats; layout: ResumeLayout }>("/api/resume/ats", body).then(
         (r) => {
           if (!current) return;
           setAts(r.ats);
+          setLayout(r.layout);
           setError(null);
         },
         (e: Error) => current && setError(e.message),
@@ -208,6 +303,28 @@ function Builder() {
     }
   }
 
+  // Accepting a tailoring rewrites the summary, the jobs' bullets and the project's bullets in the
+  // form itself (so later edits just work); Undo restores them as they were before the first one.
+  function acceptTailoring(t: Tailoring) {
+    setBeforeTailor((prev) => prev ?? { jobs, project });
+    setSummaryOverride(t.summary);
+    for (const [where, bullets] of Object.entries(t.bullets)) {
+      const [kind, at] = where.split(":");
+      const i = Number(at);
+      if (kind === "experience") setJob(i, { highlights: bullets.join("\n") });
+      if (kind === "projects" && i === 0) setProject((p) => ({ ...p, desc: bullets.join("\n") }));
+    }
+  }
+
+  function undoTailoring() {
+    if (beforeTailor) {
+      setJobs(beforeTailor.jobs);
+      setProject(beforeTailor.project);
+    }
+    setSummaryOverride("");
+    setBeforeTailor(null);
+  }
+
   async function polish() {
     setPolishBusy(true);
     setError(null);
@@ -245,6 +362,9 @@ function Builder() {
     setExtraSkills("");
     setProject(sample ? { title: sample.title, tech: sample.tech, desc: sample.bullets.join("\n") } : { title: "", tech: "", desc: "" });
     setCerts("");
+    setExtras({ ...NEW_EXTRAS });
+    setSummaryOverride("");
+    setBeforeTailor(null);
   }
 
   const setEdu = (i: number, patch: Partial<Edu>) => setEducation((l) => l.map((e, k) => (k === i ? { ...e, ...patch } : e)));
@@ -257,7 +377,7 @@ function Builder() {
       <PageHeader
         eyebrow="ATS resume builder"
         title="Resume builder"
-        lead="Your own details as a single-column, ATS-friendly resume. The score updates as you type, from a local audit; only the bullet polish uses AI, and it never invents numbers."
+        lead="Your own details as a single-column, ATS-friendly resume, in the layout that suits the kind of employer you are applying to. The score updates as you type, from a local audit; only the bullet polish and the tailoring use AI, and they never invent numbers."
       />
       <ErrorNote message={catalogError} />
 
@@ -310,6 +430,38 @@ function Builder() {
             )}
           </section>
 
+          <section className="card" aria-labelledby="template-title">
+            <h2 id="template-title" className="flex items-center gap-2 font-semibold">
+              <LayoutTemplate size={16} aria-hidden /> Resume template
+            </h2>
+            <p className="mt-1 text-sm text-muted">
+              Layouts by the kind of employer, not any company&apos;s official format (companies do not publish one). Every layout is
+              ATS-safe: one column of real text, standard headings, no photo. The ATS score is the same in each.
+            </p>
+            <div className="segmented mt-3" role="group" aria-label="Resume template">
+              {templates.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  className="segment"
+                  aria-pressed={template === t.id}
+                  onClick={() => {
+                    setTemplate(t.id);
+                    setTemplatePicked(true);
+                  }}
+                >
+                  {t.name}
+                </button>
+              ))}
+            </div>
+            {current && (
+              <p className="mt-2 text-sm text-muted">
+                {current.best_for}
+                {current.one_page ? " Aims at one page." : ""}
+              </p>
+            )}
+          </section>
+
           <section id="contact" className="card scroll-mt-40" aria-label="Contact details">
             <StepTitle n={1} className="mb-1">Contact details</StepTitle>
             <p className="mb-4 text-sm text-muted">
@@ -323,6 +475,13 @@ function Builder() {
               <Field label="City (optional)" autoComplete="address-level2" value={contact.location} onChange={(v) => setContact({ ...contact, location: v })} />
               <Field label="LinkedIn or portfolio (optional)" value={contact.linkedin_url} onChange={(v) => setContact({ ...contact, linkedin_url: v })} />
               <Field label="GitHub (optional)" value={contact.github_url} onChange={(v) => setContact({ ...contact, github_url: v })} />
+              {uses.has("links") && (
+                <>
+                  <Field label="LeetCode / HackerRank (optional)" value={extras.leetcode_url} onChange={setExtra("leetcode_url")} placeholder="leetcode.com/u/..." />
+                  <Field label="Codeforces / CodeChef (optional)" value={extras.codeforces_url} onChange={setExtra("codeforces_url")} />
+                  <Field label="Portfolio (optional)" value={extras.portfolio_url} onChange={setExtra("portfolio_url")} placeholder="yourname.dev" />
+                </>
+              )}
             </div>
           </section>
 
@@ -454,8 +613,60 @@ function Builder() {
               <Field label="Tools and technologies" value={project.tech} onChange={(v) => setProject({ ...project, tech: v })} />
             </div>
             <Labeled label="What you built and its result (one bullet per line)">{(id) => (<textarea id={id} className="input min-h-24" value={project.desc} onChange={(e) => setProject({ ...project, desc: e.target.value })} />)}</Labeled>
-            <Labeled label="Certifications (one per line)">{(id) => (<textarea id={id} className="input min-h-16" value={certs} onChange={(e) => setCerts(e.target.value)} />)}</Labeled>
+            {uploaded.length > 0 && (
+              <fieldset>
+                <legend className="label">From your uploaded certificates</legend>
+                <div className="space-y-1.5">
+                  {uploaded.map((u) => (
+                    <label key={u.line} className="flex cursor-pointer items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 accent-[rgb(var(--primary))]"
+                        checked={chosenCerts.includes(u.line)}
+                        onChange={(e) => setChosenCerts((c) => (e.target.checked ? [...c, u.line] : c.filter((x) => x !== u.line)))}
+                      />
+                      {u.line}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            )}
+            <Labeled label={uploaded.length ? "Other certifications (one per line)" : "Certifications (one per line)"}>{(id) => (<textarea id={id} className="input min-h-16" value={certs} onChange={(e) => setCerts(e.target.value)} />)}</Labeled>
           </section>
+
+          {(uses.has("achievements") || uses.has("exam_scores") || uses.has("personal") || uses.has("personal_basic") || uses.has("declaration")) && (
+            <section className="card space-y-4" aria-labelledby="extras-title">
+              <h2 id="extras-title" className="font-semibold">
+                For the {current?.name} layout
+              </h2>
+              {uses.has("achievements") && (
+                <Labeled label="Achievements (one per line)">{(id) => (<textarea id={id} className="input min-h-16" value={extras.achievements} onChange={(e) => setExtra("achievements")(e.target.value)} placeholder="Ranked in the top 5% of a national coding contest" />)}</Labeled>
+              )}
+              {uses.has("exam_scores") && (
+                <Labeled label="Examination scores (one per line)">{(id) => (<textarea id={id} className="input min-h-16" value={extras.exam_scores} onChange={(e) => setExtra("exam_scores")(e.target.value)} placeholder="GATE 2026 (Mechanical): 612, AIR 1450" />)}</Labeled>
+              )}
+              {(uses.has("personal") || uses.has("personal_basic")) && (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Nationality" value={extras.nationality} onChange={setExtra("nationality")} />
+                  <Field label="Languages known" value={extras.languages} onChange={setExtra("languages")} placeholder="English, Hindi, Kannada" />
+                </div>
+              )}
+              {uses.has("personal") && (
+                <>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field label="Date of birth" value={extras.date_of_birth} onChange={setExtra("date_of_birth")} placeholder="DD Mon YYYY" />
+                    <Field label="Address" autoComplete="street-address" value={extras.address} onChange={setExtra("address")} />
+                  </div>
+                  <p className="flex items-center gap-1.5 text-xs text-muted">
+                    <Lock size={12} aria-hidden /> Date of birth and address are printed on this PDF only and never saved.
+                  </p>
+                </>
+              )}
+              {uses.has("declaration") && (
+                <Field label="Place for the declaration" value={extras.declaration_place} onChange={setExtra("declaration_place")} placeholder="City" />
+              )}
+            </section>
+          )}
 
           <section className="card" aria-label="Polish a bullet">
             <h2 className="flex items-center gap-2 font-semibold">
@@ -505,6 +716,31 @@ function Builder() {
             </div>
             <div aria-live="polite">{polished && <p className="mt-3 rounded-lg bg-surface px-3 py-2 text-sm">{polished}</p>}</div>
           </section>
+
+          <TailorPanel body={body} signedIn={Boolean(candidate)} onAccept={acceptTailoring} />
+
+          {layout && (
+            <section className="card" aria-labelledby="preview-title">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <h2 id="preview-title" className="font-semibold">
+                  Preview: {current?.name ?? "Standard"}
+                </h2>
+                <span className="font-mono text-xs text-muted">
+                  {layout.pages} page{layout.pages === 1 ? "" : "s"}
+                </span>
+              </div>
+              {beforeTailor && (
+                <p className="mb-3 flex flex-wrap items-center gap-2 rounded-xl bg-surface px-3 py-2 text-sm">
+                  Tailored to a job description: the summary and bullets below are the tailored ones.
+                  <button type="button" className="btn-ghost ml-auto min-h-0 px-3 py-1 text-xs" onClick={undoTailoring}>
+                    <Undo2 size={14} aria-hidden /> Undo tailoring
+                  </button>
+                </p>
+              )}
+              {layout.page_note && <p className="mb-3 rounded-xl border border-warn/40 px-3 py-2 text-sm text-warn">{layout.page_note}</p>}
+              <ResumePreview layout={layout} />
+            </section>
+          )}
         </div>
 
         <aside className="lg:sticky lg:top-6 lg:self-start">
@@ -562,7 +798,7 @@ function Builder() {
               onClick={downloadPdf}
             >
               {pdfBusy ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <Download size={16} aria-hidden />}
-              Download resume as PDF
+              Download PDF{current ? ` (${current.name})` : ""}
             </button>
             {!contact.full_name && (
               <p id="pdf-hint" className="mt-2 text-xs text-muted">

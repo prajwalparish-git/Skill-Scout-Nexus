@@ -348,6 +348,34 @@ export type TurnResult = {
   average: number | null;
   summary?: { averages: Record<string, number>; strongest: string; weakest: string; tips: Record<string, string> };
 };
+/** A resume layout for a kind of employer (piq/resume_templates.py). */
+export type ResumeTemplate = { id: string; name: string; best_for: string; one_page: boolean; fields: string[] };
+/** The chosen template's sections, exactly as the PDF lays them out. */
+export type ResumeLayout = {
+  template: string;
+  header: { title: string; name: string; subtitle: string; lines: string[] };
+  sections: {
+    key: string;
+    heading: string;
+    text: string;
+    lines: string[];
+    entries: { title: string; detail: string; bullets: string[] }[];
+  }[];
+  pages: number;
+  one_page: boolean;
+  /** Set when a one-page layout runs over (nothing is ever cut). */
+  page_note: string;
+};
+/** A tailoring for the student to review: nothing changes until they accept it. */
+export type Tailoring = {
+  summary: string;
+  /** "experience:0" / "projects:0" -> the entry's bullets in the new order. */
+  bullets: Record<string, string[]>;
+  changes: string[];
+  matched_keywords: string[];
+  missing_keywords: string[];
+  layout: ResumeLayout;
+};
 export type Ats = {
   score: number;
   matched_keywords: string[];
