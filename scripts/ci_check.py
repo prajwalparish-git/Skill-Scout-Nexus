@@ -14,8 +14,11 @@ repository proves the product itself works.
    connection against a stand-in on 127.0.0.1, their AI call answered by it and never cached,
    a fallback once it stops, 403 when LOCAL_AI is off), adaptive quizzes (the level rule, up
    after a perfect quiz and down after none right, a missed question back flagged, the
-   nearest-level fallback, an explicit difficulty kept), and the refusals (signed out, another
-   student, the operations view, an invalid body).
+   nearest-level fallback, an explicit difficulty kept), resume templates (each a text-only
+   one-column PDF in its own section order, Standard the original, one page where meant,
+   uploaded certificates included, tailoring that invents no number, no date of birth or
+   address in a saved version), and the refusals (signed out, another student, the
+   operations view, an invalid body).
 4. The app starts: every page renders headless (Streamlit AppTest) in mock mode, with no
    student and with the demo student, on throwaway databases. No network, no secrets.
 
@@ -185,7 +188,12 @@ def api() -> None:
             certificates(c, sid)
             local_model(c, sid)
             adaptive_quiz(c, sid)
+            resume_templates(c, sid)
             c.post("/api/auth/logout")
+            tailor = c.post(
+                "/api/resume/tailor", json={**SAMPLE_RESUME, "job_description": "x" * 90}
+            )
+            check(tailor.status_code == 401, "signed out: tailoring is refused")
             check(c.get(f"/api/plan/{sid}").status_code == 401, "signed out: the plan is refused")
             check(
                 c.get(f"/api/certificates/{sid}").status_code == 401,
@@ -446,6 +454,195 @@ def adaptive_quiz(c: "TestClient", sid: str) -> None:
         "GET /api/quiz/levels and /api/dashboard show the levels",
     )
     check(c.get("/api/quiz/levels/someone-else").status_code == 403, "another's levels: 403")
+
+
+SAMPLE_RESUME = {
+    "full_name": "Asha Rao",
+    "email": "asha@example.com",
+    "phone": "+91 98450 12345",
+    "location": "Bengaluru",
+    "linkedin_url": "linkedin.com/in/asha",
+    "github_url": "github.com/asha",
+    "leetcode_url": "leetcode.com/u/asha",
+    "role_name": "Software Engineer",
+    "skills": ["Python", "SQL", "Docker", "Git"],
+    "education": [
+        {
+            "degree": "B.E.",
+            "specialization": "Computer Science",
+            "status": "Completed",
+            "institution": "CI Institute",
+            "start": "2021",
+            "end": "2025",
+            "score": "CGPA 8.4",
+        }
+    ],
+    "experience": [
+        {
+            "title": "Software Intern",
+            "company": "Acme",
+            "type": "Internship",
+            "start": "Jun 2024",
+            "end": "Aug 2024",
+            "highlights": "Wrote unit tests for the billing service\n"
+            "Containerised 3 services with Docker",
+        }
+    ],
+    "project_title": "Inventory API",
+    "project_tech": "FastAPI, PostgreSQL",
+    "project_desc": "Designed the admin UI\nBuilt REST endpoints in Python for 3 warehouses\n"
+    "Cut query time by 40% with SQL indexes",
+    "certifications": ["Oracle SQL Associate"],
+    "achievements": ["Top 5% in a national coding contest"],
+    "exam_scores": ["GATE 2026 (CS): 612"],
+    "nationality": "Indian",
+    "languages": "English, Kannada",
+    "date_of_birth": "01 Jan 2003",
+    "address": "12 MG Road, Bengaluru",
+    "declaration_place": "Bengaluru",
+}
+
+
+def resume_templates(c: "TestClient", sid: str) -> None:
+    """Every layout: a text-only, one-column PDF with standard headings in its own order
+    (Standard exactly the original), one page where it aims at one, the template-only parts,
+    an uploaded certificate in the PDF, tailoring that invents nothing, and no date of birth
+    or address in a saved version."""
+    import io
+    import json as _json
+
+    from pypdf import PdfReader
+
+    from piq import checks as _checks
+    from piq import db, services
+    from piq import resume_templates as rt
+
+    def pdf_of(template: str, **extra: object) -> tuple[bytes, str]:
+        r = c.post("/api/resume/build-pdf", json={**SAMPLE_RESUME, **extra, "template": template})
+        if r.status_code != 200:
+            return b"", ""
+        reader = PdfReader(io.BytesIO(r.content))
+        return r.content, "\n".join(p.extract_text() for p in reader.pages)
+
+    def in_order(text: str, parts: list[str]) -> bool:
+        at = -1
+        for p in parts:
+            at = text.find(p, at + 1)
+            if at < 0:
+                return False
+        return True
+
+    listing = c.get("/api/resume/templates", params={"domain": "govt_central"}).json()
+    check(
+        [t["id"] for t in listing["templates"]]
+        == ["standard", "service", "product", "core", "government"]
+        and listing["default"] == "government",
+        "GET /api/resume/templates: five layouts, a default per domain",
+    )
+    for tid, t in rt.TEMPLATES.items():
+        raw, text = pdf_of(tid)
+        images = sum(len(p.images) for p in PdfReader(io.BytesIO(raw)).pages) if raw else -1
+        layout = c.post("/api/resume/ats", json={**SAMPLE_RESUME, "template": tid}).json()["layout"]
+        headings = [s["heading"].upper() for s in layout["sections"]]
+        check(
+            raw.startswith(b"%PDF") and images == 0 and in_order(text, headings),
+            f"{t.name}: a text-only PDF, no images, headings in the template's order",
+        )
+        if t.one_page:
+            check(layout["pages"] == 1 and not layout["page_note"], f"{t.name}: fits one page")
+    _, standard = pdf_of("standard")
+    check(
+        in_order(
+            standard,
+            [
+                "ASHA RAO",
+                "SOFTWARE ENGINEER",
+                "Bengaluru | asha@example.com",
+                "PROFESSIONAL SUMMARY",
+                "CORE COMPETENCIES & SKILLS",
+                "Core Focus:",
+                "WORK EXPERIENCE",
+                "PROJECTS",
+                "EDUCATION",
+                "CERTIFICATIONS & HONORS",
+            ],
+        )
+        and "DECLARATION" not in standard
+        and "01 Jan 2003" not in standard,
+        "Standard: the original layout's text and section order",
+    )
+    _, gov = pdf_of("government")
+    check(
+        in_order(gov, ["CURRICULUM VITAE", "PERSONAL DETAILS", "01 Jan 2003", "DECLARATION"])
+        and "612" in gov
+        and "hereby declare" in gov,
+        "Government / PSU: CV title, personal details, exam score, declaration",
+    )
+    _, product = pdf_of("product")
+    check(
+        product.find("LeetCode: leetcode.com/u/asha") < product.find("SKILLS"),
+        "Product / startup: coding-profile links before the first section",
+    )
+    check(
+        c.post("/api/resume/ats", json={**SAMPLE_RESUME, "template": "tcs-official"}).status_code
+        == 422,
+        "an unknown template is a 422",
+    )
+
+    form = {"title": "AWS Cloud Practitioner", "issuer": "Amazon Web Services"}
+    form["issue_date"] = "2025-01-15"
+    pdf = b"%PDF-1.4\n%%EOF\n"
+    c.post(
+        f"/api/certificates/{sid}", data=form, files={"file": ("aws.pdf", pdf, "application/pdf")}
+    )
+    lines = c.get("/api/resume/certificates").json().get("certificates", [])
+    merged = [u["line"] for u in lines] + SAMPLE_RESUME["certifications"]
+    _, with_cert = pdf_of("service", certifications=merged)
+    check(
+        "Amazon Web Services (Jan 2025)" in with_cert,
+        "an uploaded certificate appears in the Certifications section",
+    )
+
+    jd = "Backend engineer: Python, SQL and Docker, building REST APIs and services. " * 2
+    tailored = c.post("/api/resume/tailor", json={**SAMPLE_RESUME, "job_description": jd}).json()
+    before = "\n".join(
+        [SAMPLE_RESUME["project_desc"], SAMPLE_RESUME["experience"][0]["highlights"]]
+    )
+    after = "\n".join(b for bullets in tailored.get("bullets", {}).values() for b in bullets)
+    counts = sorted(len(v) for v in tailored.get("bullets", {}).values())
+    check(
+        bool(tailored.get("summary"))
+        and counts == [2, 3]
+        and not _checks.invented_numbers(before, after),
+        "tailoring (mock): every bullet kept once, no number invented",
+    )
+
+    res = c.post("/api/resume/ats", json={**SAMPLE_RESUME, "template": "government"}).json()
+    check(
+        "01 Jan 2003" not in _json.dumps(res["preview"])
+        and "01 Jan 2003" in _json.dumps(res["layout"]),
+        "date of birth is drawn, never echoed back in the resume data",
+    )
+    from piq import resume_builder as rb
+
+    built = rb.build_ats_resume_data(
+        full_name="Asha Rao",
+        email="asha@example.com",
+        phone="",
+        location="",
+        linkedin_url="",
+        role_name="Software Engineer",
+        selected_skills=["Python"],
+        template="government",
+        personal={"date_of_birth": "01 Jan 2003", "address": "12 MG Road", "nationality": "Indian"},
+    )
+    services.save_resume(sid, "cs", built)
+    saved = _json.dumps(db.resume_versions(sid)[-1])
+    check(
+        not any(x in saved for x in ("date_of_birth", "01 Jan 2003", "12 MG Road", '"address"'))
+        and "Indian" in saved,
+        "a saved resume version has no date of birth or address",
+    )
 
 
 def pages() -> None:
