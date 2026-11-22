@@ -12,7 +12,9 @@ repository proves the product itself works.
    certificates (upload, list, download, delete; a fake PDF, a non-.pdf name and an oversize
    file refused), their own local model (only loopback addresses, no redirects, Test
    connection against a stand-in on 127.0.0.1, their AI call answered by it and never cached,
-   a fallback once it stops, 403 when LOCAL_AI is off), and the refusals (signed out, another
+   a fallback once it stops, 403 when LOCAL_AI is off), adaptive quizzes (the level rule, up
+   after a perfect quiz and down after none right, a missed question back flagged, the
+   nearest-level fallback, an explicit difficulty kept), and the refusals (signed out, another
    student, the operations view, an invalid body).
 4. The app starts: every page renders headless (Streamlit AppTest) in mock mode, with no
    student and with the demo student, on throwaway databases. No network, no secrets.
@@ -182,6 +184,7 @@ def api() -> None:
             check(c.get(f"/api/dashboard/{sid}").status_code == 200, "GET /api/dashboard/{id}")
             certificates(c, sid)
             local_model(c, sid)
+            adaptive_quiz(c, sid)
             c.post("/api/auth/logout")
             check(c.get(f"/api/plan/{sid}").status_code == 401, "signed out: the plan is refused")
             check(
@@ -356,6 +359,93 @@ def local_model(c: "TestClient", sid: str) -> None:
         settings.cache_clear()
     gone = c.post("/api/auth/local-ai/delete")
     check(gone.status_code == 200 and gone.json()["config"] is None, "local model removed")
+
+
+def adaptive_quiz(c: "TestClient", sid: str) -> None:
+    """Each topic's level: the rule, a quiz at the level, up after a perfect score, down after
+    none right, a miss coming back flagged, the nearest-level fallback when the bank runs out,
+    and the old paths (an explicit difficulty, a guest) unchanged."""
+    from piq import db, question_bank, services
+
+    rule = services.next_level
+    cases = (
+        ("medium", [("medium", 4, 5)], "hard"),  # 80%: up
+        ("medium", [("medium", 2, 5)], "easy"),  # 40%: down
+        ("medium", [("medium", 3, 5)], "medium"),  # 60%: stays
+        ("medium", [("medium", 3, 3)], "medium"),  # too few at the level to judge
+        ("easy", [("hard", 4, 4)], "hard"),  # a harder part answered well lifts it
+        ("medium", [("easy", 0, 5)], "medium"),  # an easier part never moves it
+        ("hard", [("hard", 5, 5)], "hard"),  # clamped at the top
+        ("easy", [("easy", 0, 5)], "easy"),  # and at the bottom
+    )
+    check(all(rule(lvl, p) == want for lvl, p, want in cases), "level rule: 80/50 at the level")
+
+    def take(topic: str, wrong: int = 0, difficulty: str | None = None) -> tuple[dict, dict]:
+        params = {"topic": topic, "candidate_id": sid}
+        if difficulty:
+            params["difficulty"] = difficulty
+        quiz = c.get("/api/quiz", params=params).json()
+        answers = []
+        for i, q in enumerate(quiz.get("questions", [])):
+            right = services._find_question(q["id"])[2].correct_index
+            answers.append({"id": q["id"], "choice": (right + 1) % 4 if i < wrong else right})
+        graded = c.post(
+            "/api/quiz/submit",
+            json={
+                "candidate_id": sid,
+                "topic": topic,
+                "difficulty": quiz.get("difficulty", "medium"),
+                "answers": answers,
+            },
+        ).json()
+        return quiz, graded
+
+    quiz, graded = take("DBMS")
+    check(
+        quiz.get("adaptive") is True and quiz.get("level") == "medium",
+        "GET /api/quiz without a difficulty: a quiz at the student's level",
+    )
+    check(
+        graded.get("level_before") == "medium" and graded.get("level_after") == "hard",
+        "a perfect quiz moves the level up",
+    )
+    quiz, graded = take("DBMS", wrong=5)
+    check(quiz.get("level") == "hard" and graded.get("level_after") == "medium", "0% eases off")
+    quiz, last = take("DBMS")  # answered perfectly: the level goes back up
+    check(
+        sum(q.get("review", False) for q in quiz.get("questions", [])) >= 1,
+        "a missed question comes back in a later quiz, flagged review",
+    )
+
+    thin = next((t for t, n in question_bank.counts().items() if 0 < n.get("hard", 0) < 5), None)
+    domain = services.student_syllabus(sid, services.current_profile(sid)).domain
+    if thin and thin in domain.topics:
+        db.set_topic_levels(sid, {thin: "hard"})
+        quiz, graded = take(thin)
+        kinds = {q.get("difficulty") for q in quiz.get("questions", [])}
+        check(
+            len(quiz.get("questions", [])) == 5 and kinds - {"hard"},
+            f"too few hard {thin} questions: nearest-level ones fill the quiz (mock mode)",
+        )
+        check("score_pct" in graded, "a mixed-difficulty quiz is graded")
+
+    manual = c.get("/api/quiz", params={"topic": "OS", "difficulty": "easy", "candidate_id": sid})
+    check(
+        manual.status_code == 200
+        and manual.json().get("adaptive") is False
+        and {q["difficulty"] for q in manual.json()["questions"]} == {"easy"},
+        "an explicit difficulty is kept as asked",
+    )
+    levels = c.get(f"/api/quiz/levels/{sid}").json().get("levels", {})
+    dash = c.get(f"/api/dashboard/{sid}").json()
+    want = last.get("level_after")
+    check(
+        want is not None
+        and levels.get("DBMS") == want
+        and dash.get("levels", {}).get("DBMS") == want,
+        "GET /api/quiz/levels and /api/dashboard show the levels",
+    )
+    check(c.get("/api/quiz/levels/someone-else").status_code == 403, "another's levels: 403")
 
 
 def pages() -> None:
