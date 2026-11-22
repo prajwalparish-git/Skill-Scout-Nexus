@@ -3,11 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { Award, Bot, Check, Clock, Loader2, Mic, Play, Send, ShieldCheck, TrendingDown, UserRound } from "lucide-react";
-import { get, postStream, type Evaluation, type Track, type TurnResult } from "@/lib/api";
+import { get, post, postStream, type Evaluation, type Track, type TurnResult } from "@/lib/api";
 import { useCandidate } from "@/lib/candidate";
 import { Badge, ErrorNote, Loading, NeedsCandidate, PageHeader } from "@/components/ui";
 import { useProctor } from "@/lib/proctor/useProctor";
 import { ProctorChoice, ProctorLayer, ProctorSummary } from "@/components/proctor/Proctor";
+import { HandsFreeRunner, HandsFreeSetup, HandsFreeSummary, useHandsFreeSetup } from "@/components/handsfree/HandsFree";
 
 /** Company practice: whether a question was reported by a student or written by the AI. */
 function SourceChip({ script, question }: { script?: string[]; question: string }) {
@@ -64,6 +65,23 @@ function ThinkingPulse() {
         />
       ))}
     </span>
+  );
+}
+
+/** Typing or speaking: chosen before the interview starts. */
+function AnswerMode({ mode, setMode }: { mode: "typed" | "voice"; setMode: (m: "typed" | "voice") => void }) {
+  return (
+    <fieldset>
+      <legend className="label">Answer by</legend>
+      <div className="segmented">
+        <button type="button" className="segment" aria-pressed={mode === "typed"} onClick={() => setMode("typed")}>
+          Typing
+        </button>
+        <button type="button" className="segment" aria-pressed={mode === "voice"} onClick={() => setMode("voice")}>
+          Voice, hands-free
+        </button>
+      </div>
+    </fieldset>
   );
 }
 
@@ -139,11 +157,24 @@ export default function InterviewPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [breachPending, busy]);
 
+  // Hands-free (voice): the AI speaks, the mic opens by itself, the end of an answer is detected.
+  const [mode, setMode] = useState<"typed" | "voice">("typed");
+  const setup = useHandsFreeSetup(mode === "voice");
+  const [voiceRun, setVoiceRun] = useState<string | null>(null);
+  const voiceRef = useRef<string | null>(null);
+
   /** Start (a track or company practice): through the proctoring check when proctored. */
   function begin(label: string, body: Record<string, unknown>) {
     const go = async () => {
       setStartedAt(Date.now());
       setNow(Date.now());
+      voiceRef.current = null;
+      setVoiceRun(null);
+      if (mode === "voice") {
+        const run = await post<{ run_id: string }>("/api/handsfree/runs", {}).catch(() => null);
+        voiceRef.current = run?.run_id ?? null;
+        setVoiceRun(voiceRef.current);
+      }
       await turn(body);
     };
     if (proctor.wanted) proctor.open(label, go);
@@ -162,7 +193,12 @@ export default function InterviewPage() {
     try {
       await postStream(
         "/api/interview/turn",
-        { candidate_id: candidate.id, proctor_attempt_id: proctor.currentAttemptId(), ...body },
+        {
+          candidate_id: candidate.id,
+          proctor_attempt_id: proctor.currentAttemptId(),
+          ...(voiceRef.current ? { voice: true, handsfree_run_id: voiceRef.current } : {}),
+          ...body,
+        },
         (event, data) => {
           if (event === "step") setSteps((s) => [...s, String(data)]);
           else if (event === "result") {
@@ -233,10 +269,17 @@ export default function InterviewPage() {
             Questions students reported from this round come first, word for word; the AI interviewer then closes the session in its
             style. Each question is marked as reported or AI.
           </p>
-          <div className="mt-3">
+          <div className="mt-3 space-y-3">
+            <AnswerMode mode={mode} setMode={setMode} />
+            {mode === "voice" && <HandsFreeSetup setup={setup} />}
             <ProctorChoice proctor={proctor} what="interview" />
           </div>
-          <button type="button" className="btn-primary mt-3" disabled={busy} onClick={() => begin("Company practice", companyPractice)}>
+          <button
+            type="button"
+            className="btn-primary mt-3"
+            disabled={busy || (mode === "voice" && !setup.ready)}
+            onClick={() => begin("Company practice", companyPractice)}
+          >
             {busy ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <Play size={16} aria-hidden />} Start company practice
           </button>
         </section>
@@ -277,19 +320,23 @@ export default function InterviewPage() {
             </fieldset>
           ))}
           <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-hair pt-5">
-            <div className="w-full">
+            <div className="w-full space-y-3">
+              <AnswerMode mode={mode} setMode={setMode} />
+              {mode === "voice" && <HandsFreeSetup setup={setup} />}
               <ProctorChoice proctor={proctor} what="interview" />
             </div>
             <button
               type="button"
               className="btn-primary"
-              disabled={!track || busy}
+              disabled={!track || busy || (mode === "voice" && !setup.ready)}
               onClick={() => begin(track, { track })}
             >
               {busy ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <Mic size={16} aria-hidden />}
               Start mock interview{track ? `: ${track}` : ""}
             </button>
-            <p className="text-xs text-muted">Answer in writing here; spoken answers are in the main app.</p>
+            <p className="text-xs text-muted">
+              {mode === "voice" ? "Hands-free: no clicks needed once it starts." : "Answer in writing, or choose voice for a hands-free interview."}
+            </p>
           </div>
         </section>
       )}
@@ -359,6 +406,20 @@ export default function InterviewPage() {
                 {session.current.is_followup && " · a follow-up on your last answer"}
               </p>
               <p className="mt-2 font-display text-xl font-medium leading-snug tracking-tight">{session.current.question}</p>
+              {voiceRun && setup.rules ? (
+                !busy && (
+                  <HandsFreeRunner
+                    key={`${session.session_id}-${session.history.length}`}
+                    setup={setup}
+                    runId={voiceRun}
+                    index={session.history.length}
+                    question={session.current.question}
+                    speech={result?.speech}
+                    onSubmit={(text) => void turn({ session, answer: text })}
+                  />
+                )
+              ) : (
+              <>
               <label className="label mt-5" htmlFor="answer">
                 Your answer
               </label>
@@ -380,6 +441,8 @@ export default function InterviewPage() {
                   {answer.length} of {MAX_ANSWER} characters
                 </span>
               </div>
+              </>
+              )}
             </article>
           )}
 
@@ -387,6 +450,7 @@ export default function InterviewPage() {
             <article className="card">
               <p className="eyebrow">Interview submitted</p>
               <ProctorSummary outcome={result.proctoring} />
+              <HandsFreeSummary summary={result.handsfree} />
               <button
                 type="button"
                 className="btn-primary mt-5"
@@ -420,6 +484,7 @@ export default function InterviewPage() {
                 ))}
               </ul>
               <ProctorSummary outcome={result.proctoring} />
+              <HandsFreeSummary summary={result.handsfree} />
               <button
                 type="button"
                 className="btn-primary mt-5"

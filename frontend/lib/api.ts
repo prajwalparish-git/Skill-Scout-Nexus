@@ -440,7 +440,32 @@ export type TurnResult = {
   summary?: { averages: Record<string, number>; strongest: string; weakest: string; tips: Record<string, string> };
   /** Set on the last turn of a proctored interview (or when it was breached). */
   proctoring?: ProctorOutcome | null;
+  /** Hands-free: the next question spoken (a clip from the server, or the browser's voice). */
+  speech?: QuestionSpeech;
+  /** Hands-free: how the questions were answered, on the last turn. */
+  handsfree?: HandsfreeSummary;
 };
+export type QuestionSpeech = { url?: string; mime?: string; browser?: boolean; text: string; source: string };
+/** The same rules for every student (piq/config.py), frozen onto each run. */
+export type HandsfreeRules = {
+  think_s: number;
+  max_answer_s: number;
+  silence_s: number;
+  retries: number;
+  review_s: number;
+  typed_max_s: number;
+  no_speech_s: number;
+  sample_rate: number;
+};
+export type HandsfreeReason =
+  | "microphone unavailable"
+  | "microphone denied"
+  | "voice detection unavailable"
+  | "transcription unavailable"
+  | "no speech detected"
+  | "chose to type";
+export type Transcribed = { text: string; source: string; retries_left: number; fallback: string; duration_s: number };
+export type HandsfreeSummary = { voice: number; push_to_talk: number; typed: number; reasons: string[] };
 /** GET /api/proctor/policy: practice (proctoring optional), required, or required in Safe Exam Browser. */
 export type ProctorPolicy = {
   mode: "practice" | "required" | "seb";
