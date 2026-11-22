@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Cpu, ExternalLink, HardDrive, KeyRound, Laptop, Loader2, LogOut, MonitorSmartphone, PlugZap, Smartphone, SlidersHorizontal } from "lucide-react";
 import {
@@ -499,6 +500,14 @@ export default function SettingsPage() {
           <ProctorRecord />
           <Devices />
           <Password />
+          <section className="card" aria-label="Question sources">
+            <p className="text-sm">
+              Practice questions come from our own bank, students&apos; approved reports and openly licensed sources.{" "}
+              <Link href="/credits" className="font-medium underline underline-offset-2">
+                Question sources &amp; credits
+              </Link>
+            </p>
+          </section>
         </div>
       )}
     </>

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { Award, Bot, Check, Clock, Loader2, Mic, Play, Send, ShieldCheck, TrendingDown, UserRound } from "lucide-react";
+import { Award, BookOpen, Bot, Check, Clock, Loader2, Mic, Play, Send, ShieldCheck, TrendingDown, UserRound } from "lucide-react";
 import { get, post, postStream, type Evaluation, type Track, type TurnResult } from "@/lib/api";
 import { useCandidate } from "@/lib/candidate";
 import { Badge, ErrorNote, Loading, NeedsCandidate, PageHeader } from "@/components/ui";
@@ -10,9 +10,16 @@ import { useProctor } from "@/lib/proctor/useProctor";
 import { ProctorChoice, ProctorLayer, ProctorSummary } from "@/components/proctor/Proctor";
 import { HandsFreeRunner, HandsFreeSetup, HandsFreeSummary, useHandsFreeSetup } from "@/components/handsfree/HandsFree";
 
-/** Company practice: whether a question was reported by a student or written by the AI. */
-function SourceChip({ script, question }: { script?: string[]; question: string }) {
+/** Company practice: whether a question was reported by a student, came from the open question
+ * bank (general practice, never the company's), or was written by the AI. */
+function SourceChip({ script, question, type }: { script?: string[]; question: string; type: string }) {
   if (!script?.length) return null;
+  if (script.includes(question) && type.startsWith("General practice"))
+    return (
+      <span className="chip mb-2 border-ok/40 text-ok">
+        <BookOpen size={12} aria-hidden /> General practice (open question bank)
+      </span>
+    );
   return script.includes(question) ? (
     <span className="chip mb-2 border-warn/40 text-warn">
       <UserRound size={12} aria-hidden /> Reported by a student
@@ -99,13 +106,14 @@ export default function InterviewPage() {
   const bottom = useRef<HTMLDivElement>(null);
   const stream = useRef<AbortController | null>(null);
   const candidateId = candidate?.id;
-  // Opened from Company questions (?company=&round=): reported questions are asked first.
-  const [companyPractice, setCompanyPractice] = useState<{ company: string; round: string } | null>(null);
+  // Opened from Company questions (?company=&round=): reported questions are asked first; with
+  // &open=1, general practice from the open question bank (never claimed as the company's).
+  const [companyPractice, setCompanyPractice] = useState<{ company: string; round: string; open: boolean } | null>(null);
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
     const company = q.get("company");
     const round = q.get("round");
-    if (company && round) setCompanyPractice({ company, round });
+    if (company && round) setCompanyPractice({ company, round, open: q.get("open") === "1" });
   }, []);
 
   // A live elapsed timer while the interview is in progress, ticking once a second.
@@ -264,10 +272,11 @@ export default function InterviewPage() {
 
       {!session && companyPractice && (
         <section className="card mb-4 border-ink/20" aria-label="Company practice">
-          <p className="eyebrow">Company practice</p>
+          <p className="eyebrow">{companyPractice.open ? "General practice (open question bank)" : "Company practice"}</p>
           <p className="mt-1 text-sm">
-            Questions students reported from this round come first, word for word; the AI interviewer then closes the session in its
-            style. Each question is marked as reported or AI.
+            {companyPractice.open
+              ? "Common interview questions from the open question bank come first, word for word; the AI interviewer then closes the session. These are general practice, not questions this company is known to ask."
+              : "Questions students reported from this round come first, word for word; the AI interviewer then closes the session in its style. Each question is marked as reported or AI."}
           </p>
           <div className="mt-3 space-y-3">
             <AnswerMode mode={mode} setMode={setMode} />
@@ -278,9 +287,10 @@ export default function InterviewPage() {
             type="button"
             className="btn-primary mt-3"
             disabled={busy || (mode === "voice" && !setup.ready)}
-            onClick={() => begin("Company practice", companyPractice)}
+            onClick={() => begin(companyPractice.open ? "General practice" : "Company practice", companyPractice)}
           >
-            {busy ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <Play size={16} aria-hidden />} Start company practice
+            {busy ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <Play size={16} aria-hidden />}{" "}
+            {companyPractice.open ? "Start general practice" : "Start company practice"}
           </button>
         </section>
       )}
@@ -372,7 +382,7 @@ export default function InterviewPage() {
 
           {session.history.map((h, i) => (
             <article key={i} className="card space-y-4">
-              <SourceChip script={session.script} question={h.question} />
+              <SourceChip script={session.script} question={h.question} type={session.interview_type} />
               <p className="font-medium leading-relaxed">
                 <span className="mr-2 font-mono text-xs text-muted">Q{i + 1}</span>
                 {h.question}
@@ -400,7 +410,7 @@ export default function InterviewPage() {
 
           {session.current && !session.done && (
             <article className="card border-ink/30 shadow-[0_12px_40px_-24px_rgb(var(--ink)/0.4)]">
-              <SourceChip script={session.script} question={session.current.question} />
+              <SourceChip script={session.script} question={session.current.question} type={session.interview_type} />
               <p className="eyebrow">
                 Question {session.history.length + 1}
                 {session.current.is_followup && " · a follow-up on your last answer"}

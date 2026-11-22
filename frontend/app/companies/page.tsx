@@ -17,6 +17,7 @@ import { useAuth } from "@/components/site/auth";
 import { Badge, Empty, ErrorNote, PageHeader } from "@/components/ui";
 import { PracticeQuiz } from "@/components/companies/PracticeQuiz";
 import { ShareForm } from "@/components/companies/ShareForm";
+import { OfficialPattern, OpenPractice } from "@/components/companies/OpenPractice";
 
 const LETTERS = "ABCD";
 const STATUS: Record<MyPost["status"], { state: "ok" | "info" | "warn" | "todo"; text: string }> = {
@@ -46,11 +47,11 @@ function Company({ slug, onBack }: { slug: string; onBack: () => void }) {
     };
   }, [slug, round]);
 
-  async function practise(source: "reported" | "ai") {
-    setBusy(source);
+  async function practise(source: "reported" | "ai" | "open", which: string = round) {
+    setBusy(source === "open" ? `open-${which}` : source);
     setError(null);
     try {
-      setQuiz(await get<Quiz>(`/api/companies/${slug}/practice?round=${round}&source=${source}`));
+      setQuiz(await get<Quiz>(`/api/companies/${slug}/practice?round=${which}&source=${source}`));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -72,6 +73,10 @@ function Company({ slug, onBack }: { slug: string; onBack: () => void }) {
   const inRound = (detail?.posts ?? []).filter((p) => !round || p.round === round);
   const mcqs = inRound.reduce((n, p) => n + p.questions.filter((q) => q.kind === "mcq").length, 0);
   const opens = inRound.reduce((n, p) => n + p.questions.filter((q) => q.kind === "open").length, 0);
+  const hasReports = Object.keys(detail?.rounds ?? {}).length > 0;
+  const openPractice = detail && (
+    <OpenPractice slug={slug} practice={detail.open_practice} busy={busy} onQuiz={(r) => practise("open", r)} />
+  );
   return (
     <div className="space-y-4">
       <button type="button" className="btn-ghost" onClick={onBack}>
@@ -121,7 +126,15 @@ function Company({ slug, onBack }: { slug: string; onBack: () => void }) {
         </p>
       </section>
       <ErrorNote message={error} />
-      {detail && inRound.length === 0 && <Empty icon={MessagesSquare}>No approved posts here yet. Interviewed with them? Share it below.</Empty>}
+      {detail?.test_pattern && <OfficialPattern pattern={detail.test_pattern} />}
+      {detail && !hasReports && (
+        <>
+          <Empty icon={MessagesSquare}>No student reports for this company yet. Until there are, practise by round from the open question bank.</Empty>
+          {openPractice}
+        </>
+      )}
+      {detail && hasReports && inRound.length === 0 && <Empty icon={MessagesSquare}>No approved posts for this round yet.</Empty>}
+      {hasReports && inRound.length > 0 && <h3 className="font-semibold">Reported by students</h3>}
       {inRound.map((p) => (
         <article key={p.id} className="card">
           <p className="flex flex-wrap items-center gap-2 text-sm">
@@ -170,6 +183,12 @@ function Company({ slug, onBack }: { slug: string; onBack: () => void }) {
           </button>
         </article>
       ))}
+      {detail && hasReports && (
+        <details className="card">
+          <summary className="cursor-pointer font-semibold">More practice: general practice by round (open question bank)</summary>
+          <div className="mt-4">{openPractice}</div>
+        </details>
+      )}
     </div>
   );
 }

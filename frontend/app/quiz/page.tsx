@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowLeft, ArrowRight, Check, Loader2, Repeat, RotateCcw, Sparkles, TrendingDown, TrendingUp } from "lucide-react";
@@ -442,6 +443,14 @@ export default function QuizPage() {
                       <span>
                         {r.chosen === null && <Badge state="todo">Left blank</Badge>} {r.explanation}
                       </span>
+                    </p>
+                  )}
+                  {r?.credit && (
+                    <p className="mt-2 text-xs text-muted">
+                      Source: {r.credit} ·{" "}
+                      <Link href="/credits" className="underline underline-offset-2">
+                        credits
+                      </Link>
                     </p>
                   )}
                 </motion.fieldset>

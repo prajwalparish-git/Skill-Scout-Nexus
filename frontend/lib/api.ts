@@ -279,7 +279,15 @@ export type Graded = {
   level_before?: string | null;
   level_after?: string | null;
   level_changed?: boolean;
-  review: { id: string; chosen: number | null; correct_index: number; is_correct: boolean; explanation: string }[];
+  review: {
+    id: string;
+    chosen: number | null;
+    correct_index: number;
+    is_correct: boolean;
+    explanation: string;
+    /** An open-bank question's source and licence, e.g. "AQuA-RAT · Apache-2.0 · modified". */
+    credit?: string;
+  }[];
   weakness: Record<string, number> | null;
   /** Set when the quiz was proctored. */
   proctoring?: ProctorOutcome | null;
@@ -356,6 +364,22 @@ export type Session = {
 
 // --- company interview experiences (server_companies.py) ------------------------------------
 
+/** GET /api/question-sources: where questions come from, their licences and what we changed. */
+export type QuestionSource = {
+  key: string;
+  name: string;
+  homepage: string;
+  commit: string;
+  licence_id: string;
+  licence_name: string;
+  licence_url: string;
+  attribution: string;
+  modifications: string[];
+  multiple_choice: number;
+  interview: number;
+};
+export type QuestionSources = { sources: QuestionSource[]; general_practice_note: string; licences_file: string };
+
 export const ROUNDS: Record<string, string> = {
   aptitude: "Aptitude",
   technical: "Technical",
@@ -388,18 +412,31 @@ export type ExperiencePost = {
   tip: string;
   questions: ReportedQuestion[];
 };
+/** A test pattern, shown only when taken from the company's own page (with its link). */
+export type TestPattern = { sections: string[]; source_url: string; checked: string };
+/** General practice by round from the open question bank: never claimed as the company's. */
+export type OpenPractice = {
+  label: string;
+  note: string;
+  rounds: { aptitude: number; technical: number; hr: number };
+  technical_interview: number;
+  hr_questions: { text: string; model_answer: string; credit: string }[];
+};
 export type CompanyDetail = {
   slug: string;
   name: string;
   careers_url: string;
+  test_pattern: TestPattern | null;
+  open_practice: OpenPractice;
   rounds: Record<string, { posts: number; questions: number }>;
   posts: ExperiencePost[];
 };
 export type PracticeQuiz = {
   company: string;
   round: string;
-  /** "reported": students' questions; "ai": AI practice, never presented as reported. */
-  source: "reported" | "ai";
+  /** "reported": students' questions; "open": the open question bank (general practice);
+   * "ai": AI practice, never presented as reported. */
+  source: "reported" | "ai" | "open";
   label: string;
   notes: string[];
   questions: { id: string; text: string; options: string[] }[];
@@ -409,7 +446,15 @@ export type PracticeResult = {
   total: number;
   score_pct: number;
   source: string;
-  review: { id: string; chosen: number | null; correct_index: number; is_correct: boolean; explanation: string }[];
+  review: {
+    id: string;
+    chosen: number | null;
+    correct_index: number;
+    is_correct: boolean;
+    explanation: string;
+    /** An open-bank question's source and licence, e.g. "AQuA-RAT · Apache-2.0 · modified". */
+    credit?: string;
+  }[];
 };
 export type MyPost = {
   id: number;

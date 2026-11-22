@@ -1,14 +1,21 @@
 "use client";
 
 import { useState } from "react";
-import { Bot, Check, Loader2, UserRound, X } from "lucide-react";
+import { BookOpen, Bot, Check, Loader2, UserRound, X } from "lucide-react";
 import { post, ROUNDS, type PracticeQuiz as Quiz, type PracticeResult } from "@/lib/api";
 import { ErrorNote } from "@/components/ui";
 
 const LETTERS = "ABCD";
 
-/** The source of practice questions, always visible: reported by students, or AI practice. */
-export function SourceBadge({ source }: { source: "reported" | "ai" }) {
+/** The source of practice questions, always visible: reported by students, general practice from
+ * the open question bank (never claimed as the company's), or AI practice. */
+export function SourceBadge({ source }: { source: "reported" | "ai" | "open" }) {
+  if (source === "open")
+    return (
+      <span className="chip border-ok/40 text-ok">
+        <BookOpen size={12} aria-hidden /> General practice (open question bank)
+      </span>
+    );
   return source === "ai" ? (
     <span className="chip border-primary/40 text-primary-ink">
       <Bot size={12} aria-hidden /> AI practice, not reported by a student
@@ -103,6 +110,7 @@ export function PracticeQuiz({ slug, quiz, onClose }: { slug: string; quiz: Quiz
                   })}
                 </div>
                 {r && <p className="mt-2 text-xs text-muted">{r.explanation}</p>}
+                {r?.credit && <p className="mt-1 text-[11px] text-muted">Source: {r.credit}</p>}
               </fieldset>
             </li>
           );
