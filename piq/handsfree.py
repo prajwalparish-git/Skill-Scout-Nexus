@@ -9,6 +9,7 @@ Used by server_handsfree.py and the interview turn route.
 import io
 import json
 import secrets
+import struct
 import time
 import wave
 from dataclasses import asdict, dataclass
@@ -100,7 +101,8 @@ def wav_duration(data: bytes, rule: Rules) -> float:
                 w.getnframes(),
             )
             comp = w.getcomptype()
-    except (wave.Error, EOFError) as e:
+    except (wave.Error, EOFError, RuntimeError, ValueError, struct.error) as e:
+        # a malformed or truncated file: the wave module raises any of these
         raise ServiceError("Send the answer as a WAV recording.") from e
     if comp != "NONE" or rate != rule.sample_rate or channels != 1 or width != 2:
         raise ServiceError(
