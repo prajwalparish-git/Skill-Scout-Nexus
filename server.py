@@ -36,6 +36,7 @@ from piq import (
     experiences,
     formatter,
     graph,
+    handsfree,
     llm,
     proctoring,
     question_bank,
@@ -60,6 +61,8 @@ from server_companies import ops_router as companies_ops_router
 from server_companies import router as companies_router
 from server_drive import require_drive
 from server_drive import router as drive_router
+from server_handsfree import router as handsfree_router
+from server_handsfree import speech_for
 from server_ops import router as ops_router
 from server_proctor import call as proctor_call
 from server_proctor import router as proctor_router
@@ -103,6 +106,7 @@ app.include_router(companies_router)
 app.include_router(companies_ops_router)
 app.include_router(drive_router)
 app.include_router(proctor_router)
+app.include_router(handsfree_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins(),
@@ -508,6 +512,8 @@ class InterviewTurnRequest(BaseModel):
     session: dict | None = None  # the state returned by the last turn, to continue it
     answer: str | None = None
     proctor_attempt_id: str | None = Field(None, max_length=64)
+    voice: bool = False  # hands-free: also speak the next question
+    handsfree_run_id: str | None = Field(None, max_length=64)
 
 
 def _sse(event: str, data: Any) -> str:
@@ -560,17 +566,29 @@ def interview_turn(body: InterviewTurnRequest, request: Request) -> StreamingRes
         lambda: proctoring.require(body.candidate_id, body.proctor_attempt_id, "interview")
     )
 
+    def spoken(s: InterviewSession, out: dict, on_event: Callable[[str], None]) -> dict:
+        """Hands-free: link the run, speak the next question, close the run at the end."""
+        run = body.handsfree_run_id
+        if run:
+            handsfree.link(body.candidate_id, run, s.session_id)
+        if body.voice and s.current is not None and not out.get("proctoring"):
+            on_event("Preparing the spoken question")
+            out["speech"] = speech_for(body.candidate_id, s.current.question)
+        if run and (s.done or out.get("proctoring")):
+            out["handsfree"] = handsfree.finish(body.candidate_id, run)
+        return out
+
     def work(on_event: Callable[[str], None]) -> dict:
         if body.session is None:
             if body.company and body.round:  # company practice: reported questions first
                 s = experiences.interview_practice(
                     body.candidate_id, body.company, body.round, on_event
                 )
-                return _session_payload(s)
+                return spoken(s, _session_payload(s), on_event)
             if not body.track:
                 raise ServiceError("Choose an interview track.")
             s = services.start_interview(body.candidate_id, body.track, on_event)
-            return _session_payload(s)
+            return spoken(s, _session_payload(s), on_event)
         s = InterviewSession.model_validate(body.session)
         if s.current is not None:
             s = services.answer_question(body.candidate_id, s, body.answer or "")
@@ -580,7 +598,7 @@ def interview_turn(body: InterviewTurnRequest, request: Request) -> StreamingRes
         out = _session_payload(s)
         if watched is not None and (s.done or watched["breached"]):
             out["proctoring"] = _proctor_end(body.candidate_id, watched)
-        return out
+        return spoken(s, out, on_event)
 
     return StreamingResponse(
         _stream(work),

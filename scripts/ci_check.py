@@ -74,6 +74,7 @@ def compile_all() -> None:
         "server_companies.py",
         "server_drive.py",
         "server_proctor.py",
+        "server_handsfree.py",
         "bootstrap.py",
     ):
         check(bool(compileall.compile_file(ROOT / name, quiet=1)), f"{name} compiles")
