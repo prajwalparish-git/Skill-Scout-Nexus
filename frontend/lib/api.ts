@@ -250,13 +250,33 @@ export type RoleFit = {
   eligible_now: boolean;
   via: string;
 };
-export type QuizQuestion = { id: string; text: string; options: string[] };
-export type Quiz = { topic: string; difficulty: string; questions: QuizQuestion[] };
+export type QuizQuestion = {
+  id: string;
+  text: string;
+  options: string[];
+  /** The question's own difficulty (a quiz at your level may borrow from the nearest one). */
+  difficulty?: string;
+  /** Brought back because you missed it, or one like it, before. */
+  review?: boolean;
+};
+export type Quiz = {
+  topic: string;
+  difficulty: string;
+  questions: QuizQuestion[];
+  /** The student's level on the topic (null for a guest). */
+  level?: string | null;
+  /** Asked at the student's level (no difficulty was chosen). */
+  adaptive?: boolean;
+};
 export type Graded = {
   score_pct: number;
   correct: number;
   total: number;
+  /** A student's level for the next quiz on the topic (a guest: the suggestion). */
   next_difficulty: string;
+  level_before?: string | null;
+  level_after?: string | null;
+  level_changed?: boolean;
   review: { id: string; chosen: number | null; correct_index: number; is_correct: boolean; explanation: string }[];
   weakness: Record<string, number> | null;
 };
@@ -292,6 +312,8 @@ export type DashboardPayload = {
   mastery: Mastery[];
   quiz_history: { attempted_at: string; topic: string; difficulty: string; score_pct: number }[];
   sessions: { started: string; interview_type: string; avg_overall: number }[];
+  /** Topic -> the level its next quiz starts at (absent: medium). */
+  levels?: Record<string, string>;
 };
 /** A certificate PDF the student uploaded; the file is at /api/certificates/{student}/{id}/file. */
 export type Certificate = {
