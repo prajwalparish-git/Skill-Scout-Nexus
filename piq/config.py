@@ -145,6 +145,18 @@ ELEVENLABS_DEFAULT_VOICE = "21m00Tcm4TlvDq8ikWAM"  # a premade voice; ELEVENLABS
 BROWSER_VOICE_LANG = "en-IN"  # the Web Speech API voice the browser fallback asks for
 VOICE_RUBRIC_MAX = 15  # a voice interview's rubric score runs 0 to 15
 VOICE_CRITERION_MAX = 5  # verbal clarity and relevance each run 0 to 5
+# Hands-free voice interview (piq/handsfree.py): the same rules for every student, shown before
+# starting and frozen onto each run when it starts.
+HANDSFREE_THINK_S = 5  # after the question is spoken, before the microphone opens
+HANDSFREE_MAX_ANSWER_S = 120  # a spoken answer stops here (what was said is kept)
+HANDSFREE_SILENCE_S = 2.5  # this much silence after speech ends the answer
+HANDSFREE_RETRIES = 1  # extra spoken attempts per question ("Answer again")
+HANDSFREE_REVIEW_S = 5  # the transcript is shown this long, then submitted
+HANDSFREE_TYPED_MAX_S = 300  # a typed answer, when the voice path is unavailable
+HANDSFREE_NO_SPEECH_S = 20  # no speech by then: push-to-talk and typing are offered
+# Answers are 16 kHz mono 16-bit WAV (what Silero VAD works at): 120 s is about 3.8 MB.
+HANDSFREE_SAMPLE_RATE = 16_000
+HANDSFREE_MAX_AUDIO_BYTES = 5 * 1024 * 1024
 MAX_DOMAIN_TOPICS = 10  # one topic colour each; tests/test_syllabus.py enforces it
 DIFFICULTIES = ("easy", "medium", "hard")
 INTERVIEW_TYPES = ("HR", "Technical", "Project")  # generic types; the frozen evaluation uses them

@@ -1934,3 +1934,71 @@ def proctor_events(attempt_id: str) -> list[sqlite3.Row]:
             "WHERE attempt_id = ? ORDER BY at_s, id",
             (attempt_id,),
         ).fetchall()
+
+
+# --- hands-free voice interviews (piq/handsfree.py) -------------------------------------------
+
+
+def create_handsfree_run(run_id: str, student_id: str, rules_json: str, now: float) -> None:
+    with tx() as c:
+        c.execute(
+            "INSERT INTO handsfree_runs (id, student_id, rules_json, started_at) VALUES (?,?,?,?)",
+            (run_id, student_id, rules_json, now),
+        )
+
+
+def handsfree_run(run_id: str) -> sqlite3.Row | None:
+    with tx() as c:
+        return c.execute("SELECT * FROM handsfree_runs WHERE id = ?", (run_id,)).fetchone()
+
+
+def link_handsfree_run(run_id: str, session_id: str) -> None:
+    with tx() as c:
+        c.execute(
+            "UPDATE handsfree_runs SET interview_session_id = COALESCE(interview_session_id, ?) "
+            "WHERE id = ?",
+            (session_id, run_id),
+        )
+
+
+def end_handsfree_run(run_id: str, now: float) -> None:
+    with tx() as c:
+        c.execute(
+            "UPDATE handsfree_runs SET ended_at = COALESCE(ended_at, ?) WHERE id = ?",
+            (now, run_id),
+        )
+
+
+def add_handsfree_answer(
+    run_id: str,
+    question_index: int,
+    attempt_no: int,
+    input_mode: str,
+    fallback_reason: str,
+    duration_s: float | None,
+    transcript_source: str,
+    now: float,
+) -> None:
+    with tx() as c:
+        c.execute(
+            "INSERT INTO handsfree_answers (run_id, question_index, attempt_no, input, "
+            "fallback_reason, duration_s, transcript_source, at) VALUES (?,?,?,?,?,?,?,?)",
+            (
+                run_id,
+                question_index,
+                attempt_no,
+                input_mode,
+                fallback_reason,
+                duration_s,
+                transcript_source,
+                now,
+            ),
+        )
+
+
+def handsfree_answers(run_id: str) -> list[sqlite3.Row]:
+    with tx() as c:
+        return c.execute(
+            "SELECT * FROM handsfree_answers WHERE run_id = ? ORDER BY question_index, attempt_no",
+            (run_id,),
+        ).fetchall()

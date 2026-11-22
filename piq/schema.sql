@@ -474,3 +474,29 @@ CREATE TABLE IF NOT EXISTS proctor_events (
     duration_s REAL
 );
 CREATE INDEX IF NOT EXISTS idx_proctor_events_attempt ON proctor_events (attempt_id, at_s);
+
+-- Hands-free voice interviews (piq/handsfree.py): the rules each run was given (the same for
+-- everyone, frozen when it starts) and how each answer was given (voice, push-to-talk, typed)
+-- with the reason for any fallback. No audio is stored. Deleted with the account.
+CREATE TABLE IF NOT EXISTS handsfree_runs (
+    id                   TEXT PRIMARY KEY,
+    student_id           TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    interview_session_id TEXT,
+    rules_json           TEXT NOT NULL,
+    started_at           REAL NOT NULL,
+    ended_at             REAL
+);
+CREATE INDEX IF NOT EXISTS idx_handsfree_runs_student ON handsfree_runs (student_id, started_at);
+
+CREATE TABLE IF NOT EXISTS handsfree_answers (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id            TEXT NOT NULL REFERENCES handsfree_runs(id) ON DELETE CASCADE,
+    question_index    INTEGER NOT NULL,
+    attempt_no        INTEGER NOT NULL,
+    input             TEXT NOT NULL CHECK (input IN ('voice', 'push_to_talk', 'typed')),
+    fallback_reason   TEXT NOT NULL DEFAULT '',
+    duration_s        REAL,
+    transcript_source TEXT NOT NULL DEFAULT '',
+    at                REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_handsfree_answers_run ON handsfree_answers (run_id, question_index);
