@@ -74,3 +74,5 @@ desktop.ini
 
 # MediaPipe for proctoring, fetched by frontend/scripts/fetch-mediapipe.mjs
 frontend/public/mediapipe/
+# Voice detection for the hands-free interview, copied by frontend/scripts/copy-vad.mjs
+frontend/public/vad/
