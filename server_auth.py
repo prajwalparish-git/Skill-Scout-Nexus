@@ -21,12 +21,22 @@ import os
 import secrets
 import threading
 import time
+from collections.abc import Callable
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
+from core import local_ai
 from piq import accounts, db, devices, prefs, services
-from piq.config import CODE_AFTER_FAILURES, DEVICE_COOKIE_TTL_S, SESSION_TTL_S, settings
+from piq.config import (
+    CODE_AFTER_FAILURES,
+    DEVICE_COOKIE_TTL_S,
+    LOCAL_AI_DEFAULT_URLS,
+    LOCAL_AI_MODEL_MAX,
+    LOCAL_AI_PROVIDERS,
+    SESSION_TTL_S,
+    settings,
+)
 from piq.services import ServiceError
 
 COOKIE = "ssn_session"
@@ -321,10 +331,13 @@ def me(request: Request, response: Response) -> dict:
     in. Gives a new browser its device id."""
     device(request, response)
     sid = session_id(request)
+    local_model = local_ai.using_local(sid) if sid else None
     return {
         "student": public(sid) if sid else None,
         "mode": _mode(),
         "ops": ops_signed_in(request),
+        # the student's latest AI answer came from their own model: the web app's indicator
+        "local_ai": {"model": local_model} if local_model else None,
     }
 
 
@@ -448,3 +461,74 @@ def get_settings(sid: str = Depends(require_student)) -> dict:
 def save_settings(body: Prefs, sid: str = Depends(require_student)) -> dict:
     changes = {k: v for k, v in body.model_dump().items() if v is not None}
     return {"prefs": prefs.update(sid, changes), "preload_allowed": settings().preload}
+
+
+# --- a student's own local model (core/local_ai.py) ---------------------------------------------
+
+
+class LocalAITest(BaseModel):
+    provider: str = Field(max_length=20)
+    base_url: str = Field("", max_length=200)
+
+
+class LocalAIConfig(LocalAITest):
+    model: str = Field(max_length=LOCAL_AI_MODEL_MAX)
+    preferred: bool = False
+
+
+def _local_ai_payload(sid: str) -> dict:
+    """What the Settings card shows. `allowed` false: this server refuses local models (the
+    deployed site), and the card explains why instead of offering the form."""
+    allowed = local_ai.allowed()
+    current = local_ai.for_student(sid) if allowed else None
+    return {
+        "allowed": allowed,
+        "config": current.as_dict() if current else None,
+        "using_local": local_ai.using_local(sid),
+        "providers": [{"id": k, "name": v} for k, v in LOCAL_AI_PROVIDERS.items()],
+        "defaults": LOCAL_AI_DEFAULT_URLS,
+    }
+
+
+def _local_ai_call[T](work: Callable[[], T]) -> T:
+    """Run a local-ai action: 403 when the server does not allow it, 400 for a bad address or a
+    model that did not answer (its message is safe to show)."""
+    try:
+        return work()
+    except local_ai.LocalAIDisabled as e:
+        raise HTTPException(403, str(e)) from e
+    except local_ai.LocalAIError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.get("/local-ai")
+def get_local_ai(sid: str = Depends(require_student)) -> dict:
+    return _local_ai_payload(sid)
+
+
+@router.post("/local-ai")
+def save_local_ai(body: LocalAIConfig, sid: str = Depends(require_student)) -> dict:
+    _local_ai_call(
+        lambda: local_ai.save(
+            sid,
+            provider=body.provider,
+            base_url=body.base_url,
+            model=body.model,
+            preferred=body.preferred,
+        )
+    )
+    return _local_ai_payload(sid)
+
+
+@router.post("/local-ai/test", dependencies=[Depends(throttle)])
+def test_local_ai(body: LocalAITest, sid: str = Depends(require_student)) -> dict:
+    """List the models the student's local server offers (Test connection)."""
+    models = _local_ai_call(lambda: local_ai.list_models(body.provider, body.base_url))
+    base = _local_ai_call(lambda: local_ai.normalize_url(body.provider, body.base_url))
+    return {"models": models, "base_url": base}
+
+
+@router.post("/local-ai/delete")
+def delete_local_ai(sid: str = Depends(require_student)) -> dict:
+    _local_ai_call(lambda: local_ai.remove(sid))
+    return _local_ai_payload(sid)
