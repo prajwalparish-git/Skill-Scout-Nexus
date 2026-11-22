@@ -394,6 +394,8 @@ export type CompanySummary = {
   posts: number;
   questions: number;
   rounds: Record<string, { posts: number; questions: number }>;
+  /** Approved interview-process reports. */
+  processes: number;
 };
 export type ReportedQuestion = {
   kind: "open" | "mcq";
@@ -429,7 +431,37 @@ export type CompanyDetail = {
   test_pattern: TestPattern | null;
   open_practice: OpenPractice;
   rounds: Record<string, { posts: number; questions: number }>;
+  /** Students have reported questions or an interview process for this company. */
+  reported: boolean;
   posts: ExperiencePost[];
+  process: ProcessSummary;
+};
+
+// --- interview process reports ----------------------------------------------------------------
+
+export const PROCESS_ROUND_TYPES: Record<string, string> = {
+  online_test: "Online test",
+  aptitude: "Aptitude",
+  coding: "Coding",
+  technical: "Technical",
+  managerial: "Managerial",
+  hr: "HR",
+  group_discussion: "Group discussion",
+};
+export const PROCESS_RESULTS: Record<string, string> = { selected: "Selected", not_selected: "Not selected", waiting: "Waiting" };
+export const DIFFICULTY_LABELS: Record<string, string> = { easy: "Easy", medium: "Medium", hard: "Hard" };
+export type ProcessRound = { type: string; minutes: number | null; difficulty: string; label?: string };
+export type ReportedProcess = { rounds: ProcessRound[]; result: string; result_label: string; summary: string };
+/** "Interview process (from N reports)": empty ({reports: 0}) until one is approved. */
+export type ProcessSummary = {
+  reports: number;
+  common_order?: string[];
+  common_order_reports?: number;
+  average_rounds?: number;
+  difficulty?: Record<string, number>;
+  difficulty_by_round?: Record<string, Record<string, number>>;
+  results?: Record<string, number>;
+  summaries?: (ReportedProcess & { id: number; label: string; role: string; interview_month: string; tip: string })[];
 };
 export type PracticeQuiz = {
   company: string;
@@ -465,6 +497,8 @@ export type MyPost = {
   status: "pending" | "approved" | "rejected" | "hidden";
   reject_reason: string;
   questions: number;
+  /** The post reports an interview process. */
+  process: boolean;
 };
 export type ModerationPost = {
   id: number;
@@ -478,6 +512,7 @@ export type ModerationPost = {
   flags: string[];
   label: string;
   questions: ReportedQuestion[];
+  process: ReportedProcess | null;
 };
 export type TurnResult = {
   session: Session;

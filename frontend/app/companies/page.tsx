@@ -18,6 +18,8 @@ import { Badge, Empty, ErrorNote, PageHeader } from "@/components/ui";
 import { PracticeQuiz } from "@/components/companies/PracticeQuiz";
 import { ShareForm } from "@/components/companies/ShareForm";
 import { OfficialPattern, OpenPractice } from "@/components/companies/OpenPractice";
+import { SharePanel } from "@/components/companies/SharePanel";
+import { ProcessSummary } from "@/components/companies/ProcessSummary";
 
 const LETTERS = "ABCD";
 const STATUS: Record<MyPost["status"], { state: "ok" | "info" | "warn" | "todo"; text: string }> = {
@@ -27,7 +29,7 @@ const STATUS: Record<MyPost["status"], { state: "ok" | "info" | "warn" | "todo";
   hidden: { state: "warn", text: "Hidden after reports" },
 };
 
-function Company({ slug, onBack }: { slug: string; onBack: () => void }) {
+function Company({ slug, onBack, inOrg, onShared }: { slug: string; onBack: () => void; inOrg: boolean; onShared: () => void }) {
   const [round, setRound] = useState<string>("");
   const [detail, setDetail] = useState<CompanyDetail | null>(null);
   const [quiz, setQuiz] = useState<Quiz | null>(null);
@@ -73,7 +75,7 @@ function Company({ slug, onBack }: { slug: string; onBack: () => void }) {
   const inRound = (detail?.posts ?? []).filter((p) => !round || p.round === round);
   const mcqs = inRound.reduce((n, p) => n + p.questions.filter((q) => q.kind === "mcq").length, 0);
   const opens = inRound.reduce((n, p) => n + p.questions.filter((q) => q.kind === "open").length, 0);
-  const hasReports = Object.keys(detail?.rounds ?? {}).length > 0;
+  const hasReports = Boolean(detail?.reported); // questions or an interview process
   const openPractice = detail && (
     <OpenPractice slug={slug} practice={detail.open_practice} busy={busy} onQuiz={(r) => practise("open", r)} />
   );
@@ -82,6 +84,9 @@ function Company({ slug, onBack }: { slug: string; onBack: () => void }) {
       <button type="button" className="btn-ghost" onClick={onBack}>
         <ArrowLeft size={16} aria-hidden /> All companies
       </button>
+      {/* lg: posts and practice on the left, the share panel sticky on the right; below on mobile */}
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
+      <div className="min-w-0 space-y-4">
       <section className="card">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="h2">{detail?.name ?? "…"}</h2>
@@ -133,7 +138,8 @@ function Company({ slug, onBack }: { slug: string; onBack: () => void }) {
           {openPractice}
         </>
       )}
-      {detail && hasReports && inRound.length === 0 && <Empty icon={MessagesSquare}>No approved posts for this round yet.</Empty>}
+      {detail && <ProcessSummary summary={detail.process} />}
+      {detail && hasReports && inRound.length === 0 && <Empty icon={MessagesSquare}>No approved question posts for this round yet.</Empty>}
       {hasReports && inRound.length > 0 && <h3 className="font-semibold">Reported by students</h3>}
       {inRound.map((p) => (
         <article key={p.id} className="card">
@@ -189,6 +195,11 @@ function Company({ slug, onBack }: { slug: string; onBack: () => void }) {
           <div className="mt-4">{openPractice}</div>
         </details>
       )}
+      </div>
+      <aside className="space-y-4 lg:sticky lg:top-24" aria-label="Share your experience">
+        {detail ? <SharePanel company={detail.name} inOrg={inOrg} onShared={onShared} /> : null}
+      </aside>
+      </div>
     </div>
   );
 }
@@ -232,7 +243,7 @@ export default function CompaniesPage() {
       />
       <ErrorNote message={error} />
       {selected && candidate ? (
-        <Company slug={selected} onBack={() => setSelected(null)} />
+        <Company slug={selected} onBack={() => setSelected(null)} inOrg={Boolean(candidate.in_org)} onShared={loadMine} />
       ) : (
         <section className="card" aria-labelledby="companies-title">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -275,7 +286,11 @@ export default function CompaniesPage() {
       )}
       {candidate && (
         <div className="mt-6 grid gap-6 lg:grid-cols-[3fr_2fr]">
-          <ShareForm inOrg={Boolean(candidate.in_org)} onShared={loadMine} />
+          {selected ? (
+            <p className="card text-sm text-muted">Sharing for another company, or one not in the list? Go back to all companies.</p>
+          ) : (
+            <ShareForm inOrg={Boolean(candidate.in_org)} onShared={loadMine} />
+          )}
           <section className="card" aria-labelledby="mine-title">
             <h2 id="mine-title" className="font-semibold">
               My posts

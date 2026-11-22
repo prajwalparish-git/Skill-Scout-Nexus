@@ -73,6 +73,17 @@ export function ExperienceQueue() {
                 </li>
               ))}
             </ol>
+            {p.process && (
+              <div className="mt-2 rounded-lg border border-hair px-3 py-2 text-xs">
+                <p className="font-medium">
+                  Interview process · {p.process.result_label}
+                </p>
+                <p className="text-muted">
+                  {p.process.rounds.map((r) => `${r.label}${r.minutes ? ` (${r.minutes} min)` : ""}, ${r.difficulty}`).join(" → ")}
+                </p>
+                {p.process.summary && <p className="mt-1">{p.process.summary}</p>}
+              </div>
+            )}
             {p.tip && <p className="mt-1 text-xs text-muted">Tip: {p.tip}</p>}
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
               <input
