@@ -22,8 +22,9 @@ repository proves the product itself works.
    named, the college only for batches of five, 429 past the daily limit, reports hide a post,
    reported and AI practice kept apart), the open question bank (every question with its source,
    licence and a verified answer, general practice never claimed as a company's, an offline
-   import that keeps the seed), and the refusals (signed out, another student, the
-   operations view, an invalid body).
+   import that keeps the seed), interview process reports (validated, cleaned, summarised
+   under anonymous labels, gone with the account), and the refusals (signed out, another
+   student, the operations view, an invalid body).
 4. The app starts: every page renders headless (Streamlit AppTest) in mock mode, with no
    student and with the demo student, on throwaway databases. No network, no secrets.
 
@@ -208,6 +209,7 @@ def api() -> None:
             resume_templates(c, sid)
             company_questions(c, sid)
             open_questions_checks(c, sid)
+            process_checks(c, sid)
             drive(c, sid)
             proctoring_checks(c, sid)
             handsfree_checks(c, sid)
@@ -691,6 +693,142 @@ def open_questions_checks(c: "TestClient", sid: str) -> None:
         and "import_open_questions" not in (ROOT / "bootstrap.py").read_text(encoding="utf-8"),
         "Open bank: without network the import warns, exits 0 and keeps the seed; setup never "
         "runs it",
+    )
+
+
+def process_checks(c: "TestClient", sid: str) -> None:
+    """Interview process reports from a company page's share panel: with or instead of
+    questions, every field validated, the summary cleaned, pending until approved, summarised
+    as "Interview process (from N reports)" (most common order, average rounds, difficulty
+    spread) under anonymous labels, refused when repeated, and gone with the account."""
+    import server_companies
+    from piq import db, experiences, services
+    from piq.db import tx
+
+    with tx() as conn:  # the company checks used up today's posts: move them to two days ago
+        conn.execute(
+            "UPDATE interview_experiences SET created_at = datetime('now', '-2 days') "
+            "WHERE student_id = ?",
+            (sid,),
+        )
+    server_companies._posts.clear()  # and this network's posting window
+
+    def proc(*rounds: tuple[str, int | None, str], result: str = "selected", summary: str = ""):
+        return {
+            "rounds": [{"type": t, "minutes": m, "difficulty": d} for t, m, d in rounds],
+            "result": result,
+            "summary": summary,
+        }
+
+    base = {"company": "Wipro", "role": "Project Engineer", "interview_month": "2026-06"}
+    shared = c.post(
+        "/api/experiences",
+        json={**base, "process": proc(
+            ("online_test", 90, "easy"), ("technical", 45, "medium"), ("hr", None, "easy"),
+            summary="Friendly panel. Mail me at prep@example.com or call 9845012345 for notes.",
+        )},
+    )  # fmt: skip
+    pid = shared.json().get("id") if shared.status_code == 200 else None
+    stored = db.experience_processes([pid]).get(pid) if pid else None
+    check(
+        pid is not None
+        and db.experience(pid)["status"] == "pending"
+        and db.experience(pid)["round"] == "aptitude"
+        and stored is not None
+        and "[email]" in stored["summary"]
+        and "[phone]" in stored["summary"]
+        and {"email", "phone"} <= set(shared.json().get("removed", [])),
+        f"Process: a process-only post is pending, its summary cleaned{_why(shared)}",
+    )
+    bad = {
+        "no rounds": proc(),
+        "nine rounds": proc(*[("hr", None, "easy")] * 9),
+        "unknown type": proc(("lunch", None, "easy")),
+        "unknown difficulty": proc(("hr", None, "brutal")),
+        "unknown result": proc(("hr", None, "easy"), result="maybe"),
+        "two minutes": proc(("hr", 2, "easy")),
+        "abuse": proc(("hr", None, "easy"), summary="The panel were a bunch of chutiya people"),
+    }
+    codes = {k: c.post("/api/experiences", json={**base, "process": v}).status_code
+             for k, v in bad.items()}  # fmt: skip
+    future = c.post(
+        "/api/experiences",
+        json={**base, "interview_month": "2099-01", "process": proc(("hr", None, "easy"))},
+    ).status_code
+    empty = c.post("/api/experiences", json=base).status_code
+    server_companies._posts.clear()
+    check(
+        all(code == 400 for code in codes.values()) and future == 400 and empty == 400,
+        f"Process: invalid rounds, types, difficulty, result, minutes, month, abuse and an empty "
+        f"post are refused ({codes}, future {future}, empty {empty})",
+    )
+    check(
+        c.get("/api/companies/wipro").json().get("process", {}).get("reports") == 0,
+        "Process: a pending process is not shown",
+    )
+
+    both = c.post(
+        "/api/experiences",
+        json={**base, "round": "technical",
+              "questions": [{"kind": "open", "text": "Explain normalisation with an example"}],
+              "process": proc(("technical", 40, "hard"), ("hr", 15, "easy"), result="waiting")},
+    )  # fmt: skip
+    again = c.post(
+        "/api/experiences",
+        json={**base, "round": "technical",
+              "questions": [{"kind": "open", "text": "Explain normalisation with an example"}],
+              "process": proc(("technical", 40, "hard"), ("hr", 15, "easy"), result="waiting")},
+    )  # fmt: skip
+    mine = {p["id"]: p for p in c.get("/api/experiences/mine").json().get("posts", [])}
+    both_id = both.json().get("id") if both.status_code == 200 else None
+    check(
+        both_id is not None
+        and mine.get(both_id, {}).get("process") is True
+        and mine[both_id]["questions"] == 1
+        and again.status_code == 400,
+        "Process: questions and a process together are one post; the same post again is refused",
+    )
+
+    posters = [db.create_student(f"Proc Poster {i}", f"procposter{i}", "Software Engineer")
+               for i in range(2)]  # fmt: skip
+    ids = [pid, both_id]
+    ids.append(experiences.submit(posters[0], {**base, "process": proc(
+        ("online_test", 60, "medium"), ("technical", 50, "hard"), ("hr", 20, "easy"),
+        result="not_selected", summary="Tough technical round on DBMS.")}).id)  # fmt: skip
+    ids.append(experiences.submit(posters[1], {**base, "process": proc(
+        ("online_test", None, "easy"), ("technical", None, "medium"), ("hr", None, "medium"),
+        result="selected")}).id)  # fmt: skip
+    for i in ids:  # each by its own moderator: the student's organization, or the ops view
+        experiences.review(db.experience(i)["org_id"] or experiences.OPS, i, True)
+    detail = c.get("/api/companies/wipro").json()
+    s = detail.get("process", {})
+    names = ("Proc Poster", "procposter")
+    check(
+        s.get("reports") == 4
+        and s.get("common_order") == ["Online test", "Technical", "HR"]
+        and s.get("common_order_reports") == 3
+        and s.get("average_rounds") == 2.8
+        and s.get("difficulty") == {"easy": 5, "medium": 4, "hard": 2}
+        and s.get("difficulty_by_round", {}).get("Technical") == {"easy": 0, "medium": 2, "hard": 2}
+        and s.get("results") == {"Selected": 2, "Waiting": 1, "Not selected": 1}
+        and detail.get("reported") is True
+        and len(detail.get("posts", [])) == 1  # only the post with a question is a question post
+        and all(x["label"].startswith("a ") and "student" in x["label"]
+                for x in s.get("summaries", []))
+        and not any(n in json.dumps(s) for n in names),
+        f"Process: 4 reports summarised (order, average, spread, results), labels never names "
+        f"({ {k: s.get(k) for k in ('common_order', 'average_rounds', 'difficulty')} })",
+    )  # fmt: skip
+    overview = {co["slug"]: co for co in c.get("/api/companies").json()["companies"]}
+    check(overview["wipro"]["processes"] == 4, "Process: the company list counts process reports")
+    services.delete_student(posters[0], "procposter0")
+    with tx() as conn:
+        left = conn.execute(
+            "SELECT COUNT(*) FROM experience_processes WHERE experience_id = ?", (ids[2],)
+        ).fetchone()[0]
+    check(
+        left == 0 and c.get("/api/companies/wipro").json()["process"]["reports"] == 3,
+        "Process: a report goes with the student's account",
     )
 
 
