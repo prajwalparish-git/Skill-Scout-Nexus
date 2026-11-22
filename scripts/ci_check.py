@@ -72,6 +72,7 @@ def compile_all() -> None:
         "server_auth.py",
         "server_ops.py",
         "server_companies.py",
+        "server_drive.py",
         "bootstrap.py",
     ):
         check(bool(compileall.compile_file(ROOT / name, quiet=1)), f"{name} compiles")
@@ -200,6 +201,7 @@ def api() -> None:
             adaptive_quiz(c, sid)
             resume_templates(c, sid)
             company_questions(c, sid)
+            drive(c, sid)
             c.post("/api/auth/logout")
             tailor = c.post(
                 "/api/resume/tailor", json={**SAMPLE_RESUME, "job_description": "x" * 90}
@@ -249,6 +251,222 @@ def certificates(c: "TestClient", sid: str) -> None:
         gone.status_code == 200 and gone.json() == [], "POST /api/certificates/{id}/{cert}/delete"
     )
     check(c.get(f"{url}/{cid}/file").status_code == 404, "a deleted certificate is gone")
+
+
+def drive(c: "TestClient", sid: str) -> None:
+    """Google Drive against a fake Google (scripts/fake_google.py), no network: hidden without
+    keys; sign-in with only drive.file, PKCE and a single-use state bound to the student;
+    refusals; the refresh token encrypted and bound to the student; folders made once;
+    certificates mirrored, restored from Drive and trashed; a resume saved; disconnect and
+    account deletion revoke; no token in the logs."""
+    import base64
+    import logging
+    from urllib.parse import parse_qs, urlsplit
+
+    from core import drive as gdrive
+    from core import secretbox
+    from piq import db, services
+    from piq.config import settings
+    from piq.db import tx
+    from scripts.fake_google import FakeGoogle
+
+    off = c.get("/api/drive")
+    check(off.status_code == 200 and off.json()["enabled"] is False, "Drive: off without keys")
+    check(
+        all(
+            c.post(f"/api/drive/{p}").status_code == 404
+            for p in ("connect", "disconnect", "backup-certificates")
+        )
+        and c.get("/api/drive/callback", follow_redirects=False).status_code == 404
+        and c.post("/api/drive/resume", json=SAMPLE_RESUME).status_code == 404,
+        "Drive: every other route is 404 without keys",
+    )
+
+    keys = {
+        "GOOGLE_CLIENT_ID": "ci-client",
+        "GOOGLE_CLIENT_SECRET": "ci-secret",
+        "DRIVE_TOKEN_KEY": base64.urlsafe_b64encode(os.urandom(32)).decode(),
+    }
+    os.environ.update(keys)
+    settings.cache_clear()
+    fake = FakeGoogle()
+    fake.install()
+    records: list[logging.LogRecord] = []
+
+    class Keep(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record)
+
+    keep, root = Keep(level=logging.DEBUG), logging.getLogger()
+    old_level = root.level
+    root.addHandler(keep)
+    root.setLevel(logging.DEBUG)
+    other = db.create_student("CI Drive Other", "cidriveother", "Software Engineer")
+    try:
+
+        def query(url: str) -> dict[str, str]:
+            return {k: v[0] for k, v in parse_qs(urlsplit(url).query).items()}
+
+        def callback(**params: str) -> dict[str, str]:
+            r = c.get("/api/drive/callback", params=params, follow_redirects=False)
+            where = r.headers.get("location", "")
+            ok = r.status_code == 303 and where.startswith(settings().app_url + "/settings?")
+            return query(where) if ok else {"drive": f"bad redirect {r.status_code} {where}"}
+
+        def connect() -> tuple[str, str]:
+            url = c.post("/api/drive/connect").json()["url"]
+            return query(url)["state"], fake.consent(url)
+
+        url = c.post("/api/drive/connect").json().get("url", "")
+        q = query(url)
+        check(
+            url.startswith(gdrive.AUTH_URL)
+            and q.get("scope") == gdrive.SCOPE
+            and q.get("code_challenge_method") == "S256"
+            and len(q.get("code_challenge", "")) == 43
+            and q.get("redirect_uri") == settings().app_url + "/api/drive/callback"
+            and q.get("access_type") == "offline"
+            and "include_granted_scopes" not in q
+            and len(q.get("state", "")) >= 43,
+            "Drive: the sign-in asks only for drive.file, with PKCE and a state",
+        )
+        check(
+            callback(error="access_denied")["drive"] == "error"
+            and callback(state="unknown", code="x")["drive"] == "error",
+            "Drive: a declined sign-in and an unknown state are refused",
+        )
+        state, code = connect()
+        with tx() as conn:
+            conn.execute("UPDATE drive_oauth_states SET expires_at = 0")
+        check(callback(state=state, code=code)["drive"] == "error", "Drive: an expired state")
+        url = gdrive.start(other, "web")
+        check(
+            callback(state=query(url)["state"], code=fake.consent(url))["drive"] == "error",
+            "Drive: another student's sign-in is refused",
+        )
+        fake.grant_scope = gdrive.SCOPE + " https://www.googleapis.com/auth/drive"
+        state, code = connect()
+        revoked = len(fake.revoked)
+        check(
+            callback(state=state, code=code)["drive"] == "error"
+            and len(fake.revoked) == revoked + 1
+            and db.drive_account(sid) is None,
+            "Drive: a broader grant is refused, revoked and not saved",
+        )
+        fake.grant_scope = gdrive.SCOPE
+
+        state, code = connect()
+        done = callback(state=state, code=code)
+        status = c.get("/api/drive").json()
+        check(
+            done.get("drive") == "connected" and status["connected"] and status["folder_link"],
+            f"Drive: connected ({done})",
+        )
+        check(callback(state=state, code=code)["drive"] == "error", "Drive: a used state")
+        refresh = next(t for t, live in fake.refresh.items() if live)
+        sealed = db.drive_account(sid)["refresh_token_enc"]
+        try:
+            secretbox.open_(sealed, student_id=other, purpose="refresh")
+            moved = True
+        except secretbox.SecretError:
+            moved = False
+        check(
+            refresh not in sealed
+            and secretbox.open_(sealed, student_id=sid, purpose="refresh") == refresh
+            and not moved,
+            "Drive: the refresh token is stored encrypted and opens only for its student",
+        )
+        gdrive.ensure_folders(sid)
+        folders = {
+            n: fake.folder_named(n) for n in (gdrive.ROOT, gdrive.CERTIFICATES, gdrive.RESUMES)
+        }
+        check(
+            all(len(ids) == 1 for ids in folders.values()),
+            "Drive: the three folders are made once and reused",
+        )
+
+        pdf = b"%PDF-1.4\n% drive\ntrailer<<>>\n%%EOF\n"
+        up = c.post(
+            f"/api/certificates/{sid}",
+            data={"title": "CI Drive", "issuer": "CI", "issue_date": "2025-02-01"},
+            files={"file": ("drive.pdf", pdf, "application/pdf")},
+        )
+        cid = up.json().get("id") if up.status_code == 200 else None
+        row = db.certificate(sid, cid) if cid else None
+        fid = row["drive_file_id"] if row else None
+        check(
+            bool(up.status_code == 200 and up.json().get("in_drive") and fid)
+            and fake.files[fid]["data"] == pdf
+            and fake.files[fid]["parents"] == folders[gdrive.CERTIFICATES],
+            f"Drive: an uploaded certificate is copied to Certificates{_why(up)}",
+        )
+        if cid and row:
+            local = services._certificate_dir(sid) / row["stored_name"]
+            local.unlink()
+            got = c.get(f"/api/certificates/{sid}/{cid}/file")
+            check(
+                got.status_code == 200 and got.content == pdf and local.read_bytes() == pdf,
+                "Drive: View falls back to Drive when the local file is gone",
+            )
+            db.set_certificate_drive_id(sid, cid, None)
+            missing = sum(not r["drive_file_id"] for r in db.certificates(sid))
+            backed = c.post("/api/drive/backup-certificates")
+            check(
+                backed.status_code == 200
+                and backed.json() == {"copied": missing}
+                and all(r["drive_file_id"] for r in db.certificates(sid)),
+                "Drive: Back up certificates copies every one not yet in Drive",
+            )
+            db.set_certificate_drive_id(sid, cid, None)
+            retried = c.post(f"/api/drive/certificates/{cid}/retry")
+            fid = db.certificate(sid, cid)["drive_file_id"]
+            check(
+                retried.status_code == 200 and retried.json() == {"in_drive": True} and fid,
+                "Drive: Retry Drive copies one certificate",
+            )
+            c.post(f"/api/certificates/{sid}/{cid}/delete")
+            check(fake.files[fid]["trashed"], "Drive: deleting a certificate trashes its copy")
+
+        saved = c.post("/api/drive/resume", json=SAMPLE_RESUME)
+        rid = saved.json().get("id") if saved.status_code == 200 else None
+        check(
+            bool(rid)
+            and fake.files[rid]["parents"] == folders[gdrive.RESUMES]
+            and fake.files[rid]["data"].startswith(b"%PDF")
+            and fake.files[rid]["name"].endswith(".pdf"),
+            f"Drive: Save to Drive puts the resume PDF in Resumes{_why(saved)}",
+        )
+
+        gone = c.post("/api/drive/disconnect")
+        check(
+            gone.status_code == 200
+            and gone.json()["connected"] is False
+            and refresh in fake.revoked
+            and db.drive_account(sid) is None,
+            "Drive: Disconnect revokes at Google and deletes the token",
+        )
+        url = gdrive.start(other, "web")
+        gdrive.finish(query(url)["state"], fake.consent(url), signed_in=other, ui="web")
+        theirs = secretbox.open_(
+            db.drive_account(other)["refresh_token_enc"], student_id=other, purpose="refresh"
+        )
+        services.delete_student(other, "cidriveother")
+        other = ""
+        check(theirs in fake.revoked, "Drive: deleting the account revokes its Drive access")
+
+        tokens = [t for t in (*fake.refresh, *fake.access) if t]
+        said = "\n".join(r.getMessage() for r in records)
+        check(bool(records) and not any(t in said for t in tokens), "Drive: no token in the logs")
+    finally:
+        root.removeHandler(keep)
+        root.setLevel(old_level)
+        if other:
+            db.delete_student(other)
+        fake.uninstall()
+        for key in keys:
+            os.environ.pop(key, None)
+        settings.cache_clear()
+    check(c.get("/api/drive").json()["enabled"] is False, "Drive: off again without keys")
 
 
 def _fake_local_model() -> tuple[object, int]:
@@ -894,6 +1112,9 @@ def main() -> int:
         "SMTP_EMAIL",
         "SMTP_APP_PASSWORD",
         "DEV_SECRET",
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_CLIENT_SECRET",
+        "DRIVE_TOKEN_KEY",
         "LOCAL_AI",  # auto: on, since LOCAL_MODE is (the local-model checks need it)
         "RENDER",
     ):
