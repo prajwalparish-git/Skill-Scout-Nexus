@@ -9,6 +9,7 @@ from piq.config import BRAND_DIR, ConfigError, settings
 from piq.ui import (
     account_sidebar,
     admin_sidebar,
+    finish_drive_sign_in,
     flush_cookie,
     load_css,
     password_banner,
@@ -50,6 +51,8 @@ _startup()
 # anyone else (no live session cookie) only the sign-in page.
 admin = signed_in_admin()
 student = None if admin else signed_in_student()
+if admin is None:
+    finish_drive_sign_in(student)  # back from Google's consent page
 if admin is not None:
     admin_sidebar(admin)
     engine = journey.engine_status()
@@ -71,6 +74,26 @@ elif student is None:
     page = st.navigation(
         [st.Page("views/onboard.py", title="Sign in", icon=":material/login:", default=True)],
         position="hidden",
+    )
+elif student.get("account_kind") == "contributor":
+    # A contributor shares questions only: no profile, plan or student tools.
+    account_sidebar(student)
+    engine = journey.engine_status()
+    sidebar_context(mock_mode=cfg.mock_mode, ai=engine.active_ai, engine=engine.line)
+    page = st.navigation(
+        {
+            "Contribute": [
+                st.Page(
+                    "views/contribute.py",
+                    title="Contribute a question",
+                    icon=":material/volunteer_activism:",
+                    default=True,
+                ),
+                st.Page("views/credits.py", title="Question credits", icon=":material/license:"),
+            ]
+        },
+        position="sidebar",
+        expanded=True,
     )
 else:
     account_sidebar(student)
@@ -125,8 +148,19 @@ else:
                     title="Mock interview",
                     icon=":material/record_voice_over:",
                 ),
+                st.Page(
+                    "views/company_questions.py",
+                    title="Company questions",
+                    icon=":material/apartment:",
+                ),
                 st.Page("views/dashboard.py", title="Dashboard", icon=":material/monitoring:"),
                 st.Page("views/results.py", title="Results", icon=":material/fact_check:"),
+                st.Page(
+                    "views/contribute.py",
+                    title="Contribute a question",
+                    icon=":material/volunteer_activism:",
+                ),
+                st.Page("views/credits.py", title="Question credits", icon=":material/license:"),
             ],
         },
         position="sidebar",

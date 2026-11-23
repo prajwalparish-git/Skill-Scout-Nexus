@@ -1,464 +1,246 @@
-"""Live Webcam & Strict Tab-Switch Proctoring Guard for Skill Scout Nexus.
+"""Proctoring in the Streamlit app: the same fair rules and records as the web app
+(core/proctoring.py, piq/proctoring.py), with a two-way component (st.components.v2).
 
-Responsibilities:
-1. Streamlit HTML/JS component (st.components.v1.html):
-   - Injects hidden proctoring script into the browser for Quiz and Voice Interview pages.
-   - Tab-Switch & Window Blur: Listens to visibilitychange and window.onblur.
-     Triggers a loud JS AudioContext beep (880Hz) and increments strike counter in session_state.
-   - Copy/Paste Lock: Disables contextmenu (right-click), copy, cut, paste, and dragstart
-     on both current iframe and parent window document.
-   - Webcam Presence Check: Requests navigator.mediaDevices.getUserMedia({video: true}).
-     Draws frames to a hidden canvas every 3s. Checks average brightness and motion.
-     If camera is completely black or static for >5 seconds, triggers a CAMERA_ABSENT warning.
-2. 3-Strike Rule (ProctorState: clean -> warned -> breached, one object per session):
-   - The third strike adds the PROCTOR_BREACH flag.
-   - Persists PROCTOR_BREACH to database via database/crud.py (QuizAttempt or voice session).
-   - Force-submits the test.
-3. Clean warning banners displayed in Streamlit UI.
+Before a proctored quiz or interview the component shows a pre-check (consent text, a local
+camera preview, a lighting hint) and a "Start in fullscreen" button. While the test runs it
+reports, without reloading the page:
+- clear-cut strikes: switching tab, the window losing focus for 2 s or more, leaving fullscreen;
+- for review only: low light and a stopped camera (today's brightness/motion check), and
+  blocked pastes. The face/phone checks (MediaPipe) run in the web app only.
+
+The server decides severity and strikes; the third strike breaches, and the page then submits.
+No video or image leaves the browser. Practice tests are proctored only when the student opts
+in; an organization can require it. Safe Exam Browser mode is for the web app.
+
+(The guard this replaces reported through `window.parent.location`, which Streamlit's component
+sandbox blocks, so its strikes were never recorded; and it counted any blur as a strike.)
 """
 
 from __future__ import annotations
 
-import contextlib
-import json
-import logging
-from collections.abc import Callable
-from dataclasses import dataclass, field, replace
-from typing import Any, Literal
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Literal
 
 import streamlit as st
-import streamlit.components.v1 as components
-from streamlit.runtime.scriptrunner import get_script_run_ctx
 
-from database import crud
-from database.connection import DatabaseManager
+from core import proctoring as rules
+from piq import formatter, proctoring
+from piq.services import ServiceError
 
-log = logging.getLogger("core.proctor_guard")
+MAX_PROCTOR_STRIKES = rules.MAX_STRIKES
+FLAG_PROCTOR_BREACH = rules.FLAG_PROCTOR_BREACH
+STATE_KEY = "proctor_state"  # {test key: attempt state}; cleared on sign-out (piq.ui)
 
-MAX_PROCTOR_STRIKES = 3
-FLAG_TAB_SWITCH = "TAB_SWITCH"
-FLAG_WINDOW_BLUR = "WINDOW_BLUR"
-FLAG_CAMERA_ABSENT = "CAMERA_ABSENT"
-FLAG_PROCTOR_BREACH = "PROCTOR_BREACH"
-
-STATE_KEY = "proctor_state"  # the session's ProctorState (piq.ui.PER_STUDENT_KEYS)
-
-Phase = Literal["clean", "warned", "breached"]
+Kind = Literal["quiz", "interview"]
 
 
 @dataclass(frozen=True)
-class ProctorState:
-    """One assessment's proctoring, as an explicit state machine.
+class Guard:
+    """The open test's proctoring: inactive for an unproctored practice test."""
 
-    clean --strike / camera notice--> warned --strike #MAX_PROCTOR_STRIKES--> breached
-    Any phase --reset_proctor_state()--> clean. "Breached" is derived from the strike count,
-    so a breach without its strikes (or the reverse) cannot be represented.
-    """
-
+    active: bool
+    attempt_id: str | None = None
     strikes: int = 0
-    flags: tuple[str, ...] = ()  # first-seen order, no repeats
+    breached: bool = False
     warning: str | None = None
-    seen_events: frozenset[str] = frozenset()  # query-param events already counted
 
-    @property
-    def phase(self) -> Phase:
-        if self.strikes >= MAX_PROCTOR_STRIKES:
-            return "breached"
-        return "warned" if self.strikes or self.warning else "clean"
 
-    def _flagged(self, *new: str) -> tuple[str, ...]:
-        return tuple(dict.fromkeys([*self.flags, *new]))
+_ASSETS = Path(__file__).with_name("proctor_assets")  # the component's HTML, CSS and JS
 
-    def with_strike(self, reason: str, detail: str = "") -> ProctorState:
-        strikes = self.strikes + 1
-        if strikes >= MAX_PROCTOR_STRIKES:
-            return replace(
-                self,
-                strikes=strikes,
-                flags=self._flagged(reason, FLAG_PROCTOR_BREACH),
-                warning=(
-                    f"3 strikes reached ({reason}). Assessment force-submitted due to proctor "
-                    "breach."
-                ),
+
+def _asset(name: str) -> str:
+    return (_ASSETS / name).read_text(encoding="utf-8")
+
+
+_COMPONENT = st.components.v2.component(
+    "ssn_proctor_guard",
+    html=_asset("guard.html"),
+    css=_asset("guard.css"),
+    js=_asset("guard.js"),
+)
+
+
+def _states() -> dict:
+    states = st.session_state.get(STATE_KEY)
+    if not isinstance(states, dict):
+        states = {}
+        st.session_state[STATE_KEY] = states
+    return states
+
+
+def _on_start(sid: str, kind: Kind, label: str, key: str) -> None:
+    payload = (st.session_state.get(f"proctor-ui-{key}") or {}).get("start") or {}
+    camera = "on" if payload.get("camera") == "on" else "unavailable"
+    try:
+        attempt = proctoring.start(
+            sid,
+            kind,
+            label,
+            camera=camera,
+            consent=True,
+            camera_note=str(payload.get("note") or "")[:200],
+        )
+    except ServiceError as e:
+        _states()[key] = {"error": str(e)}
+        return
+    _states()[key] = {
+        "attempt_id": attempt,
+        "strikes": 0,
+        "breached": False,
+        "warning": None,
+        "camera_on": camera == "on",
+        "started": time.time(),
+    }
+
+
+def _on_events(sid: str, key: str) -> None:
+    state = _states().get(key) or {}
+    events = (st.session_state.get(f"proctor-ui-{key}") or {}).get("events") or []
+    if not state.get("attempt_id") or not isinstance(events, list):
+        return
+    batch = []
+    for e in events[: rules.MAX_BATCH]:
+        if isinstance(e, dict) and e.get("kind") in rules.CLIENT_KINDS:
+            dur = e.get("duration_s")
+            batch.append(
+                (e["kind"], float(e.get("at_s") or 0), float(dur) if dur is not None else None)
             )
-        desc = f" ({detail})" if detail else ""
-        return replace(
-            self,
-            strikes=strikes,
-            flags=self._flagged(reason),
-            warning=(
-                f"Proctoring warning: {reason}{desc}. Strike {strikes}/{MAX_PROCTOR_STRIKES}."
-            ),
+    try:
+        p = proctoring.record(sid, state["attempt_id"], batch, check_gap=False)
+    except ServiceError:
+        return
+    state.update(strikes=p.strikes, breached=p.breached, warning=p.warning)
+
+
+def guard(sid: str, kind: Kind, label: str, *, key: str) -> Guard:
+    """Proctoring for the open test `key` (one per quiz or question). Unproctored practice
+    returns an inactive Guard. While a pre-check is still needed it is shown and the page stops
+    here (st.stop), so the test appears only once the attempt has started."""
+    p = proctoring.policy(sid)
+    state = _states().get(key) or {}
+    if not state.get("attempt_id"):
+        if p.seb:
+            st.error(
+                "Your organization requires Safe Exam Browser for tests. Take this test in the "
+                "web app, opened with the .seb file your organization gave you.",
+                icon=":material/lock:",
+            )
+            st.stop()
+        if not p.required and not st.toggle(
+            "Proctor this test (practice for a proctored test; optional)",
+            key=f"proctor-optin-{key}",
+        ):
+            return Guard(active=False)
+        if p.required:
+            st.info(
+                "Your organization proctors this test. A short check runs before it starts.",
+                icon=":material/shield:",
+            )
+        if err := state.get("error"):
+            st.error(formatter.md_escape(err), icon=":material/error:")
+        _COMPONENT(
+            key=f"proctor-ui-{key}",
+            data={"mode": "precheck", "consent_text": rules.CONSENT_TEXT},
+            on_start_change=lambda: _on_start(sid, kind, label, key),
+            on_events_change=lambda: None,
         )
-
-    def with_camera_warning(self, detail: str) -> ProctorState:
-        """A camera notice: flagged and shown, but not a strike."""
-        return replace(
-            self,
-            flags=self._flagged(FLAG_CAMERA_ABSENT),
-            warning=f"CAMERA_ABSENT: {detail}. Please ensure your face is visible.",
-        )
-
-    def with_event_seen(self, event: str) -> ProctorState:
-        return replace(self, seen_events=self.seen_events | {event})
-
-
-# Only for bare mode (no Streamlit session: plain unit tests and scripts). A real session
-# always keeps its own state in st.session_state, so one student's strikes can never reach
-# another session through this module.
-_bare_state = ProctorState()
-
-
-def _in_session() -> bool:
-    return get_script_run_ctx(suppress_warning=True) is not None
-
-
-def _load() -> ProctorState:
-    if _in_session():
-        state = st.session_state.get(STATE_KEY)
-        return state if isinstance(state, ProctorState) else ProctorState()
-    return _bare_state
-
-
-def _save(state: ProctorState) -> ProctorState:
-    global _bare_state
-    if _in_session():
-        st.session_state[STATE_KEY] = state
-    else:
-        _bare_state = state
-    return state
-
-
-@dataclass(frozen=True)
-class ProctorGuardStatus:
-    strikes: int
-    is_breached: bool
-    warning: str | None
-    flags: list[str] = field(default_factory=list)
-
-
-def proctor_state() -> ProctorState:
-    """This session's proctoring state (clean until the first strike or notice)."""
-    return _load()
-
-
-def init_proctor_state() -> None:
-    """Start this session's proctoring state if it has none (a no-op otherwise)."""
-    _save(_load())
-
-
-def reset_proctor_state() -> None:
-    """Reset proctor strikes, flags, and warnings for a new test."""
-    _save(ProctorState())
-
-
-def get_strikes() -> int:
-    return _load().strikes
-
-
-def is_breached() -> bool:
-    return _load().phase == "breached"
-
-
-def get_warning() -> str | None:
-    return _load().warning
-
-
-def get_proctor_flags() -> list[str]:
-    return list(_load().flags)
-
-
-get_flags = get_proctor_flags  # Alias
-
-
-def record_strike(reason: str = FLAG_TAB_SWITCH, detail: str = "") -> int:
-    """Count one strike; the MAX_PROCTOR_STRIKES-th one breaches. Returns the strike count."""
-    return _save(_load().with_strike(reason, detail)).strikes
-
-
-def record_camera_warning(detail: str = "Webcam absent or black/static for >5s") -> None:
-    """Record a camera absence warning without triggering a strike."""
-    _save(_load().with_camera_warning(detail))
-
-
-def save_proctor_breach_to_db(
-    student_id: int,
-    assessment_type: Literal["quiz", "critic_quiz", "voice"],
-    *,
-    stream: str = "Engineering",
-    domain: str = "General",
-    score: int = 0,
-    total: int = 5,
-    role: str = "Candidate",
-    db: DatabaseManager | None = None,
-) -> Any:
-    """Push PROCTOR_BREACH flag directly to the database (QuizAttempt or VoiceInterviewSession)."""
-    flags = list(dict.fromkeys([*get_proctor_flags(), FLAG_PROCTOR_BREACH]))
-    if assessment_type in ("quiz", "critic_quiz"):
-        return crud.save_quiz_attempt(
-            student_id=student_id,
-            stream=stream,
-            domain=domain,
-            score=score,
-            total_questions=total,
-            critique_notes=("[TEST TERMINATED: Force-submitted due to 3 strikes / PROCTOR_BREACH]"),
-            proctor_flags=flags,
-            db=db,
-        )
-    else:
-        return crud.save_voice_session(
-            student_id=student_id,
-            role=role,
-            audio_transcript="[TEST TERMINATED: Force-submitted due to PROCTOR_BREACH]",
-            rubric_score=0,
-            verbal_clarity_score=0.0,
-            relevance_score=0.0,
-            feedback=(
-                "Assessment terminated prematurely due to repeated proctoring violations "
-                "(PROCTOR_BREACH)."
-            ),
-            proctor_flags=flags,
-            db=db,
-        )
-
-
-def proctor_html_component(page_type: str = "assessment") -> str:
-    """Generate self-contained HTML/JS proctoring guard."""
-    template = """<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<style>
-  body { margin: 0; padding: 0; overflow: hidden; background: transparent; }
-  #proctor-video, #proctor-canvas { display: none; }
-</style>
-</head>
-<body>
-<video id="proctor-video" autoplay playsinline muted></video>
-<canvas id="proctor-canvas" width="64" height="48"></canvas>
-<script>
-(function() {
-  const pageType = __PAGE_TYPE__;
-  const targets = [document];
-  const winTargets = [window];
-  try {
-    if (window.parent && window.parent.document) {
-      targets.push(window.parent.document);
-      winTargets.push(window.parent);
-    }
-  } catch(e) {
-    console.warn("[ProctorGuard] Parent document cross-origin restricted:", e);
-  }
-
-  // --- 1. AudioContext Beep ---
-  function playBeep() {
-    try {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (!AudioCtx) return;
-      const ctx = new AudioCtx();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "sawtooth";
-      osc.frequency.setValueAtTime(880, ctx.currentTime); // 880 Hz loud beep
-      gain.gain.setValueAtTime(0.5, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.55);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.6);
-    } catch(err) {
-      console.warn("[ProctorGuard] AudioContext beep error:", err);
-    }
-  }
-
-  // --- 2. Report Violation to Parent URL & postMessage ---
-  let lastReported = 0;
-  function reportViolation(type, detail) {
-    const now = Date.now();
-    if (now - lastReported < 1500) return; // Debounce rapid bursts
-    lastReported = now;
-
-    playBeep();
-
-    try {
-      if (window.parent) {
-        window.parent.postMessage({
-          type: "PROCTOR_VIOLATION",
-          event: type,
-          detail: detail,
-          timestamp: now
-        }, "*");
-
-        const parentUrl = new URL(window.parent.location.href);
-        const curStrikes = parseInt(parentUrl.searchParams.get("proctor_strikes") || "0", 10);
-        let nextStrikes = curStrikes;
-        if (type === "TAB_SWITCH" || type === "WINDOW_BLUR") {
-          nextStrikes += 1;
-        }
-        parentUrl.searchParams.set("proctor_event", type + ":" + now);
-        parentUrl.searchParams.set("proctor_strikes", nextStrikes.toString());
-        if (parentUrl.href !== window.parent.location.href) {
-          window.parent.location.href = parentUrl.href;
-        }
-      }
-    } catch(err) {
-      console.error("[ProctorGuard] Reporting error:", err);
-    }
-  }
-
-  // --- 3. Copy / Paste / ContextMenu Lock ---
-  function blockEvent(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    return false;
-  }
-  targets.forEach(doc => {
-    ["contextmenu", "copy", "cut", "paste", "dragstart"].forEach(evtName => {
-      doc.addEventListener(evtName, blockEvent, true);
-    });
-  });
-
-  // --- 4. Tab-Switch & Window Blur Listeners ---
-  targets.forEach(doc => {
-    doc.addEventListener("visibilitychange", function() {
-      if (doc.visibilityState === "hidden") {
-        reportViolation("TAB_SWITCH", "Tab switched or browser minimized");
-      }
-    }, true);
-  });
-
-  winTargets.forEach(win => {
-    win.addEventListener("blur", function() {
-      reportViolation("WINDOW_BLUR", "Browser window lost focus");
-    }, true);
-  });
-
-  // --- 5. Webcam Presence Check ---
-  const video = document.getElementById("proctor-video");
-  const canvas = document.getElementById("proctor-canvas");
-  const ctx = canvas ? canvas.getContext("2d") : null;
-  let streamReady = false;
-  let prevFrame = null;
-  let inactiveDuration = 0;
-  const CHECK_MS = 3000;
-
-  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-    navigator.mediaDevices.getUserMedia({ video: { width: 120, height: 90 } })
-      .then(stream => {
-        video.srcObject = stream;
-        video.play().catch(e => console.warn("Video play error:", e));
-        streamReady = true;
-      })
-      .catch(err => {
-        console.warn("[ProctorGuard] Camera permission denied or device absent:", err);
-        reportViolation("CAMERA_ABSENT", "Webcam access denied or unavailable");
-      });
-  } else {
-    reportViolation("CAMERA_ABSENT", "navigator.mediaDevices not supported");
-  }
-
-  if (ctx) {
-    setInterval(function() {
-      if (!streamReady || video.readyState < 2) {
-        inactiveDuration += CHECK_MS;
-        if (inactiveDuration >= 5000) {
-          reportViolation("CAMERA_ABSENT", "Webcam stream absent or not ready");
-        }
-        return;
-      }
-
-      try {
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const d = img.data;
-        let sumBrightness = 0;
-        let diffMotion = 0;
-        const count = d.length / 4;
-
-        for (let i = 0; i < d.length; i += 4) {
-          const r = d[i], g = d[i+1], b = d[i+2];
-          sumBrightness += (r + g + b) / 3;
-          if (prevFrame) {
-            diffMotion += Math.abs(r - prevFrame[i]);
-            diffMotion += Math.abs(g - prevFrame[i+1]);
-            diffMotion += Math.abs(b - prevFrame[i+2]);
-          }
-        }
-
-        const avgBrightness = sumBrightness / count;
-        const avgMotion = prevFrame ? (diffMotion / (count * 3)) : 10;
-        prevFrame = new Uint8ClampedArray(d);
-
-        // Heuristic: pitch black (< 12) or frozen static (< 0.4 difference)
-        const isDead = (avgBrightness < 12) || (prevFrame && avgMotion < 0.4);
-        if (isDead) {
-          inactiveDuration += CHECK_MS;
-        } else {
-          inactiveDuration = 0;
-        }
-
-        if (inactiveDuration >= 5000) {
-          reportViolation("CAMERA_ABSENT", "Webcam black or static for >5s");
-        }
-      } catch(e) {
-        console.warn("[ProctorGuard] Analysis error:", e);
-      }
-    }, CHECK_MS);
-  }
-})();
-</script>
-</body>
-</html>"""
-    return template.replace("__PAGE_TYPE__", json.dumps(page_type))
-
-
-def render_proctor_guard(
-    page_type: str = "assessment",
-    on_breach: Callable[[], None] | None = None,
-) -> ProctorGuardStatus:
-    """Inject hidden proctoring script, read incoming strike events, and handle breach callbacks."""
-    # Process query param events if sent by the JS component (each one counts once)
-    raw_event = st.query_params.get("proctor_event")
-    if raw_event and raw_event not in _load().seen_events:
-        _save(_load().with_event_seen(raw_event))
-        event_type = raw_event.split(":")[0] if ":" in raw_event else raw_event
-        if event_type in (FLAG_TAB_SWITCH, FLAG_WINDOW_BLUR):
-            record_strike(event_type, "Tab switched or window blur detected")
-        elif event_type == FLAG_CAMERA_ABSENT:
-            record_camera_warning("Webcam feed is inactive, black, or static")
-        with contextlib.suppress(Exception):
-            del st.query_params["proctor_event"]
-
-    # Check 3-strike rule
-    if is_breached() and on_breach:
-        on_breach()
-
-    # Inject invisible iframe component (0 height, 0 width)
-    components.html(proctor_html_component(page_type), height=0, width=0)
-
-    return ProctorGuardStatus(
-        strikes=get_strikes(),
-        is_breached=is_breached(),
-        warning=get_warning(),
-        flags=get_proctor_flags(),
+        st.stop()
+    _COMPONENT(
+        key=f"proctor-ui-{key}",
+        data={
+            "mode": "running",
+            "strikes": state["strikes"],
+            "max": rules.MAX_STRIKES,
+            "camera_on": state["camera_on"],
+            "elapsed_s": round(time.time() - state["started"], 1),
+        },
+        on_start_change=lambda: None,
+        on_events_change=lambda: _on_events(sid, key),
+    )
+    if state.get("warning") and not state["breached"]:
+        st.warning(formatter.md_escape(state["warning"]), icon=":material/warning:")
+    return Guard(
+        True, state["attempt_id"], state["strikes"], state["breached"], state.get("warning")
     )
 
 
-def render_warning_banner() -> None:
-    """Display a clean Streamlit warning banner for strikes, camera warnings, or proctor breach."""
-    if is_breached():
+def finish(sid: str, key: str) -> list[str]:
+    """End the test's attempt (after submit or breach): its telemetry flags (clear-cut codes
+    and PROCTOR_BREACH only); [] for an unproctored test."""
+    state = _states().pop(key, None) or {}
+    if not state.get("attempt_id"):
+        return []
+    return proctoring.finish(sid, state["attempt_id"])
+
+
+def drop(key: str) -> None:
+    """Forget the test's attempt without finishing it (a new quiz replaced it)."""
+    _states().pop(key, None)
+
+
+def outcome_banner(flags: list[str]) -> None:
+    """After a test: what proctoring recorded, in plain words."""
+    if FLAG_PROCTOR_BREACH in flags:
         st.error(
-            "🚨 **PROCTOR BREACH:** Maximum strikes reached (3/3). This assessment has been "
-            "flagged and force-submitted.",
+            f"Submitted after {MAX_PROCTOR_STRIKES} proctoring strikes. Your proctoring record is "
+            "in Settings.",
             icon=":material/gavel:",
         )
-    elif get_strikes() > 0:
-        strikes = get_strikes()
-        st.warning(
-            f"⚠️ **PROCTOR WARNING:** Strike {strikes}/{MAX_PROCTOR_STRIKES} recorded. "
-            "Tab-switching, minimizing the window, or losing focus is strictly prohibited. "
-            "3 strikes will automatically submit your assessment.",
-            icon=":material/warning:",
+    elif flags:
+        st.info("Proctored. Your proctoring record is in Settings.", icon=":material/shield:")
+
+
+REVIEW_NOTE = (
+    "For review only, never a strike: these misfire with glasses, a disability, a poor camera, "
+    "or someone looking away to think."
+)
+
+
+def render_record(attempts: list[proctoring.AttemptView], *, for_admin: bool = False) -> None:
+    """Each proctored attempt with its events, labelled Clear (strikes) or For review. The
+    student and their organization's admin see the same record."""
+    if not attempts:
+        st.caption("No proctored tests yet.")
+        return
+    if not for_admin:
+        st.caption(
+            "What was recorded during your proctored tests: events and times only, never video "
+            "or images. Your organization's admin sees the same record."
         )
-    elif warning := get_warning():
-        st.warning(f"⚠️ **PROCTOR NOTICE:** {warning}", icon=":material/videocam_off:")
+    for a in attempts:
+        mode = {"practice": "practice", "required": "required", "seb": "Safe Exam Browser"}
+        verdict = (
+            f":red-badge[Submitted after {a.strikes} strikes]"
+            if a.breached
+            else f":orange-badge[{a.strikes} strike{'s' if a.strikes != 1 else ''}]"
+            if a.strikes
+            else ":green-badge[No strikes]"
+        )
+        camera = " :blue-badge[Camera checks skipped]" if a.camera == "unavailable" else ""
+        title = f"{'Quiz' if a.kind == 'quiz' else 'Interview'}: {a.label}"
+        with st.expander(
+            f"{a.started[:16].replace('T', ' ')} UTC · {title}",
+            icon=":material/shield:",
+            expanded=a.breached and for_admin,
+        ):
+            minutes = max(1, round(a.duration_s / 60))
+            st.markdown(f"{verdict}{camera} · {mode[a.mode]} · about {minutes} min")
+            if a.camera_note:
+                st.caption(f"Camera: {formatter.md_escape(a.camera_note)}")
+            if a.clear:
+                st.markdown("**Clear (strikes)**")
+                st.markdown(
+                    "\n".join(
+                        f"- {formatter.md_escape(e.text)}"
+                        + ("" if e.strike else " :gray[(same incident, not another strike)]")
+                        for e in a.clear
+                    )
+                )
+            if a.review:
+                st.markdown("**For review**")
+                st.caption(REVIEW_NOTE)
+                st.markdown("\n".join(f"- :gray[{formatter.md_escape(e.text)}]" for e in a.review))
+            if not a.clear and not a.review:
+                st.caption("Nothing was recorded.")

@@ -27,8 +27,11 @@ PAGES = (
     AppPage("plan", "Weekly plan", "views/plan.py"),
     AppPage("quiz", "Quiz", "views/quiz.py"),
     AppPage("interview", "Mock interview", "views/interview.py"),
+    AppPage("company_questions", "Company questions", "views/company_questions.py"),
     AppPage("dashboard", "Dashboard", "views/dashboard.py"),
     AppPage("results", "Results", "views/results.py"),
+    AppPage("contribute", "Contribute a question", "views/contribute.py"),
+    AppPage("credits", "Question credits", "views/credits.py"),
 )
 STUDENT_ONLY = {"projects"}  # in the navigation only once a (computing) student is chosen
 

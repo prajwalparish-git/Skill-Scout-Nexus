@@ -15,6 +15,7 @@ from datetime import date, datetime, timedelta
 from statistics import mean
 from typing import Protocol
 
+from core.proctoring import FLAG_PROCTOR_BREACH
 from piq.config import (
     GAP_CHART_TOP,
     NEARLY_READY_AT,
@@ -90,6 +91,17 @@ class StudentRow:
     main_domain: str = ""
     subdomain: str = ""
     account_status: str = "active"
+    # Tests submitted after 3 proctoring strikes (PROCTOR_BREACH), never other flags.
+    proctor_breaches: int = 0
+
+
+def breaches(*sessions: Iterable) -> int:
+    """How many quiz attempts / voice sessions carry PROCTOR_BREACH."""
+    return sum(
+        FLAG_PROCTOR_BREACH in (getattr(x, "proctor_flags", None) or [])
+        for group in sessions
+        for x in group
+    )
 
 
 @dataclass(frozen=True)
@@ -179,6 +191,7 @@ def student_rows(c: Snapshot) -> list[StudentRow]:
                     sum(len(v.proctor_flags) for v in vs)
                     + sum(len(getattr(q, "proctor_flags", []) or []) for q in qs)
                 ),
+                proctor_breaches=breaches(vs, qs),
                 plans=len(ps),
                 tasks_done=sum(len(p.completed_tasks) for p in ps),
                 last_active=max(stamps, default=None),

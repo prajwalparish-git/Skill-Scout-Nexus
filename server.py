@@ -28,16 +28,21 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Upload
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
-from core import calendar_export
+from core import calendar_export, drive
 from piq import (
     db,
+    experiences,
     formatter,
     graph,
+    handsfree,
     llm,
+    proctoring,
     question_bank,
+    quiz_sessions,
     resume_builder,
+    resume_templates,
     services,
     study_library,
     syllabus,
@@ -53,7 +58,18 @@ from piq.config import (
 from piq.services import InterviewSession, ServiceError
 from server_auth import authorize, owner, require_student
 from server_auth import router as auth_router
+from server_companies import ops_router as companies_ops_router
+from server_companies import router as companies_router
+from server_contribute import ops_router as contribute_ops_router
+from server_contribute import router as contribute_router
+from server_drive import require_drive
+from server_drive import router as drive_router
+from server_handsfree import router as handsfree_router
+from server_handsfree import speech_for
 from server_ops import router as ops_router
+from server_proctor import call as proctor_call
+from server_proctor import router as proctor_router
+from server_projects import router as projects_router
 
 log = logging.getLogger("server")
 
@@ -90,6 +106,14 @@ def cors_origins() -> list[str]:
 app = FastAPI(title="Skill Scout Nexus API", version="1.0", lifespan=_lifespan)
 app.include_router(auth_router)
 app.include_router(ops_router)
+app.include_router(companies_router)
+app.include_router(companies_ops_router)
+app.include_router(drive_router)
+app.include_router(proctor_router)
+app.include_router(handsfree_router)
+app.include_router(contribute_router)
+app.include_router(contribute_ops_router)
+app.include_router(projects_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins(),
@@ -209,21 +233,56 @@ def roles_for_degree(degree: str, specialization: str = "", status: str = "Compl
 def quiz(
     request: Request,
     topic: str,
-    difficulty: str = "medium",
+    difficulty: str | None = None,
     count: int = INSTANT_QUIZ_SIZE,
     candidate_id: str | None = None,
 ) -> dict:
-    """Bank questions without their answers: the submit route grades them. A guest names no
-    student; naming one needs that student's session."""
+    """Questions without their answers: the submit route grades them. A guest names no
+    student; naming one needs that student's session. A student who names no difficulty gets
+    their level on the topic (adaptive: missed questions come back, flagged `review`); naming
+    one keeps it exactly as asked, from the bank. A student's quiz is recorded as a quiz
+    session (piq/quiz_sessions.py) with its options shuffled for that session: the submit must
+    name `quiz_session` and is graded only as served."""
     authorize(request, candidate_id)
-    q = services.instant_quiz(topic, difficulty, count, candidate_id or None)
+    if candidate_id and difficulty is None:
+        a = services.adaptive_quiz(candidate_id, topic, count)
+        items = [(p.question, p.difficulty, p.review) for p in a.items]
+        head = {"topic": a.topic, "difficulty": a.level, "level": a.level, "adaptive": True}
+    else:
+        q = services.instant_quiz(topic, difficulty or "medium", count, candidate_id or None)
+        items = [(x, q.difficulty, False) for x in q.questions]
+        level = services.suggested_difficulty(candidate_id, topic) if candidate_id else None
+        head = {"topic": q.topic, "difficulty": q.difficulty, "level": level, "adaptive": False}
+    served = (
+        quiz_sessions.serve(candidate_id, head["topic"], [x for x, _, _ in items])
+        if candidate_id
+        else None
+    )
     return {
-        "topic": q.topic,
-        "difficulty": q.difficulty,
+        **head,
+        "quiz_session": served.session_id if served else None,
         "questions": [
-            {"id": question_bank.qid(x), "text": x.text, "options": x.options} for x in q.questions
+            {
+                "id": question_bank.qid(x),
+                "text": x.text,
+                "options": (
+                    quiz_sessions.shown(x, served.orders[question_bank.qid(x)])
+                    if served
+                    else x.options
+                ),
+                "difficulty": d,
+                "review": review,
+            }
+            for x, d, review in items
         ],
     }
+
+
+@app.get("/api/quiz/levels/{candidate_id}", dependencies=[Depends(owner)])
+def quiz_levels(candidate_id: str) -> dict:
+    """The student's level per topic (topics never quizzed are absent: they start at medium)."""
+    _student(candidate_id)
+    return {"levels": services.topic_levels(candidate_id)}
 
 
 class Answer(BaseModel):
@@ -236,24 +295,33 @@ class QuizSubmission(BaseModel):
     topic: str
     difficulty: str
     answers: list[Answer] = Field(min_length=1, max_length=QUIZ_MAX_PER_TOPIC)
+    proctor_attempt_id: str | None = Field(None, max_length=64)
+    quiz_session: str | None = Field(None, max_length=64)  # a student's quiz: as served
 
 
 @app.post("/api/quiz/submit")
 def quiz_submit(body: QuizSubmission, request: Request) -> dict:
     authorize(request, body.candidate_id)
-    result = services.grade_instant_quiz(
-        body.candidate_id or None,
-        body.topic,
-        body.difficulty,
-        [(a.id, a.choice) for a in body.answers],
-    )
+    cid = body.candidate_id or None
+    watched = proctor_call(lambda: proctoring.require(cid, body.proctor_attempt_id, "quiz"))
+    answers = [(a.id, a.choice) for a in body.answers]
+    orders: dict[str, list[int]] = {}
+    if cid:  # graded only as served: the session's questions, once, in its option order
+        answers, orders = quiz_sessions.resolve(cid, body.quiz_session, body.topic, answers)
+    result = services.grade_instant_quiz(cid, body.topic, body.difficulty, answers)
+
+    def seen(q: Any, index: int | None) -> int | None:  # a bank index as the student saw it
+        order = orders.get(question_bank.qid(q))
+        return index if order is None or index is None else order.index(index)
+
     review = [
         {
             "id": question_bank.qid(q),
-            "chosen": c,
-            "correct_index": q.correct_index,
+            "chosen": seen(q, c),
+            "correct_index": seen(q, q.correct_index),
             "is_correct": c == q.correct_index,
             "explanation": q.explanation,
+            "credit": question_bank.credit(question_bank.qid(q)),  # open-bank source, if any
         }
         for q, c in zip(result.quiz.questions, result.chosen, strict=True)
     ]
@@ -265,9 +333,22 @@ def quiz_submit(body: QuizSubmission, request: Request) -> dict:
         "correct": result.correct,
         "total": len(result.chosen),
         "next_difficulty": result.next_difficulty,
+        "level_before": result.level_before,
+        "level_after": result.level_after,
+        "level_changed": result.level_before != result.level_after,
         "review": review,
         "weakness": weakness,
+        "proctoring": _proctor_end(cid, watched),
     }
+
+
+def _proctor_end(cid: str | None, watched: Any) -> dict | None:
+    """Finish the proctored attempt a submit or the last interview turn belongs to."""
+    if not cid or watched is None:
+        return None
+    flags = proctoring.finish(cid, watched["id"])
+    a = proctoring.attempt(cid, watched["id"])
+    return {"attempt_id": a.id, "strikes": a.strikes, "breached": a.breached, "flags": flags}
 
 
 def _scores(candidate_id: str) -> dict[str, float]:
@@ -346,6 +427,7 @@ def dashboard(candidate_id: str) -> dict:
         "mastery": [asdict(m) for m in d.mastery],
         "quiz_history": _rows(d.quiz_history),
         "sessions": _rows(d.sessions),
+        "levels": services.topic_levels(candidate_id),
     }
 
 
@@ -355,10 +437,11 @@ CERTIFICATE_FORM_SLACK = 64 * 1024  # room for the multipart framing and the tex
 
 
 def _certificate(row: Any) -> dict:
-    return {
+    out = {
         k: row[k]
         for k in ("id", "title", "issuer", "issue_date", "filename", "size_bytes", "uploaded_at")
     }
+    return {**out, "in_drive": bool(row["drive_file_id"])}
 
 
 def _certificate_list(candidate_id: str) -> list[dict]:
@@ -436,8 +519,14 @@ def interview_tracks(candidate_id: str) -> list[dict]:
 class InterviewTurnRequest(BaseModel):
     candidate_id: str
     track: str | None = None  # to start a session
+    company: str | None = Field(None, max_length=60)  # or company practice: its slug ...
+    round: str | None = Field(None, max_length=30)  # ... and round (reported questions first)
+    open: bool = False  # ... or general practice from the open question bank (HR, technical)
     session: dict | None = None  # the state returned by the last turn, to continue it
     answer: str | None = None
+    proctor_attempt_id: str | None = Field(None, max_length=64)
+    voice: bool = False  # hands-free: also speak the next question
+    handsfree_run_id: str | None = Field(None, max_length=64)
 
 
 def _sse(event: str, data: Any) -> str:
@@ -486,20 +575,42 @@ def interview_turn(body: InterviewTurnRequest, request: Request) -> StreamingRes
     (`session` + `answer`). Streams `step` events, then one `result` or `error` event."""
     authorize(request, body.candidate_id)
     _student(body.candidate_id)
+    watched = proctor_call(
+        lambda: proctoring.require(body.candidate_id, body.proctor_attempt_id, "interview")
+    )
+
+    def spoken(s: InterviewSession, out: dict, on_event: Callable[[str], None]) -> dict:
+        """Hands-free: link the run, speak the next question, close the run at the end."""
+        run = body.handsfree_run_id
+        if run:
+            handsfree.link(body.candidate_id, run, s.session_id)
+        if body.voice and s.current is not None and not out.get("proctoring"):
+            on_event("Preparing the spoken question")
+            out["speech"] = speech_for(body.candidate_id, s.current.question)
+        if run and (s.done or out.get("proctoring")):
+            out["handsfree"] = handsfree.finish(body.candidate_id, run)
+        return out
 
     def work(on_event: Callable[[str], None]) -> dict:
         if body.session is None:
+            if body.company and body.round:  # company practice: reported questions first
+                start = experiences.open_interview if body.open else experiences.interview_practice
+                s = start(body.candidate_id, body.company, body.round, on_event)
+                return spoken(s, _session_payload(s), on_event)
             if not body.track:
                 raise ServiceError("Choose an interview track.")
             s = services.start_interview(body.candidate_id, body.track, on_event)
-            return _session_payload(s)
+            return spoken(s, _session_payload(s), on_event)
         s = InterviewSession.model_validate(body.session)
         if s.current is not None:
             s = services.answer_question(body.candidate_id, s, body.answer or "")
             on_event("Answer scored by the evaluator")
-        if not s.done:
+        if not s.done and not (watched is not None and watched["breached"]):
             s = services.continue_interview(body.candidate_id, s, on_event)
-        return _session_payload(s)
+        out = _session_payload(s)
+        if watched is not None and (s.done or watched["breached"]):
+            out["proctoring"] = _proctor_end(body.candidate_id, watched)
+        return spoken(s, out, on_event)
 
     return StreamingResponse(
         _stream(work),
@@ -509,6 +620,9 @@ def interview_turn(body: InterviewTurnRequest, request: Request) -> StreamingRes
 
 
 # --- resume: local ATS audit, PDF, one LLM endpoint ----------
+
+
+Line = Annotated[str, Field(max_length=300)]  # one resume line (an achievement, a score)
 
 
 class ResumeInput(BaseModel):
@@ -529,12 +643,49 @@ class ResumeInput(BaseModel):
     project_tech: str = Field("", max_length=300)
     project_desc: str = Field("", max_length=3000)
     certifications: list[str] = Field(default_factory=list, max_length=30)
+    # Templates (piq/resume_templates.py) and the fields only some of them show.
+    template: str = Field("standard", max_length=20)
+    leetcode_url: str = Field("", max_length=300)
+    codeforces_url: str = Field("", max_length=300)
+    portfolio_url: str = Field("", max_length=300)
+    achievements: list[Line] = Field(default_factory=list, max_length=20)
+    exam_scores: list[Line] = Field(default_factory=list, max_length=10)
+    # Date of birth and address go into this request's PDF only: never saved or logged.
+    date_of_birth: str = Field("", max_length=30)
+    nationality: str = Field("", max_length=60)
+    languages: str = Field("", max_length=200)
+    address: str = Field("", max_length=300)
+    declaration_place: str = Field("", max_length=80)
+    summary: str = Field("", max_length=800)  # a tailored summary the student accepted
+
+    @field_validator("template")
+    @classmethod
+    def _known_template(cls, v: str) -> str:
+        if v not in resume_templates.TEMPLATES:
+            raise ValueError(
+                f"unknown template; choose one of {', '.join(resume_templates.TEMPLATES)}"
+            )
+        return v
 
 
 def _build(body: ResumeInput) -> dict:
     if resume_builder.get_role_info(body.role_name) is None:
         raise ServiceError(f"Unknown role {body.role_name!r}.")
     return resume_builder.build_ats_resume_data(
+        template=body.template,
+        leetcode_url=body.leetcode_url,
+        codeforces_url=body.codeforces_url,
+        portfolio_url=body.portfolio_url,
+        achievements=body.achievements,
+        exam_scores=body.exam_scores,
+        personal={
+            "date_of_birth": body.date_of_birth,
+            "nationality": body.nationality,
+            "languages": body.languages,
+            "address": body.address,
+        },
+        declaration_place=body.declaration_place,
+        summary=body.summary,
         full_name=body.full_name,
         email=body.email,
         phone=body.phone,
@@ -553,12 +704,67 @@ def _build(body: ResumeInput) -> dict:
     )
 
 
+def _layout(res: dict) -> dict:
+    """The template's preview, its pages, and a note when a one-page layout runs over."""
+    _, pages = resume_templates.render_pdf(res)
+    t, _, sections = resume_templates.plan(res)
+    return {
+        **resume_templates.preview_sections(res),
+        "pages": pages,
+        "one_page": t.one_page,
+        "page_note": resume_templates.one_page_note(t.id, pages, sections),
+    }
+
+
 @app.post("/api/resume/ats")
 def resume_ats(body: ResumeInput) -> dict:
-    """The ATS audit for the live score card (no LLM): score, keywords, verbs, degree fit."""
+    """The ATS audit for the live score card (no LLM): score, keywords, verbs, degree fit,
+    and the chosen template's preview (`layout`)."""
     res = _build(body)
     ats = resume_builder.evaluate_ats_compatibility(res, body.role_name)
-    return {"ats": asdict(ats), "summary": res["summary"], "preview": res}
+    return {
+        "ats": asdict(ats),
+        "summary": res["summary"],
+        "preview": resume_builder.without_private(res),
+        "layout": _layout(res),
+    }
+
+
+@app.get("/api/resume/templates")
+def resume_templates_list(domain: str = "") -> dict:
+    """The layouts, and the one a domain's students start from."""
+    return {
+        "templates": resume_templates.catalog(),
+        "default": resume_templates.default_for(domain),
+    }
+
+
+@app.get("/api/resume/certificates")
+def resume_certificates(sid: str = Depends(require_student)) -> dict:
+    """The signed-in student's uploaded certificates as resume lines."""
+    return {"certificates": services.resume_certificates(sid)}
+
+
+class TailorRequest(ResumeInput):
+    job_description: str = Field(max_length=services.JD_MAX_CHARS)
+
+
+@app.post("/api/resume/tailor")
+def resume_tailor(body: TailorRequest, sid: str = Depends(require_student)) -> dict:
+    """Tailor the summary and the bullets to a job description, for the student to review
+    (nothing is saved). Every number stays the student's own (checks.check_tailoring)."""
+    res = _build(body)
+    t = services.tailor_resume(sid, res, body.job_description)
+    ats = resume_builder.evaluate_ats_compatibility(t.resume, body.role_name)
+    return {
+        "summary": t.summary,
+        "bullets": t.bullets,
+        "changes": t.changes,
+        "matched_keywords": t.matched_keywords,
+        "missing_keywords": t.missing_keywords,
+        "ats": asdict(ats),
+        "layout": _layout(t.resume),
+    }
 
 
 @app.post("/api/resume/build-pdf")
@@ -574,12 +780,25 @@ def resume_pdf(body: ResumeInput) -> Response:
     )
 
 
+@app.post("/api/drive/resume", dependencies=[Depends(require_drive)])
+def resume_to_drive(body: ResumeInput, sid: str = Depends(require_student)) -> dict:
+    """Save the resume's PDF, in its template, to the student's Drive (Resumes)."""
+    res = _build(body)
+    services.check_resume_dates(res)
+    try:
+        return services.save_resume_to_drive(sid, res)
+    except drive.NotConnected as e:
+        raise HTTPException(409, str(e)) from e
+    except drive.DriveError as e:
+        raise HTTPException(400, str(e)) from e
+
+
 class BulletRequest(BaseModel):
     text: str
     role: str
 
 
-@app.post("/api/resume/enhance-bullet", dependencies=[Depends(require_student)])
-def enhance_bullet(body: BulletRequest) -> dict:
+@app.post("/api/resume/enhance-bullet")
+def enhance_bullet(body: BulletRequest, sid: str = Depends(require_student)) -> dict:
     """One bullet in XYZ form (interactive lane: Groq key 1); numbers are never invented."""
-    return {"bullet": services.enhance_bullet(body.text, body.role)}
+    return {"bullet": services.enhance_bullet(body.text, body.role, student_id=sid)}

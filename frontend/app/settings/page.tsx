@@ -1,9 +1,22 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { KeyRound, Laptop, Loader2, LogOut, MonitorSmartphone, Smartphone, SlidersHorizontal } from "lucide-react";
-import { get, post, type DeviceSession, type Prefs, type SettingsPayload, type Student } from "@/lib/api";
+import { Cpu, ExternalLink, HardDrive, KeyRound, Laptop, Loader2, LogOut, MonitorSmartphone, PlugZap, Smartphone, SlidersHorizontal } from "lucide-react";
+import {
+  get,
+  post,
+  type DeviceSession,
+  type DriveStatus,
+  type LocalAIPayload,
+  type LocalAIProvider,
+  type Prefs,
+  type SettingsPayload,
+  type Student,
+} from "@/lib/api";
 import { useCandidate } from "@/lib/candidate";
+import { useDrive } from "@/lib/drive";
+import { ProctorRecord } from "@/components/proctor/Record";
 import { ErrorNote, Loading, NeedsCandidate, PageHeader } from "@/components/ui";
 
 const when = (raw: string | number | null) => {
@@ -99,6 +112,242 @@ function Preferences() {
         )}
       </div>
       <ErrorNote message={error} />
+    </section>
+  );
+}
+
+/** Google Drive: copies of certificates and resumes in the student's own Drive (only the files
+ * this app puts there). Shown only when the server has the Google keys. Google sends the student
+ * back to /settings?drive=connected (or drive=error&reason=...), read once and then cleared. */
+function GoogleDrive({ studentId }: { studentId: string }) {
+  const [status, setStatus] = useDrive(studentId);
+  const [busy, setBusy] = useState<"connect" | "backup" | "disconnect" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const back = q.get("drive");
+    if (!back) return;
+    if (back === "connected") setNote("Google Drive connected. New certificates are copied there.");
+    else setError(q.get("reason") || "Google Drive was not connected.");
+    window.history.replaceState(null, "", window.location.pathname);
+  }, []);
+
+  const act = async (kind: "connect" | "backup" | "disconnect") => {
+    setBusy(kind);
+    setError(null);
+    setNote(null);
+    try {
+      if (kind === "connect") {
+        const { url } = await post<{ url: string }>("/api/drive/connect", {});
+        window.location.assign(url); // Google's consent page; it sends the student back here
+        return;
+      }
+      if (kind === "backup") {
+        const { copied } = await post<{ copied: number }>("/api/drive/backup-certificates", {});
+        setNote(copied ? `${copied} certificate${copied === 1 ? "" : "s"} copied to Drive.` : "Every certificate is already in Drive.");
+      } else {
+        setStatus(await post<DriveStatus>("/api/drive/disconnect", {}));
+        setNote("Disconnected. Files already in your Drive stay there.");
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    }
+    setBusy(null);
+  };
+
+  if (!status.enabled) return null;
+  const spin = (k: typeof busy) => (busy === k ? <Loader2 size={14} className="animate-spin" aria-hidden /> : null);
+  return (
+    <section className="card" aria-labelledby="drive-title">
+      <h2 id="drive-title" className="flex items-center gap-2 font-semibold">
+        <HardDrive size={16} aria-hidden /> Google Drive
+      </h2>
+      <p className="mt-1 text-xs text-muted">
+        Keep copies of your certificates and resumes in your own Google Drive. The app sees only the files it puts there, nothing else in your Drive.
+      </p>
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        {status.connected ? (
+          <>
+            <a href={status.folder_link} target="_blank" rel="noopener noreferrer" className="btn-ghost">
+              <ExternalLink size={14} aria-hidden /> Open the folder
+            </a>
+            <button type="button" className="btn-ghost" disabled={busy !== null} onClick={() => act("backup")}>
+              {spin("backup")} Back up certificates
+            </button>
+            <button type="button" className="btn-ghost text-bad" disabled={busy !== null} onClick={() => act("disconnect")}>
+              {spin("disconnect")} Disconnect
+            </button>
+          </>
+        ) : (
+          <button type="button" className="btn-ink" disabled={busy !== null} onClick={() => act("connect")}>
+            {spin("connect")} Connect Google Drive
+          </button>
+        )}
+      </div>
+      {note && (
+        <p role="status" className="mt-3 text-sm text-ok">
+          {note}
+        </p>
+      )}
+      <ErrorNote message={error} />
+    </section>
+  );
+}
+
+/** My local model: Ollama or LM Studio on this computer, used when the cloud AI fails (or
+ * first, when preferred). The server decides whether it is allowed; where it is not (the
+ * deployed site), the card only explains why. */
+function LocalModel() {
+  const { refreshLocalModel } = useCandidate();
+  const [data, setData] = useState<LocalAIPayload | null>(null);
+  const [provider, setProvider] = useState<LocalAIProvider>("ollama");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [model, setModel] = useState("");
+  const [preferred, setPreferred] = useState(false);
+  const [models, setModels] = useState<string[] | null>(null);
+  const [busy, setBusy] = useState<"test" | "save" | "remove" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  const show = useCallback((p: LocalAIPayload) => {
+    setData(p);
+    const c = p.config;
+    setProvider(c?.provider ?? "ollama");
+    setBaseUrl(c?.base_url ?? p.defaults.ollama);
+    setModel(c?.model ?? "");
+    setPreferred(c?.preferred ?? false);
+  }, []);
+
+  useEffect(() => {
+    get<LocalAIPayload>("/api/auth/local-ai").then(show, (e: Error) => setError(e.message));
+  }, [show]);
+
+  const act = async (kind: "test" | "save" | "remove") => {
+    setBusy(kind);
+    setError(null);
+    setNote(null);
+    try {
+      if (kind === "test") {
+        const r = await post<{ models: string[]; base_url: string }>("/api/auth/local-ai/test", { provider, base_url: baseUrl });
+        setModels(r.models);
+        setBaseUrl(r.base_url);
+        if (!model && r.models.length) setModel(r.models[0]);
+        setNote(r.models.length ? `Connected: ${r.models.length} model${r.models.length === 1 ? "" : "s"} found.` : "Connected, but no models are installed yet.");
+      } else if (kind === "save") {
+        show(await post<LocalAIPayload>("/api/auth/local-ai", { provider, base_url: baseUrl, model, preferred }));
+        setNote("Saved.");
+      } else {
+        show(await post<LocalAIPayload>("/api/auth/local-ai/delete", {}));
+        setModels(null);
+        setNote("Removed.");
+      }
+      refreshLocalModel();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const options = Array.from(new Set([...(models ?? []), ...(model ? [model] : [])])).sort();
+  const spin = (k: typeof busy) => (busy === k ? <Loader2 size={14} className="animate-spin" aria-hidden /> : null);
+
+  return (
+    <section className="card" aria-labelledby="local-ai-title">
+      <h2 id="local-ai-title" className="flex items-center gap-2 font-semibold">
+        <Cpu size={16} aria-hidden /> My local model
+      </h2>
+      <p className="mt-1 text-xs text-muted">
+        Use an AI model installed on this computer (Ollama, or LM Studio&apos;s server) when the cloud AI fails or there is no network.
+      </p>
+      {!data && !error && <p className="mt-4 text-sm text-muted">Loading…</p>}
+      {data && !data.allowed && <p className="mt-4 rounded-xl border border-dashed border-line px-4 py-3 text-sm text-muted">{data.explainer}</p>}
+      {data?.allowed && (
+        <div className="mt-4 grid gap-3">
+          <fieldset>
+            <legend className="label">Runs in</legend>
+            <div className="segmented">
+              {data.providers.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  className="segment"
+                  aria-pressed={provider === p.id}
+                  onClick={() => {
+                    setProvider(p.id);
+                    setBaseUrl(data.config?.provider === p.id ? data.config.base_url : data.defaults[p.id]);
+                    setModel(data.config?.provider === p.id ? data.config.model : "");
+                    setModels(null);
+                  }}
+                >
+                  {p.name}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+          <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+            <div>
+              <label className="label" htmlFor="local-ai-url">
+                Address
+              </label>
+              <input
+                id="local-ai-url"
+                className="input font-mono"
+                value={baseUrl}
+                maxLength={200}
+                onChange={(e) => setBaseUrl(e.target.value)}
+                aria-describedby="local-ai-url-hint"
+              />
+              <p id="local-ai-url-hint" className="mt-1 text-xs text-muted">
+                Only this computer: localhost, 127.0.0.1 or [::1].
+              </p>
+            </div>
+            <div className="sm:pt-[1.625rem]">
+              <button type="button" className="btn-ghost w-full" disabled={busy !== null} onClick={() => act("test")}>
+                {spin("test") ?? <PlugZap size={14} aria-hidden />} Test connection
+              </button>
+            </div>
+          </div>
+          <div>
+            <label className="label" htmlFor="local-ai-model">
+              Model
+            </label>
+            <select id="local-ai-model" className="input" value={model} disabled={!options.length} onChange={(e) => setModel(e.target.value)}>
+              {!options.length && <option value="">Test the connection to list your models</option>}
+              {options.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          </div>
+          <Switch
+            label="Use it first, before the cloud AI"
+            hint="Off: it is used only when the cloud AI fails or there is no network."
+            checked={preferred}
+            onChange={setPreferred}
+          />
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="btn-ink" disabled={busy !== null || !model} onClick={() => act("save")}>
+              {spin("save")} Save
+            </button>
+            {data.config && (
+              <button type="button" className="btn-ghost" disabled={busy !== null} onClick={() => act("remove")}>
+                {spin("remove")} Remove
+              </button>
+            )}
+          </div>
+          {data.using_local && <p className="text-xs text-ok">Your latest AI answer came from {data.using_local}.</p>}
+        </div>
+      )}
+      <ErrorNote message={error} />
+      {note && !error && (
+        <p role="status" className="mt-3 text-sm text-ok">
+          {note}
+        </p>
+      )}
     </section>
   );
 }
@@ -242,12 +491,35 @@ export default function SettingsPage() {
           <section className="card" aria-label="Account">
             <p className="text-sm font-semibold">{candidate.name}</p>
             <p className="font-mono text-xs text-muted">
-              @{candidate.username} · {candidate.target_role}
+              @{candidate.username} · {candidate.account_kind === "contributor" ? "contributor" : candidate.target_role}
             </p>
           </section>
-          <Preferences />
+          {candidate.account_kind === "contributor" ? (
+            <section className="card text-sm" aria-label="Contributor">
+              Your credit and contributions are on{" "}
+              <Link href="/contribute" className="font-medium underline underline-offset-2">
+                Contribute a question
+              </Link>
+              .
+            </section>
+          ) : (
+            <>
+              <Preferences />
+              <LocalModel />
+              <GoogleDrive studentId={candidate.id} />
+              <ProctorRecord />
+            </>
+          )}
           <Devices />
           <Password />
+          <section className="card" aria-label="Question sources">
+            <p className="text-sm">
+              Practice questions come from our own bank, students&apos; approved reports and openly licensed sources.{" "}
+              <Link href="/credits" className="font-medium underline underline-offset-2">
+                Question sources &amp; credits
+              </Link>
+            </p>
+          </section>
         </div>
       )}
     </>

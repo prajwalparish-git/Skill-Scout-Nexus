@@ -21,12 +21,22 @@ import os
 import secrets
 import threading
 import time
+from collections.abc import Callable
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
+from core import local_ai
 from piq import accounts, db, devices, prefs, services
-from piq.config import CODE_AFTER_FAILURES, DEVICE_COOKIE_TTL_S, SESSION_TTL_S, settings
+from piq.config import (
+    CODE_AFTER_FAILURES,
+    DEVICE_COOKIE_TTL_S,
+    LOCAL_AI_DEFAULT_URLS,
+    LOCAL_AI_MODEL_MAX,
+    LOCAL_AI_PROVIDERS,
+    SESSION_TTL_S,
+    settings,
+)
 from piq.services import ServiceError
 
 COOKIE = "ssn_session"
@@ -154,6 +164,9 @@ def public(student_id: str) -> dict | None:
         "target_role": row["target_role"],
         "readiness_score": row["readiness_score"],
         "must_change_password": bool(row["must_change_password"]),
+        "in_org": row["org_id"] is not None,  # an organization's student (never which one)
+        # "contributor": shares questions only (piq/contributions.py), no student tools
+        "account_kind": row["account_kind"],
     }
 
 
@@ -161,10 +174,26 @@ def session_id(request: Request) -> str | None:
     return accounts.session_student(request.cookies.get(COOKIE))
 
 
-def require_student(request: Request) -> str:
+def require_member(request: Request) -> str:
+    """Anyone signed in: a student or a contributor."""
     sid = session_id(request)
     if sid is None:
         raise HTTPException(401, "Sign in to continue.")
+    return sid
+
+
+CONTRIBUTOR_ONLY = (
+    "This is a contributor account: it can contribute questions and share interviews, not use "
+    "the student tools."
+)
+
+
+def require_student(request: Request) -> str:
+    """A signed-in student (a contributor account is refused: it has no profile or plan)."""
+    sid = require_member(request)
+    row = db.student(sid)
+    if row is not None and row["account_kind"] == "contributor":
+        raise HTTPException(403, CONTRIBUTOR_ONLY)
     return sid
 
 
@@ -321,10 +350,13 @@ def me(request: Request, response: Response) -> dict:
     in. Gives a new browser its device id."""
     device(request, response)
     sid = session_id(request)
+    local_model = local_ai.using_local(sid) if sid else None
     return {
         "student": public(sid) if sid else None,
         "mode": _mode(),
         "ops": ops_signed_in(request),
+        # the student's latest AI answer came from their own model: the web app's indicator
+        "local_ai": {"model": local_model} if local_model else None,
     }
 
 
@@ -342,6 +374,36 @@ def signup(body: SignUp, request: Request, response: Response) -> dict:
     )
     if isinstance(result, str):  # local mode: no email to confirm
         services.benchmark_profile(result)
+        return _start_session(request, response, result, d)
+    return _step(result)
+
+
+class ContributorSignUp(BaseModel):
+    name: str = Field(max_length=200)
+    username: str = Field(max_length=60)
+    email: str = Field(max_length=254)
+    password: str = Field(max_length=200)
+    confirm: str = Field(max_length=200)
+    company_joined: str = Field(max_length=160)
+    batch_year: str = Field(max_length=8)
+
+
+@router.post("/signup-contributor", dependencies=[Depends(throttle)])
+def signup_contributor(body: ContributorSignUp, request: Request, response: Response) -> dict:
+    """A contributor account: name, email, company joined, batch year (no role, resume or
+    readiness score). The same email code as a student's sign-up."""
+    d = device(request, response)
+    result = accounts.sign_up_contributor(
+        body.name,
+        body.username,
+        body.email,
+        body.password,
+        body.confirm,
+        body.company_joined,
+        body.batch_year,
+        device=d,
+    )
+    if isinstance(result, str):  # local mode: no email to confirm
         return _start_session(request, response, result, d)
     return _step(result)
 
@@ -411,20 +473,20 @@ def logout(request: Request, response: Response) -> dict:
 
 
 @router.post("/password", dependencies=[Depends(throttle)])
-def change_password(body: PasswordChange, sid: str = Depends(require_student)) -> dict:
+def change_password(body: PasswordChange, sid: str = Depends(require_member)) -> dict:
     accounts.change_password(sid, body.current, body.password, body.confirm)
     return {"student": public(sid)}
 
 
 @router.get("/sessions")
-def list_sessions(request: Request, sid: str = Depends(require_student)) -> list[dict]:
+def list_sessions(request: Request, sid: str = Depends(require_member)) -> list[dict]:
     """The student's signed-in devices, newest activity first; `current` is this one."""
     return accounts.sessions(sid, request.cookies.get(COOKIE))
 
 
 @router.post("/sessions/{session_id}/revoke")
 def revoke_session(
-    session_id: str, request: Request, response: Response, sid: str = Depends(require_student)
+    session_id: str, request: Request, response: Response, sid: str = Depends(require_member)
 ) -> list[dict]:
     if not accounts.end_session_id(sid, session_id, device(request, response)):
         raise HTTPException(404, "That device is already signed out.")
@@ -433,7 +495,7 @@ def revoke_session(
 
 @router.post("/sessions/revoke-others")
 def revoke_others(
-    request: Request, response: Response, sid: str = Depends(require_student)
+    request: Request, response: Response, sid: str = Depends(require_member)
 ) -> list[dict]:
     accounts.end_other_sessions(sid, request.cookies.get(COOKIE) or "", device(request, response))
     return accounts.sessions(sid, request.cookies.get(COOKIE))
@@ -448,3 +510,75 @@ def get_settings(sid: str = Depends(require_student)) -> dict:
 def save_settings(body: Prefs, sid: str = Depends(require_student)) -> dict:
     changes = {k: v for k, v in body.model_dump().items() if v is not None}
     return {"prefs": prefs.update(sid, changes), "preload_allowed": settings().preload}
+
+
+# --- a student's own local model (core/local_ai.py) ---------------------------------------------
+
+
+class LocalAITest(BaseModel):
+    provider: str = Field(max_length=20)
+    base_url: str = Field("", max_length=200)
+
+
+class LocalAIConfig(LocalAITest):
+    model: str = Field(max_length=LOCAL_AI_MODEL_MAX)
+    preferred: bool = False
+
+
+def _local_ai_payload(sid: str) -> dict:
+    """What the Settings card shows. `allowed` false: this server refuses local models (the
+    deployed site), and the card explains why instead of offering the form."""
+    allowed = local_ai.allowed()
+    current = local_ai.for_student(sid) if allowed else None
+    return {
+        "allowed": allowed,
+        "explainer": "" if allowed else local_ai.EXPLAINER,
+        "config": current.as_dict() if current else None,
+        "using_local": local_ai.using_local(sid),
+        "providers": [{"id": k, "name": v} for k, v in LOCAL_AI_PROVIDERS.items()],
+        "defaults": LOCAL_AI_DEFAULT_URLS,
+    }
+
+
+def _local_ai_call[T](work: Callable[[], T]) -> T:
+    """Run a local-ai action: 403 when the server does not allow it, 400 for a bad address or a
+    model that did not answer (its message is safe to show)."""
+    try:
+        return work()
+    except local_ai.LocalAIDisabled as e:
+        raise HTTPException(403, str(e)) from e
+    except local_ai.LocalAIError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.get("/local-ai")
+def get_local_ai(sid: str = Depends(require_student)) -> dict:
+    return _local_ai_payload(sid)
+
+
+@router.post("/local-ai")
+def save_local_ai(body: LocalAIConfig, sid: str = Depends(require_student)) -> dict:
+    _local_ai_call(
+        lambda: local_ai.save(
+            sid,
+            provider=body.provider,
+            base_url=body.base_url,
+            model=body.model,
+            preferred=body.preferred,
+        )
+    )
+    return _local_ai_payload(sid)
+
+
+@router.post("/local-ai/test", dependencies=[Depends(throttle)])
+def test_local_ai(body: LocalAITest, sid: str = Depends(require_student)) -> dict:
+    """List the models the student's local server offers (Test connection)."""
+    models = _local_ai_call(lambda: local_ai.list_models(body.provider, body.base_url))
+    base = _local_ai_call(lambda: local_ai.normalize_url(body.provider, body.base_url))
+    return {"models": models, "base_url": base}
+
+
+@router.post("/local-ai/delete")
+def delete_local_ai(sid: str = Depends(require_student)) -> dict:
+    _local_ai_call(lambda: local_ai.remove(sid))
+    return _local_ai_payload(sid)

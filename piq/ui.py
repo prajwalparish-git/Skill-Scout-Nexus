@@ -4,6 +4,7 @@ cards, chips, badges)."""
 
 import json
 import re
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
@@ -11,11 +12,14 @@ from functools import lru_cache
 import streamlit as st
 from streamlit.delta_generator import DeltaGenerator
 
+from core import drive, local_ai
 from piq import accounts, devices, formatter, journey, orgs, prefs, services
 from piq.config import (
     CODE_AFTER_FAILURES,
     DEVICE_COOKIE,
     DEVICE_COOKIE_TTL_S,
+    LOCAL_AI_DEFAULT_URLS,
+    LOCAL_AI_PROVIDERS,
     SESSION_COOKIE,
     SESSION_TTL_S,
     STATIC_DIR,
@@ -47,7 +51,10 @@ PER_STUDENT_KEYS = (
     "voice_result",
     "voice_text",
     "voice_audio",  # the recorded answer (st.audio_input)
-    "proctor_state",  # core.proctor_guard.STATE_KEY: the open assessment's strikes
+    "proctor_state",  # core.proctor_guard.STATE_KEY: the open tests' proctored attempts
+    "quiz_proctor_flags",
+    "cq_proctor_flags",
+    "voice_proctor_flags",
 )
 # Kept for the same student after a re-profile (a new resume does not change their GitHub
 # analysis or resume-builder picks), but never carried over to another account.
@@ -305,6 +312,8 @@ def _settings(student: dict) -> None:
         wanted = {"preload": preload if allowed else current["preload"], "login_alerts": alerts}
         if wanted != current:
             prefs.update(sid, wanted)
+        _local_model(sid)
+        _drive(sid)
         st.markdown("**Signed-in devices**")
         here = st.session_state.get(TOKEN)
         rows = accounts.sessions(sid, here)
@@ -323,6 +332,144 @@ def _settings(student: dict) -> None:
             "Sign out all other devices", icon=":material/devices:", key="revoke_others"
         ):
             accounts.end_other_sessions(sid, here or "", current_device())
+            st.rerun()
+
+
+DRIVE_LINK = "drive_connect_link"  # (sign-in address, when made): one per 9 minutes
+
+
+def _drive(sid: str) -> None:
+    """Google Drive: connect, open the folder, back up certificates, disconnect. Nothing at all
+    unless the server has the Google keys (core/drive.py)."""
+    if not drive.enabled():
+        return
+    st.markdown("**Google Drive**")
+    status = drive.status(sid)
+    if not status["connected"]:
+        st.caption(
+            "Keep copies of your certificates and resumes in your own Google Drive. The app "
+            "sees only the files it puts there, nothing else in your Drive."
+        )
+        link, made = st.session_state.get(DRIVE_LINK) or ("", 0.0)
+        if not link or time.time() - made > drive.STATE_TTL_S - 60:
+            try:
+                link = drive.start(sid, "streamlit")
+            except drive.DriveError as e:
+                st.error(formatter.md_escape(str(e)), icon=":material/error:")
+                return
+            st.session_state[DRIVE_LINK] = (link, time.time())
+        st.link_button("Connect Google Drive", link, icon=":material/add_to_drive:")
+        return
+    st.session_state.pop(DRIVE_LINK, None)
+    st.markdown(
+        f":green-badge[:material/check: Connected] [Open the folder]({status['folder_link']})"
+    )
+    with st.container(horizontal=True):
+        if st.button("Back up certificates", icon=":material/backup:", key="drive_backup"):
+            try:
+                n = services.backup_certificates(sid)
+            except drive.DriveError as e:
+                st.error(formatter.md_escape(str(e)), icon=":material/error:")
+            else:
+                st.toast(
+                    f"{n} certificate{'s' if n != 1 else ''} copied to Drive."
+                    if n
+                    else "Every certificate is already in Drive.",
+                    icon=":material/check_circle:",
+                )
+        if st.button("Disconnect", key="drive_disconnect"):
+            drive.disconnect(sid)
+            st.toast("Google Drive disconnected. Files already there stay in your Drive.")
+            st.rerun()
+
+
+def finish_drive_sign_in(student: dict | None) -> None:
+    """Back from Google's consent page (?state=&code= or ?error=): finish connecting Drive for
+    the signed-in student, then clear the address bar."""
+    q = st.query_params
+    if not drive.enabled() or ("state" not in q and "error" not in q):
+        return
+    state, code, error = q.get("state", ""), q.get("code", ""), q.get("error", "")
+    q.clear()
+    if student is None:
+        st.toast("Sign in, then connect Google Drive again.", icon=":material/info:")
+    elif error or not state:
+        st.toast("Google Drive was not connected.", icon=":material/info:")
+    else:
+        try:
+            drive.finish(state, code, signed_in=student["id"], ui="streamlit")
+        except drive.DriveError as e:
+            st.toast(str(e), icon=":material/error:")
+        else:
+            st.toast("Google Drive connected.", icon=":material/check_circle:")
+
+
+def _local_model(sid: str) -> None:
+    """My local model: Ollama or LM Studio on this computer, for when the cloud AI fails (or
+    first, when preferred). Only where the server allows it (core/local_ai.py)."""
+    st.markdown("**My local model**")
+    if not local_ai.allowed():
+        st.caption(local_ai.EXPLAINER)
+        return
+    current = local_ai.for_student(sid)
+    providers = list(LOCAL_AI_PROVIDERS)
+    provider = st.radio(
+        "Runs in",
+        providers,
+        format_func=LOCAL_AI_PROVIDERS.__getitem__,
+        index=providers.index(current.provider) if current else 0,
+        horizontal=True,
+        key="lai_provider",
+    )
+    mine = current if current and current.provider == provider else None
+    url = st.text_input(
+        "Address",
+        value=mine.base_url if mine else LOCAL_AI_DEFAULT_URLS[provider],
+        help="Only a model on this computer: localhost, 127.0.0.1 or [::1].",
+        key=f"lai_url_{provider}",
+    )
+    found_key = f"lai_models_{provider}"
+    if st.button("Test connection", icon=":material/lan:", key="lai_test"):
+        try:
+            st.session_state[found_key] = local_ai.list_models(provider, url)
+        except local_ai.LocalAIError as e:
+            st.session_state.pop(found_key, None)
+            st.error(formatter.md_escape(str(e)), icon=":material/error:")
+    found = st.session_state.get(found_key)
+    if found is not None:
+        st.caption(
+            f"Connected: {len(found)} model{'s' if len(found) != 1 else ''} found."
+            if found
+            else "Connected, but no models are installed yet."
+        )
+    options = sorted(set(found or []) | ({mine.model} if mine else set()))
+    model = st.selectbox(
+        "Model",
+        options,
+        index=options.index(mine.model) if mine and mine.model in options else None,
+        placeholder="Test the connection to list your models",
+        disabled=not options,
+        key=f"lai_model_{provider}",
+    )
+    preferred = st.toggle(
+        "Use it first, before the cloud AI",
+        value=bool(current and current.preferred),
+        help="Off: it is used only when the cloud AI fails or there is no network.",
+        key="lai_preferred",
+    )
+    with st.container(horizontal=True):
+        if st.button("Save", type="primary", disabled=not model, key="lai_save"):
+            try:
+                local_ai.save(
+                    sid, provider=provider, base_url=url, model=model, preferred=preferred
+                )
+            except local_ai.LocalAIError as e:
+                st.error(formatter.md_escape(str(e)), icon=":material/error:")
+            else:
+                st.toast("Your local model is saved.", icon=":material/check_circle:")
+                st.rerun()
+        if current and st.button("Remove", key="lai_remove"):
+            local_ai.remove(sid)
             st.rerun()
 
 
@@ -425,10 +572,20 @@ def sidebar_context(mock_mode: bool, ai: str = "", engine: str = "") -> None:
     answers (mock mode, the AI provider in use, or the offline rules) and, last, the
     engine line: AI, records and preloader (journey.engine_status)."""
     with st.sidebar:
-        if student := current_student():
+        student = current_student()
+        if student:
             score = student["readiness_score"] or 0
             st.progress(score / 100, text=f"Readiness {score}/100")
-        if mock_mode:
+        local_model = local_ai.using_local(student["id"]) if student else None
+        if local_model:
+            st.badge(
+                f"Using your local model ({local_model})",
+                icon=":material/computer:",
+                color="green",
+                help="Your latest AI answer came from the model on this computer (Settings > "
+                "My local model).",
+            )
+        elif mock_mode:
             st.badge(
                 "Mock mode",
                 icon=":material/science:",

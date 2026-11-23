@@ -117,6 +117,46 @@ def _sign_up_tab() -> None:
         )
 
 
+def _contributor_tab() -> None:
+    """A contributor account for placed students, alumni and professionals: name, email,
+    company joined and batch year; no target role, resume or readiness score."""
+    st.caption(
+        "Placed, an alumnus or working? Contribute questions for the next batch. Only your name, "
+        "email, the company you joined and your batch year; you are anonymous unless you choose "
+        "a display name."
+    )
+    with st.form("auth_contributor", border=False):
+        name = st.text_input("Your name", autocomplete="name", key="auth_cs_name")
+        left, right = st.columns(2)
+        username = left.text_input(
+            "Username", help="3-20 lower-case letters or digits.", key="auth_cs_user"
+        )
+        email = right.text_input("Email", autocomplete="email", key="auth_cs_email")
+        left, right = st.columns(2)
+        company = left.text_input("Company you joined", key="auth_cs_company")
+        batch = right.text_input("Batch year", placeholder="e.g. 2024", key="auth_cs_batch")
+        left, right = st.columns(2)
+        password = left.text_input(
+            "Password", type="password", autocomplete="new-password", key="auth_cs_pw"
+        )
+        confirm = right.text_input(
+            "Repeat it", type="password", autocomplete="new-password", key="auth_cs_pw2"
+        )
+        consent = st.checkbox(CONSENT_TEXT, value=False, key="auth_cs_consent")
+        go = st.form_submit_button(
+            "Create contributor account", type="primary", icon=":material/volunteer_activism:"
+        )
+    if go and not consent:
+        st.error("Tick the consent box to create an account.", icon=":material/error:")
+        return
+    if go:
+        _start_code_step(
+            lambda: accounts.sign_up_contributor(
+                name, username, email, password, confirm, company, batch, device=current_device()
+            )
+        )
+
+
 def _recover_tab() -> None:
     with st.form("auth_recover", border=False):
         who = st.text_input("Your account's email or username", key="auth_rec_who")
@@ -375,13 +415,17 @@ def _signed_out() -> None:
                 ]
             )
             with students:
-                signin, signup, recover = st.tabs(["Sign in", "Create account", "Recover account"])
+                signin, signup, recover, contributor = st.tabs(
+                    ["Sign in", "Create account", "Recover account", "Contributor sign-up"]
+                )
                 with signin:
                     _sign_in_tab()
                 with signup:
                     _sign_up_tab()
                 with recover:
                     _recover_tab()
+                with contributor:
+                    _contributor_tab()
             with admins:
                 admin_in, create, recover_admin = st.tabs(
                     ["Admin sign in", "Create organization", "Recover admin account"]

@@ -179,6 +179,7 @@ GEMINI_API_KEYS=AIza_your_key         # optional second provider, also comma-sep
 | `LOCAL_STT_MODEL` | Transcribes spoken answers on this machine with no internet (see [Working offline](#working-offline)) | Groq or Gemini transcribe them online; otherwise the student types |
 | `SUPABASE_DB_URL` | A cloud copy of all records (organizations, students and their results), kept in step in the background | Records stay on this machine |
 | `SMTP_EMAIL`, `SMTP_APP_PASSWORD` | Emails the 9-digit codes and an organization's welcome emails (Gmail with an App Password) | Codes and credentials go to `data/.mail_outbox.log` on this machine |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `DRIVE_TOKEN_KEY` | Students connect their own Google Drive: certificates and resumes are saved in a "Skill Scout Nexus" folder (only files the app created are visible to it). Set all three; see `.env.example` | Hidden: certificates stay on this machine only |
 
 The model names in `.env.example` are current (model IDs live only in `.env`, never in code);
 every option is explained in that file. Never commit `.env`.
@@ -343,6 +344,34 @@ Conventions: views call `piq` (never `agents`, `core` or `database` directly), a
 validated Pydantic model, and a new dependency needs a pinned version and a one-line reason in
 `requirements.txt`. Commits follow Conventional Commits (`feat(scope): ...`, `fix(scope): ...`).
 
+## Proctoring
+
+Quizzes and mock interviews can be proctored, in the web app and in the Streamlit app. An
+organization chooses in its admin portal (Settings > Proctoring): **off** (students may proctor a
+practice test themselves), **required**, or **required in Safe Exam Browser**.
+
+- **What a web page can do:** detect, not prevent. Switching tab or window, leaving fullscreen,
+  copying and pasting are noticed; copy, paste and the context menu are blocked during the test.
+- **Camera checks (web app):** Google MediaPipe runs in the student's browser; no video, image or
+  sound ever leaves the device. The model files are self-hosted (`frontend/scripts/fetch-mediapipe.mjs`
+  downloads them, SHA-256 checked, on `npm install` / `npm run build`). If they cannot be fetched,
+  the install and build still succeed and the camera checks are switched off with a note.
+- **Fair by design:** only clear-cut events are strikes: switching tab or window, leaving
+  fullscreen, a second face, a phone. Three strikes submit the test with what was answered. No
+  face, looking away, out of frame and low light are only noted *for review* and never strike or
+  fail anyone, since they misfire with glasses, disabilities, poor cameras and people who look
+  away to think. No camera (or a denied one) never blocks a test; the attempt is marked for review.
+- **What is stored:** events and times only (e.g. "looked away 14s at 03:42"), in
+  `proctor_attempts` / `proctor_events`, deleted with the account. The student sees their own
+  record (web: Settings; Streamlit: Dashboard), the organization's admin the same record per
+  student.
+- **Safe Exam Browser (official tests):** SEB locks the computer for the test. Make a `.seb`
+  file in SEB Config Tool whose start URL is your site's `/quiz` or `/interview` page, copy its
+  **Config Key** into the admin portal, and give students the file. Every proctoring request must
+  carry SEB's `X-SafeExamBrowser-ConfigKeyHash`, checked against `APP_URL` + the requested path,
+  so `APP_URL` must be the public address students open (the Next.js proxy forwards the header).
+  SEB mode applies to the web app; the Streamlit app points students there.
+
 ## Privacy and legal
 
 Skill Scout Nexus is a free, non-commercial, open-source academic college mini-project, provided
@@ -364,6 +393,7 @@ Only original project artwork, open-licensed fonts and icons, and open-source li
 | GitHub mark | Used only to link to the repository, per GitHub's logo guidelines |
 | Next.js, React, Motion, Lenis, Tailwind CSS, clsx, tailwind-merge | MIT |
 | Streamlit, Groq SDK | Apache-2.0 |
+| MediaPipe Tasks Vision and its face landmarker and EfficientDet-Lite0 models (fetched, not committed) | Apache-2.0 |
 | FastAPI, LangGraph, Pydantic, SQLAlchemy, python-docx | MIT |
 | pandas, Altair, pypdf, python-dotenv, httpx, Uvicorn | BSD-3-Clause |
 | fpdf2 | LGPL-3.0-or-later (used as an unmodified library) |

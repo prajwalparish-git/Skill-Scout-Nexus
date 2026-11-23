@@ -1,0 +1,171 @@
+{
+  "_comment": "Where every question in the bank comes from (piq/open_questions.py). scripts/import_open_questions.py downloads each open source at the pinned commit, refuses a file or licence whose sha256 differs, and fills in `imported` and `rejected`. LICENSES.md holds each licence word for word.",
+  "sources": {
+    "own": {
+      "name": "Skill Scout Nexus question bank",
+      "short": "Skill Scout Nexus",
+      "homepage": "",
+      "licence_id": "own",
+      "attribution": "Written for this project (data/questions/mcq_bank.csv and our model answers).",
+      "modifications": []
+    },
+    "aqua_rat": {
+      "name": "AQuA-RAT",
+      "short": "AQuA-RAT",
+      "homepage": "https://github.com/google-deepmind/AQuA",
+      "commit": "26b64ed1f22208c6742f47df547dfd65088ec30d",
+      "licence_id": "Apache-2.0",
+      "licence_file": {
+        "url": "https://raw.githubusercontent.com/google-deepmind/AQuA/26b64ed1f22208c6742f47df547dfd65088ec30d/LICENSE",
+        "sha256": "189bff4f09eccdbc1790f7a9085ddd031ddf050f27929608fa4ba8a57e14a7c3"
+      },
+      "files": {
+        "train.json": {
+          "url": "https://raw.githubusercontent.com/google-deepmind/AQuA/26b64ed1f22208c6742f47df547dfd65088ec30d/train.json",
+          "sha256": "35b70c7cb1660c34d302bb932dfd3656ce3d05e8c982c797767fec31d7d1e0ba"
+        }
+      },
+      "attribution": "AQuA-RAT, Copyright 2017 Google Inc., from Ling, Yogatama, Dyer and Blunsom (2017), 'Program Induction by Rationale Generation', ACL. Licensed under the Apache License, Version 2.0.",
+      "modifications": [
+        "five options cut to four (one wrong option dropped)",
+        "options reordered",
+        "the rationale's answer letter replaced by the answer's value",
+        "$ amounts shown as ₹ (dollars as rupees, cents as paise)",
+        "aptitude subtopic and difficulty added"
+      ],
+      "imported": {
+        "seed": 2496,
+        "accepted": 36731,
+        "by_topic": {
+          "Aptitude_Ages": 192,
+          "Aptitude_Averages": 192,
+          "Aptitude_Interest": 192,
+          "Aptitude_Mensuration": 192,
+          "Aptitude_Mixtures": 192,
+          "Aptitude_Number_Series": 192,
+          "Aptitude_Number_System": 192,
+          "Aptitude_Percentages": 192,
+          "Aptitude_Permutation_Probability": 192,
+          "Aptitude_Profit_Loss": 192,
+          "Aptitude_Ratio_Proportion": 192,
+          "Aptitude_Speed_Distance": 192,
+          "Aptitude_Time_Work": 192
+        },
+        "by_difficulty": {
+          "easy": 832,
+          "hard": 832,
+          "medium": 832
+        }
+      },
+      "rejected": {
+        "no aptitude subtopic matched": 14873,
+        "duplicate of a question already in the bank": 10260,
+        "an option refers to other options (none of these, both A and B)": 9147,
+        "the rationale's conclusion also names another option's value": 8982,
+        "the rationale does not end on the correct option's value": 6712,
+        "the rationale still refers to option letters": 3015,
+        "garbled text (broken encoding or fractions that lost their slash)": 2464,
+        "the correct option has no number to check against the rationale": 2121,
+        "options repeat": 1799,
+        "rationale too short or too long": 902,
+        "question too short or too long": 372,
+        "the rationale names a different answer letter": 82,
+        "an option is empty or too long": 7
+      }
+    },
+    "mmlu": {
+      "name": "MMLU (Measuring Massive Multitask Language Understanding)",
+      "short": "MMLU",
+      "homepage": "https://github.com/hendrycks/test",
+      "commit": "4450500f923c49f1fb1dd3d99108a0bd9717b660",
+      "licence_id": "MIT",
+      "licence_file": {
+        "url": "https://raw.githubusercontent.com/hendrycks/test/4450500f923c49f1fb1dd3d99108a0bd9717b660/LICENSE",
+        "sha256": "5d841b9eee8bf0d721359b79fbae956a8b426d3139bfefee32149c7d4f2a1a9c"
+      },
+      "files": {
+        "data.tar": {
+          "url": "https://people.eecs.berkeley.edu/~hendrycks/data.tar",
+          "sha256": "bec563ba4bac1d6aaf04141cd7d1605d7a5ca833e38f994051e818489592989b"
+        }
+      },
+      "attribution": "MMLU, Copyright (c) 2020 Dan Hendrycks, from Hendrycks et al. (2021), 'Measuring Massive Multitask Language Understanding', ICLR. MIT License. Only computer science, machine learning, mathematics and formal logic subjects are used.",
+      "modifications": [
+        "options reordered",
+        "syllabus topic and difficulty added"
+      ],
+      "imported": {
+        "seed": 1050,
+        "accepted": 1050,
+        "by_topic": {
+          "MMLU_CS_Algorithms": 70,
+          "MMLU_CS_Databases": 1,
+          "MMLU_CS_Networks": 24,
+          "MMLU_CS_OOP": 10,
+          "MMLU_CS_Operating_Systems": 20,
+          "MMLU_Elementary_Mathematics": 408,
+          "MMLU_Formal_Logic": 128,
+          "MMLU_High_School_Mathematics": 287,
+          "MMLU_Machine_Learning": 102
+        },
+        "by_difficulty": {
+          "easy": 408,
+          "hard": 309,
+          "medium": 333
+        }
+      },
+      "rejected": {
+        "no syllabus topic matched": 183,
+        "an option refers to other options (none of these, both A and B)": 48,
+        "duplicate of a question already in the bank": 14,
+        "refers to a figure": 5,
+        "question too short or too long": 5,
+        "an option is empty, too long or repeated": 4,
+        "garbled text (broken encoding)": 3
+      }
+    },
+    "tih": {
+      "name": "Tech Interview Handbook",
+      "short": "Tech Interview Handbook",
+      "homepage": "https://github.com/yangshun/tech-interview-handbook",
+      "commit": "e1d28e8886c0b6ff3e50da991ce0e895134ddc59",
+      "licence_id": "MIT",
+      "licence_file": {
+        "url": "https://raw.githubusercontent.com/yangshun/tech-interview-handbook/e1d28e8886c0b6ff3e50da991ce0e895134ddc59/LICENSE",
+        "sha256": "32fa4846f7ff3795bc51bfeb7d2a902d69a3e06f74ad472702bcff587009bc2e"
+      },
+      "files": {
+        "behavioral-interview-questions.md": {
+          "url": "https://raw.githubusercontent.com/yangshun/tech-interview-handbook/e1d28e8886c0b6ff3e50da991ce0e895134ddc59/apps/website/contents/behavioral-interview-questions.md",
+          "sha256": "b54936ce723988a9c01aaa477bbd2dcddf68114e1b62d69c54dd5f9ae32ac96a"
+        }
+      },
+      "attribution": "Tech Interview Handbook, Copyright (c) 2017-Present Yangshun Tay. MIT License. Only the generic list of common behavioural questions is used, word for word; its per-company lists cite Glassdoor and are not used. The model answers are our own.",
+      "modifications": []
+    },
+    "contrib": {
+      "name": "Community contributions",
+      "short": "Community",
+      "homepage": "",
+      "licence_id": "CC-BY-4.0",
+      "attribution": "Questions contributed by placed students, alumni and professionals, each published by its author under CC BY 4.0 and credited by the display name they chose, or as an anonymous contributor.",
+      "modifications": []
+    }
+  },
+  "licences": {
+    "Apache-2.0": {
+      "name": "Apache License, Version 2.0",
+      "url": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+      "full_text_file": "apache-2.0.txt",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    "MIT": {
+      "name": "MIT License",
+      "url": "https://opensource.org/license/mit"
+    },
+    "CC-BY-4.0": {
+      "name": "Creative Commons Attribution 4.0 International",
+      "url": "https://creativecommons.org/licenses/by/4.0/legalcode"
+    }
+  }
+}

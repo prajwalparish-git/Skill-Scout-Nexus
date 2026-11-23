@@ -9,11 +9,14 @@ from functools import partial
 
 import streamlit as st
 
+from core import drive
 from core import github_readme as gh
-from piq import charts, formatter, resume_builder, services, ui
+from piq import charts, formatter, resume_builder, resume_templates, services, ui
 from piq.config import EXPERIENCE_TYPES, RESUME_MAX_EDUCATION, RESUME_MAX_EXPERIENCE
 
 BUILT = "built_resume"  # (domain id, resume dict, ATS result) of the last Generate
+TAILORED = "rb_tailored"  # an accepted tailoring: services.Tailoring, applied at each build
+TAILOR_DRAFT = "rb_tailor_draft"  # a tailoring waiting for the student to accept or discard
 SAVED = "resume_saved"  # the version number just saved, shown once
 PICK = "rb_pick"  # (domain id, role) chosen in "Find roles for your degree"
 _GH_INTEL = "gh_intel"  # shared with projects.py: the last GitHubIntelligence result
@@ -51,6 +54,58 @@ def _use_role(domain_id: str, role: str) -> None:
     st.session_state[PICK] = (domain_id, role)
     st.session_state.pop(f"rb_domain_{key}", None)
     st.session_state.pop(f"rb_role_{key}_{domain_id}", None)
+
+
+def _tailor_panel(sid: str, res: dict, role: str) -> None:
+    """Tailor to a job description: the changes are shown first and applied only on Accept."""
+    with st.expander("Tailor to a job description", icon=":material/target:"):
+        st.caption(
+            "Paste the job's description. Your summary is rewritten and your bullets reordered "
+            "and reworded to fit it, never adding experience, skills or numbers you did not "
+            "write. Nothing changes until you accept, and the description is not saved."
+        )
+        jd = st.text_area(
+            "Job description", height=160, max_chars=services.JD_MAX_CHARS, key=f"rb_jd_{sid}"
+        )
+        if st.button(
+            "Tailor my resume",
+            icon=":material/auto_fix_high:",
+            disabled=len(jd.strip()) < services.JD_MIN_CHARS,
+            help=f"At least {services.JD_MIN_CHARS} characters.",
+        ):
+            draft = ui.run_agent(
+                "Tailor agent", lambda ev: services.tailor_resume(sid, res, jd, ev)
+            )
+            if draft:
+                st.session_state[TAILOR_DRAFT] = draft
+        draft = st.session_state.get(TAILOR_DRAFT)
+        if not draft:
+            return
+        st.markdown("**What would change**")
+        for c in draft.changes or ["Nothing: your resume already fits this job's order."]:
+            st.markdown(f"- {formatter.md_escape(c)}")
+        if draft.matched_keywords:
+            st.markdown("**The job asks for, and your resume shows**")
+            st.markdown(formatter.skill_chips(draft.matched_keywords, present=True))
+        if draft.missing_keywords:
+            st.markdown(
+                "**The job asks for, and your resume does not show** "
+                "(add only what you can back up)"
+            )
+            st.markdown(formatter.skill_chips(draft.missing_keywords, present=False))
+        with st.container(border=True, height=320):
+            st.markdown(resume_templates.preview_md(draft.resume, res.get("template")))
+        accept_col, discard_col = st.columns(2, gap="small")
+        if accept_col.button("Accept the tailoring", type="primary", icon=":material/check:"):
+            st.session_state[TAILORED] = draft
+            st.session_state.pop(TAILOR_DRAFT)
+            tailored = {**draft.resume, "template": res.get("template")}
+            ats = resume_builder.evaluate_ats_compatibility(tailored, role)
+            st.session_state[BUILT] = (domain.id, tailored, ats)
+            st.rerun()
+        if discard_col.button("Discard", icon=":material/close:"):
+            st.session_state.pop(TAILOR_DRAFT)
+            st.rerun()
 
 
 # --- find roles for a degree ----------------------------------------------------------------
@@ -239,7 +294,7 @@ with st.expander("Import project from GitHub URL", icon=":material/hub:", expand
             else:
                 role_kws = role_info.get("ats_keywords", [])
                 with st.spinner("Extracting project intelligence …"):
-                    intel = gh.extract_github_intelligence(readme, role_kws)
+                    intel = gh.extract_github_intelligence(readme, role_kws, student_id=sid)
                 if intel.is_empty:
                     st.warning(
                         "README fetched but the AI could not parse structured information. "
@@ -282,6 +337,26 @@ options = list(
     dict.fromkeys([*role_info.get("ats_keywords", []), *previous_skills, *gh_tech_skills])
 )
 space_projects = services.resume_projects(sid) if domain.code_space else []
+uploaded_certs = services.resume_certificates(sid)
+
+# The layout: outside the form, so the fields a template uses appear at once.
+template_ids = list(resume_templates.TEMPLATES)
+template_default = form.get("template") or resume_templates.default_for(domain.id)
+template_id = st.radio(
+    "Resume template",
+    template_ids,
+    index=template_ids.index(template_default) if template_default in template_ids else 0,
+    format_func=lambda t: resume_templates.TEMPLATES[t].name,
+    horizontal=True,
+    key=f"rb_template_{key}",
+    help="Layouts by the kind of employer, not any company's official format (companies do "
+    "not publish one). Every layout is ATS-safe: one column of real text, standard headings, "
+    "no photo. The ATS score is the same in each: only the order and headings change.",
+)
+template = resume_templates.get(template_id)
+st.caption(
+    f":material/info: {template.best_for}" + (" Aims at one page." if template.one_page else "")
+)
 
 # How many entries the form shows: outside the form, so a change redraws it at once.
 n1, n2 = st.columns(2, gap="medium")
@@ -327,6 +402,20 @@ with st.form(f"builder_{key}", border=False):
             if domain.code_space
             else ""
         )
+    leetcode, codeforces, portfolio = (
+        form.get("leetcode_url", ""),
+        form.get("codeforces_url", ""),
+        form.get("portfolio_url", ""),
+    )
+    if "links" in template.fields:
+        l1, l2, l3 = st.columns(3, gap="small")
+        leetcode = l1.text_input(
+            "LeetCode / HackerRank", value=leetcode, placeholder="leetcode.com/u/..."
+        )
+        codeforces = l2.text_input(
+            "Codeforces / CodeChef", value=codeforces, placeholder="codeforces.com/profile/..."
+        )
+        portfolio = l3.text_input("Portfolio", value=portfolio, placeholder="yourname.dev")
 
     st.subheader("2. Education", anchor=False)
     st.caption(
@@ -500,9 +589,59 @@ with st.form(f"builder_{key}", border=False):
     )
 
     st.subheader("6. Certifications", anchor=False)
+    chosen_certs: list[str] = []
+    if uploaded_certs:
+        lines = [u["line"] for u in uploaded_certs]
+        chosen_certs = st.multiselect(
+            "From your uploaded certificates",
+            lines,
+            default=lines,
+            help="The certificate PDFs on your dashboard; untick any to leave off this resume.",
+        )
     certs_raw = st.text_area(
-        "Certifications you hold (one per line)", value=form.get("certifications", ""), height=80
+        "Other certifications (one per line)", value=form.get("certifications", ""), height=80
     )
+
+    achievements_raw, exams_raw = form.get("achievements", ""), form.get("exam_scores", "")
+    personal = {k: form.get(k, "") for k in resume_builder.SAVED_PERSONAL}
+    declaration_place = form.get("declaration_place", "")
+    shown = template.fields - {"links"}
+    if shown:
+        st.subheader(f"7. For the {template.name} layout", anchor=False)
+    if "achievements" in shown:
+        achievements_raw = st.text_area(
+            "Achievements (one per line)",
+            value=achievements_raw,
+            placeholder="Ranked in the top 5% of a national coding contest\n"
+            "Led the college robotics team",
+            height=80,
+        )
+    if "exam_scores" in shown:
+        exams_raw = st.text_area(
+            "Examination scores (one per line)",
+            value=exams_raw,
+            placeholder="GATE 2026 (Mechanical): 612, AIR 1450",
+            height=70,
+        )
+    if shown & {"personal", "personal_basic"}:
+        p1, p2 = st.columns(2, gap="medium")
+        personal["nationality"] = p1.text_input("Nationality", value=personal["nationality"])
+        personal["languages"] = p2.text_input(
+            "Languages known", value=personal["languages"], placeholder="English, Hindi, Kannada"
+        )
+    if "personal" in shown:
+        p3, p4 = st.columns(2, gap="medium")
+        # Never saved: typed fresh for each PDF, kept only while this page is open.
+        personal["date_of_birth"] = p3.text_input("Date of birth", placeholder="DD Mon YYYY")
+        personal["address"] = p4.text_input("Address", placeholder="House, street, city, PIN")
+        st.caption(
+            ":material/lock: Date of birth and address go into this PDF only. They are never "
+            "saved, not even in your resume versions."
+        )
+    if "declaration" in shown:
+        declaration_place = st.text_input(
+            "Place for the declaration", value=declaration_place, placeholder="City"
+        )
     submitted = st.form_submit_button(
         "Build resume", type="primary", icon=":material/auto_awesome:"
     )
@@ -521,13 +660,34 @@ if submitted:
         custom_project_tech=proj_tech,
         custom_project_desc=proj_desc,
         github_url=github,
-        certifications=[c for c in certs_raw.splitlines() if c.strip()],
+        certifications=resume_builder.merge_certifications(
+            [c for c in certs_raw.splitlines() if c.strip()],
+            [u for u in uploaded_certs if u["line"] in chosen_certs],
+        ),
         extra_projects=[p for p in space_projects if p["title"] in chosen_space],
         education=education,
         experience=experience,
         today=formatter.local_today(),
+        template=template_id,
+        leetcode_url=leetcode,
+        codeforces_url=codeforces,
+        portfolio_url=portfolio,
+        achievements=[a for a in achievements_raw.splitlines() if a.strip()],
+        exam_scores=[s for s in exams_raw.splitlines() if s.strip()],
+        personal=personal,
+        declaration_place=declaration_place,
     )
     res["form"]["extra_skills"] = extra_raw
+    res["form"]["certifications"] = certs_raw  # the typed ones; uploaded ones come fresh
+    if tailored := st.session_state.get(TAILORED):  # keep an accepted tailoring while it fits
+        fitted = resume_builder.apply_tailoring(
+            res, tailored.summary, tailored.bullets, tailored.original
+        )
+        if fitted is None:
+            st.session_state.pop(TAILORED)
+            st.toast("Your bullets changed, so the tailoring was removed.", icon=":material/undo:")
+        else:
+            res = fitted
     st.session_state[BUILT] = (domain.id, res, resume_builder.evaluate_ats_compatibility(res, role))
     st.rerun()
 
@@ -561,18 +721,48 @@ if built and built[0] == domain.id and built[1]["target_role"] == role:
         diff = resume_builder.diff_resumes(latest.resume, res, latest.ats_score, ats.score)
         st.markdown(formatter.diff_md(diff, latest.n))
 
+    # The template picked now (changing it needs no rebuild).
+    res = {**res, "template": template_id, "form": {**res.get("form", {}), "template": template_id}}
+    _, pages = resume_templates.render_pdf(res)
+    _, _, sections = resume_templates.plan(res)
+    if note := resume_templates.one_page_note(template_id, pages, sections):
+        st.warning(note, icon=":material/description:")
+    if st.session_state.get(TAILORED):
+        st.info(
+            "Tailored to a job description: the summary and bullet order below are the "
+            "tailored ones.",
+            icon=":material/target:",
+        )
     pdf_name = formatter.resume_filename(res["full_name"], role)
     with st.container(horizontal=True, vertical_alignment="center"):
         st.download_button(
-            "Download PDF",
+            f"Download PDF ({template.name})",
             data=partial(resume_builder.generate_ats_pdf, res),  # built only when clicked
             file_name=pdf_name,
             mime="application/pdf",
             icon=":material/download:",
             on_click="ignore",
         )
+        to_drive = drive.connected(sid) and st.button(
+            "Save to Drive", icon=":material/add_to_drive:", key="resume_to_drive"
+        )
         label_save = f"Save as version {len(versions) + 1}" if sid else "Save and start coaching"
         save = st.button(label_save, type="primary", icon=":material/save:")
+        if st.session_state.get(TAILORED) and st.button("Undo tailoring", icon=":material/undo:"):
+            st.session_state.pop(TAILORED)
+            st.session_state.pop(BUILT, None)
+            st.toast("Tailoring removed: build the resume again.", icon=":material/undo:")
+            st.rerun()
+    if to_drive:
+        try:
+            saved_file = services.save_resume_to_drive(sid, res, name=pdf_name)
+        except drive.DriveError as e:
+            st.error(formatter.md_escape(str(e)), icon=":material/error:")
+        else:
+            st.success(
+                f"Saved to your Drive: [{formatter.md_escape(pdf_name)}]({saved_file['link']})",
+                icon=":material/cloud_done:",
+            )
     if save:
         saved = ui.run_agent(
             "Profile agent", lambda ev: services.save_resume(sid, domain.id, res, ev)
@@ -580,22 +770,30 @@ if built and built[0] == domain.id and built[1]["target_role"] == role:
         if saved:
             st.session_state.pop(BUILT, None)
             st.session_state.pop(PICK, None)
+            st.session_state.pop(TAILORED, None)
             ui.set_student(saved[0], keep_runs=("Profile agent",), fresh=True)
             st.session_state[SAVED] = saved[1]  # after set_student, which clears old state
             st.rerun()
 
+    if sid:
+        _tailor_panel(sid, res, role)
+
     with st.expander("Preview", expanded=True, icon=":material/visibility:"):
-        preview_tab, standard_tab = st.tabs(
-            [":material/auto_awesome: ATS-Optimised Preview", ":material/description: Standard"]
+        layout_tab, keywords_tab = st.tabs(
+            [
+                f":material/description: {template.name} ({pages} page{'s' if pages > 1 else ''})",
+                ":material/auto_awesome: ATS keywords",
+            ]
         )
-        with preview_tab:
+        with layout_tab:
+            st.caption("As the PDF lays it out: the same sections, headings and order.")
+            st.markdown(resume_templates.preview_md(res))
+        with keywords_tab:
             st.caption(
                 "Matched ATS keywords are **bolded**. Skills are grouped into ATS categories "
                 "(Core Competencies · Frameworks · Tools · Action Verbs)."
             )
             st.markdown(formatter.ats_resume_preview_md(res, ats.matched_keywords))
-        with standard_tab:
-            st.markdown(formatter.resume_preview_md(res))
 
 # --- version history -----------------------------------------------------------------------
 if versions:

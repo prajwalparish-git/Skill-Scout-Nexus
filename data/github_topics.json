@@ -1,0 +1,408 @@
+{
+  "_comment": "Skill (data/role_skills.json) -> the GitHub topic searched for project inspiration (core/github_search.py) and the keyword used in hackathon search links; null: no project topic (aptitude and maths skills).",
+  "skills": {
+    "ADC": {
+      "topic": "embedded",
+      "keyword": "embedded adc"
+    },
+    "API Testing": {
+      "topic": "api-testing",
+      "keyword": "api testing"
+    },
+    "AWS": {
+      "topic": "aws",
+      "keyword": "aws"
+    },
+    "Algorithms": {
+      "topic": "algorithms",
+      "keyword": "algorithms"
+    },
+    "Analog Electronics": {
+      "topic": "electronics",
+      "keyword": "analog electronics"
+    },
+    "Android SDK": {
+      "topic": "android",
+      "keyword": "android app"
+    },
+    "Antenna Design": {
+      "topic": "rf",
+      "keyword": "antenna design"
+    },
+    "App Architecture": {
+      "topic": "clean-architecture",
+      "keyword": "app architecture"
+    },
+    "BLE": {
+      "topic": "bluetooth-low-energy",
+      "keyword": "bluetooth low energy"
+    },
+    "Backup and Recovery": {
+      "topic": "backup",
+      "keyword": "backup tool"
+    },
+    "C++": {
+      "topic": "cpp",
+      "keyword": "c++"
+    },
+    "CI/CD": {
+      "topic": "ci-cd",
+      "keyword": "ci cd"
+    },
+    "CMOS": {
+      "topic": "vlsi",
+      "keyword": "vlsi"
+    },
+    "CSS": {
+      "topic": "css",
+      "keyword": "css"
+    },
+    "CSS3": {
+      "topic": "css",
+      "keyword": "css"
+    },
+    "Cellular Networks": {
+      "topic": "5g",
+      "keyword": "cellular network"
+    },
+    "Cloud Computing": {
+      "topic": "cloud",
+      "keyword": "cloud"
+    },
+    "Computer Networks": {
+      "topic": "networking",
+      "keyword": "networking"
+    },
+    "Control Systems": {
+      "topic": "control-systems",
+      "keyword": "control systems"
+    },
+    "Cryptography": {
+      "topic": "cryptography",
+      "keyword": "cryptography"
+    },
+    "Data Structures": {
+      "topic": "data-structures",
+      "keyword": "data structures"
+    },
+    "Data Visualization": {
+      "topic": "data-visualization",
+      "keyword": "data visualization"
+    },
+    "Database Design": {
+      "topic": "database",
+      "keyword": "database"
+    },
+    "Deep Learning": {
+      "topic": "deep-learning",
+      "keyword": "deep learning"
+    },
+    "Device Drivers": {
+      "topic": "linux-kernel",
+      "keyword": "device driver"
+    },
+    "Digital Electronics": {
+      "topic": "digital-logic",
+      "keyword": "digital logic"
+    },
+    "Digital Signal Processing": {
+      "topic": "dsp",
+      "keyword": "signal processing"
+    },
+    "Distributed Systems": {
+      "topic": "distributed-systems",
+      "keyword": "distributed systems"
+    },
+    "Docker": {
+      "topic": "docker",
+      "keyword": "docker"
+    },
+    "ESP32": {
+      "topic": "esp32",
+      "keyword": "esp32"
+    },
+    "Embedded C": {
+      "topic": "embedded",
+      "keyword": "embedded c"
+    },
+    "Excel": {
+      "topic": "data-analysis",
+      "keyword": "data analysis"
+    },
+    "FPGA": {
+      "topic": "fpga",
+      "keyword": "fpga"
+    },
+    "Filter Design": {
+      "topic": "dsp",
+      "keyword": "filter design"
+    },
+    "Flutter": {
+      "topic": "flutter",
+      "keyword": "flutter"
+    },
+    "Fourier Transform": {
+      "topic": "dsp",
+      "keyword": "fft"
+    },
+    "Git": {
+      "topic": "git",
+      "keyword": "git"
+    },
+    "HTML": {
+      "topic": "html",
+      "keyword": "html"
+    },
+    "HTML5": {
+      "topic": "html",
+      "keyword": "html"
+    },
+    "HTTP": {
+      "topic": "http",
+      "keyword": "http"
+    },
+    "I2C": {
+      "topic": "i2c",
+      "keyword": "i2c"
+    },
+    "Incident Response": {
+      "topic": "incident-response",
+      "keyword": "incident response"
+    },
+    "Indexing": {
+      "topic": "database",
+      "keyword": "indexing"
+    },
+    "JIRA": {
+      "topic": "project-management",
+      "keyword": "project management"
+    },
+    "Java": {
+      "topic": "java",
+      "keyword": "java"
+    },
+    "JavaScript": {
+      "topic": "javascript",
+      "keyword": "javascript"
+    },
+    "Jest": {
+      "topic": "jest",
+      "keyword": "jest"
+    },
+    "Kotlin": {
+      "topic": "kotlin",
+      "keyword": "kotlin"
+    },
+    "Kubernetes": {
+      "topic": "kubernetes",
+      "keyword": "kubernetes"
+    },
+    "Linux": {
+      "topic": "linux",
+      "keyword": "linux"
+    },
+    "MATLAB": {
+      "topic": "matlab",
+      "keyword": "matlab"
+    },
+    "MQTT": {
+      "topic": "mqtt",
+      "keyword": "mqtt"
+    },
+    "Machine Learning": {
+      "topic": "machine-learning",
+      "keyword": "machine learning"
+    },
+    "Memory Management": {
+      "topic": "memory-management",
+      "keyword": "memory management"
+    },
+    "Microcontrollers": {
+      "topic": "microcontroller",
+      "keyword": "microcontroller"
+    },
+    "Microservices": {
+      "topic": "microservices",
+      "keyword": "microservices"
+    },
+    "Microwave Engineering": {
+      "topic": "rf",
+      "keyword": "rf"
+    },
+    "Modulation": {
+      "topic": "sdr",
+      "keyword": "software defined radio"
+    },
+    "Monitoring": {
+      "topic": "monitoring",
+      "keyword": "monitoring"
+    },
+    "Motor Control": {
+      "topic": "motor-control",
+      "keyword": "motor control"
+    },
+    "Network Security": {
+      "topic": "network-security",
+      "keyword": "network security"
+    },
+    "Node.js": {
+      "topic": "nodejs",
+      "keyword": "node.js"
+    },
+    "Object-Oriented Programming": {
+      "topic": "oop",
+      "keyword": "object oriented"
+    },
+    "Operating Systems": {
+      "topic": "operating-system",
+      "keyword": "operating system"
+    },
+    "PCB Design": {
+      "topic": "pcb",
+      "keyword": "pcb design"
+    },
+    "PID Control": {
+      "topic": "pid-control",
+      "keyword": "pid controller"
+    },
+    "PWM": {
+      "topic": "embedded",
+      "keyword": "pwm"
+    },
+    "Penetration Testing": {
+      "topic": "penetration-testing",
+      "keyword": "penetration testing"
+    },
+    "Power BI": {
+      "topic": "data-visualization",
+      "keyword": "dashboard"
+    },
+    "Probability": {
+      "topic": "statistics",
+      "keyword": "statistics"
+    },
+    "PyTorch": {
+      "topic": "pytorch",
+      "keyword": "pytorch"
+    },
+    "Python": {
+      "topic": "python",
+      "keyword": "python"
+    },
+    "Query Optimization": {
+      "topic": "database",
+      "keyword": "query optimization"
+    },
+    "REST APIs": {
+      "topic": "rest-api",
+      "keyword": "rest api"
+    },
+    "ROS": {
+      "topic": "ros",
+      "keyword": "ros robotics"
+    },
+    "RTOS": {
+      "topic": "rtos",
+      "keyword": "rtos"
+    },
+    "React": {
+      "topic": "react",
+      "keyword": "react"
+    },
+    "SIEM": {
+      "topic": "siem",
+      "keyword": "siem"
+    },
+    "SPI": {
+      "topic": "embedded",
+      "keyword": "spi"
+    },
+    "SQL": {
+      "topic": "sql",
+      "keyword": "sql"
+    },
+    "SQLite": {
+      "topic": "sqlite",
+      "keyword": "sqlite"
+    },
+    "Sampling": {
+      "topic": "dsp",
+      "keyword": "signal processing"
+    },
+    "Selenium": {
+      "topic": "selenium",
+      "keyword": "selenium"
+    },
+    "Sensor Interfacing": {
+      "topic": "sensors",
+      "keyword": "sensor"
+    },
+    "Sensors": {
+      "topic": "sensors",
+      "keyword": "sensor"
+    },
+    "Shell Scripting": {
+      "topic": "shell",
+      "keyword": "shell script"
+    },
+    "Signals and Systems": {
+      "topic": "dsp",
+      "keyword": "signal processing"
+    },
+    "Static Timing Analysis": {
+      "topic": "vlsi",
+      "keyword": "vlsi"
+    },
+    "Statistics": {
+      "topic": "statistics",
+      "keyword": "statistics"
+    },
+    "System Design": {
+      "topic": "system-design",
+      "keyword": "system design"
+    },
+    "Terraform": {
+      "topic": "terraform",
+      "keyword": "terraform"
+    },
+    "Test Cases": {
+      "topic": "testing",
+      "keyword": "testing"
+    },
+    "Transactions": {
+      "topic": "database",
+      "keyword": "transactions"
+    },
+    "Transmission Lines": {
+      "topic": "rf",
+      "keyword": "rf"
+    },
+    "TypeScript": {
+      "topic": "typescript",
+      "keyword": "typescript"
+    },
+    "UART": {
+      "topic": "embedded",
+      "keyword": "uart"
+    },
+    "Verilog": {
+      "topic": "verilog",
+      "keyword": "verilog"
+    },
+    "Vulnerability Assessment": {
+      "topic": "vulnerability-scanner",
+      "keyword": "vulnerability scanner"
+    },
+    "Web Performance": {
+      "topic": "web-performance",
+      "keyword": "web performance"
+    },
+    "Web Security": {
+      "topic": "web-security",
+      "keyword": "web security"
+    },
+    "Logical Reasoning": null,
+    "Mathematics": null,
+    "Quantitative Aptitude": null
+  }
+}

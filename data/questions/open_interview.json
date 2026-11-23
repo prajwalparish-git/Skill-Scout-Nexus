@@ -1,0 +1,705 @@
+{
+  "_comment": "Open questions with model answers for mock interviews (piq/open_questions.py). Source 'tih': the Tech Interview Handbook's generic list of common behavioural questions, word for word (MIT; checked against the pinned file by scripts/import_open_questions.py). Source 'own': written for this project. Every model answer is our own. General practice: never presented as asked at any company.",
+  "questions": [
+    {
+      "id": "tih-3f6def708b",
+      "round": "hr",
+      "subtopic": "motivation",
+      "text": "Why do you want to work for X company?",
+      "model_answer": "Show you have done your homework and that the fit runs both ways. Name one or two specific things about the company you checked yourself (its products, the kind of projects freshers join, its training programme) and link each to something you have done or want to learn. Example: \"Your cloud migration projects match the AWS work I did in my final-year project, and your training programme would help me go deeper.\" Avoid salary, brand name alone, or \"it is a good company\".",
+      "source": "tih",
+      "licence": "MIT",
+      "answer_source": "own"
+    },
+    {
+      "id": "tih-bff010db3d",
+      "round": "hr",
+      "subtopic": "motivation",
+      "text": "Why do you want to leave your current/last company?",
+      "model_answer": "Stay positive and forward-looking; never criticise a past employer or college. For a fresher, talk about moving from internships or projects to full-time work: \"My internship taught me how real teams ship code; I now want a role where I own features end to end.\" For an experienced candidate: growth, scope, or a technology you want to work with that the new role offers.",
+      "source": "tih",
+      "licence": "MIT",
+      "answer_source": "own"
+    },
+    {
+      "id": "tih-782e9b04e9",
+      "round": "hr",
+      "subtopic": "motivation",
+      "text": "What are you looking for in your next role?",
+      "model_answer": "Give two or three concrete things and tie them to this role: the chance to learn from experienced engineers, work that reaches real users, and room to take on more over time. Close by showing the role offers them: \"From the job description, the support-to-development path here is exactly that.\"",
+      "source": "tih",
+      "licence": "MIT",
+      "answer_source": "own"
+    },
+    {
+      "id": "tih-e67a4166ec",
+      "round": "hr",
+      "subtopic": "conflict",
+      "text": "Tell me about a time when you had a conflict with a co-worker.",
+      "model_answer": "Use STAR: the situation, your task, the actions you took, and the result. Pick a real but low-stakes disagreement, for example over how to split work in a project team. Show that you listened first, focused on the shared goal rather than who was right, and agreed a way forward (a quick prototype, a deadline-based split). End with the outcome and what you now do differently, such as agreeing roles at the start.",
+      "source": "tih",
+      "licence": "MIT",
+      "answer_source": "own"
+    },
+    {
+      "id": "tih-3c58beb5f4",
+      "round": "hr",
+      "subtopic": "influence",
+      "text": "Tell me about a time in which you had a conflict and needed to influence somebody else.",
+      "model_answer": "Use STAR: the situation, your task, the actions you took, and the result. Describe persuading a teammate or faculty member with evidence, not authority: you understood their concern, gathered data (a benchmark, a user survey, a small demo) and proposed a low-risk trial. Show the result and that the relationship stayed good.",
+      "source": "tih",
+      "licence": "MIT",
+      "answer_source": "own"
+    },
+    {
+      "id": "tih-763eda4021",
+      "round": "hr",
+      "subtopic": "projects",
+      "text": "What project are you currently working on?",
+      "model_answer": "Describe one project in three parts: the problem and who it helps, your own contribution (the parts you designed or built), and the current status with one technical challenge. Keep it to about a minute and be ready for follow-up questions on any technology you name.",
+      "source": "tih",
+      "licence": "MIT",
+      "answer_source": "own"
+    },
+    {
+      "id": "tih-a5e1e260cf",
+      "round": "hr",
+      "subtopic": "projects",
+      "text": "What is the most challenging aspect of your current project?",
+      "model_answer": "Choose a genuine technical or teamwork challenge, explain why it is hard, what you have tried, and what you learned. Example: keeping an API fast as data grew, solved by adding an index and caching, cutting response time from 2 s to 200 ms. Numbers make it credible.",
+      "source": "tih",
+      "licence": "MIT",
+      "answer_source": "own"
+    },
+    {
+      "id": "tih-1f4fbf266d",
+      "round": "hr",
+      "subtopic": "problem_solving",
+      "text": "What was the most difficult bug that you fixed in the past 6 months?",
+      "model_answer": "Walk through your debugging process: the symptom, how you reproduced it, how you narrowed it down (logs, a debugger, removing code until it disappeared), the root cause, the fix and how you made sure it would not return (a test). The process matters more than the bug.",
+      "source": "tih",
+      "licence": "MIT",
+      "answer_source": "own"
+    },
+    {
+      "id": "tih-5f036e8a88",
+      "round": "hr",
+      "subtopic": "problem_solving",
+      "text": "How do you tackle challenges? Name a difficult challenge you faced while working on a project, how you overcame it, and what you learned.",
+      "model_answer": "Describe your general approach in one sentence (break it down, research, try the simplest thing, ask for help after a fixed time), then prove it with one STAR example and finish with a concrete lesson you still apply.",
+      "source": "tih",
+      "licence": "MIT",
+      "answer_source": "own"
+    },
+    {
+      "id": "tih-5024a15ca1",
+      "round": "hr",
+      "subtopic": "motivation",
+      "text": "What are you excited about?",
+      "model_answer": "Show genuine curiosity tied to the field: a technology you are learning (and what you built with it), a problem you would like to work on, or the chance to start your career in this role. Be specific and brief, and connect it to the job.",
+      "source": "tih",
+      "licence": "MIT",
+      "answer_source": "own"
+    },
+    {
+      "id": "tih-a9af15ed4d",
+      "round": "hr",
+      "subtopic": "self_awareness",
+      "text": "What frustrates you?",
+      "model_answer": "Pick something professional and show how you handle it constructively. Example: \"Unclear requirements frustrate me, so I now write down my understanding and confirm it before I start.\" Avoid complaining about people.",
+      "source": "tih",
+      "licence": "MIT",
+      "answer_source": "own"
+    },
+    {
+      "id": "tih-c52a16a049",
+      "round": "hr",
+      "subtopic": "motivation",
+      "text": "Imagine it is your first day here at the company. What do you want to work on? What features would you improve on?",
+      "model_answer": "Show you understand the company's product and that you would learn before changing things: first understand the codebase and users, then suggest one specific, modest improvement you noticed while researching (for example, a slow page or a confusing step) and how you would check it with data.",
+      "source": "tih",
+      "licence": "MIT",
+      "answer_source": "own"
+    },
+    {
+      "id": "tih-f3ddcd4eae",
+      "round": "hr",
+      "subtopic": "projects",
+      "text": "What are the most interesting projects you have worked on and how might they be relevant to this company's environment?",
+      "model_answer": "Pick one or two projects and draw a clear line from each to the company's work: the same domain, the same technology, or the same kind of problem (scale, reliability, users). State your own contribution and one measurable result.",
+      "source": "tih",
+      "licence": "MIT",
+      "answer_source": "own"
+    },
+    {
+      "id": "tih-c607503910",
+      "round": "hr",
+      "subtopic": "conflict",
+      "text": "Tell me about a time you had a disagreement with your manager.",
+      "model_answer": "Use STAR: the situation, your task, the actions you took, and the result. Freshers can use a faculty guide or internship mentor. Show that you raised the point respectfully and privately, backed it with facts, and accepted the final decision; if you were proven right or wrong, say what you learned either way.",
+      "source": "tih",
+      "licence": "MIT",
+      "answer_source": "own"
+    },
+    {
+      "id": "tih-f52ea573b5",
+      "round": "hr",
+      "subtopic": "projects",
+      "text": "Talk about a project you are most passionate about, or one where you did your best work.",
+      "model_answer": "Let your enthusiasm show, but keep the structure: why it mattered to you, what you built, the hardest part, and the result (users, marks, a hackathon place, performance numbers). Mention what you would improve now; it shows growth.",
+      "source": "tih",
+      "licence": "MIT",
+      "answer_source": "own"
+    },
+    {
+      "id": "tih-cadd06210b",
+      "round": "hr",
+      "subtopic": "self_awareness",
+      "text": "What does your best day of work look like?",
+      "model_answer": "Describe a day that fits the role: solving a hard problem, learning something new, helping a teammate, and seeing your work reach users. It shows what motivates you.",
+      "source": "tih",
+      "licence": "MIT",
+      "answer_source": "own"
+    },
+    {
+      "id": "tih-7d036906da",
+      "round": "hr",
+      "subtopic": "ownership",
+      "text": "What is something that you had to push for in your previous projects?",
+      "model_answer": "Use STAR: the situation, your task, the actions you took, and the result. Choose something that improved quality or outcomes, such as adding tests, code reviews or a proper deadline plan. Show how you made the case with evidence and how the team benefited.",
+      "source": "tih",
+      "licence": "MIT",
+      "answer_source": "own"
+    },
+    {
+      "id": "tih-09f886cfba",
+      "round": "hr",
+      "subtopic": "growth",
+      "text": "What is the most constructive feedback you have received in your career?",
+      "model_answer": "Share real feedback (for example, \"explain your code more clearly\" or \"ask for help earlier\"), show you accepted it without being defensive, the specific steps you took, and the improvement that followed.",
+      "source": "tih",
+      "licence": "MIT",
+      "answer_source": "own"
+    },
+    {
+      "id": "tih-b3e6b8e3ab",
+      "round": "hr",
+      "subtopic": "perseverance",
+      "text": "What is something you had to persevere at for multiple months?",
+      "model_answer": "Use STAR: the situation, your task, the actions you took, and the result. Good examples: preparing for a competitive exam, learning a programming language from scratch, a long project or a sport. Highlight setbacks, how you kept going (a schedule, small goals) and the result.",
+      "source": "tih",
+      "licence": "MIT",
+      "answer_source": "own"
+    },
+    {
+      "id": "tih-b0c750e3bb",
+      "round": "hr",
+      "subtopic": "time_management",
+      "text": "Tell me about a time you met a tight deadline.",
+      "model_answer": "Use STAR: the situation, your task, the actions you took, and the result. Show planning under pressure: you broke the work into parts, cut or postponed what was not essential after checking with others, and communicated progress. End with the result and what you would plan earlier next time.",
+      "source": "tih",
+      "licence": "MIT",
+      "answer_source": "own"
+    },
+    {
+      "id": "tih-89107e40fc",
+      "round": "hr",
+      "subtopic": "self_awareness",
+      "text": "If this were your first annual review with our company, what would I be telling you right now?",
+      "model_answer": "Describe the impact you intend to have, grounded in your strengths: you learned the systems quickly, delivered your assigned work reliably, helped teammates and took on one extra responsibility. Mention one area you would still be working on.",
+      "source": "tih",
+      "licence": "MIT",
+      "answer_source": "own"
+    },
+    {
+      "id": "tih-17968cbb72",
+      "round": "hr",
+      "subtopic": "time_management",
+      "text": "Time management has become a necessary factor in productivity. Give an example of a time-management skill you've learned and applied at work.",
+      "model_answer": "Name a concrete technique (a prioritised to-do list, time-boxing, a weekly plan, the urgent/important matrix) and give one example where it helped you deliver, such as balancing exams, a project and placement preparation.",
+      "source": "tih",
+      "licence": "MIT",
+      "answer_source": "own"
+    },
+    {
+      "id": "tih-aa46107cc9",
+      "round": "hr",
+      "subtopic": "conflict",
+      "text": "Tell me about a problem you've had getting along with a work associate.",
+      "model_answer": "Use STAR: the situation, your task, the actions you took, and the result. Show maturity: you tried to understand their point of view, talked directly and privately, focused on the work and found a way to collaborate. Never blame the other person.",
+      "source": "tih",
+      "licence": "MIT",
+      "answer_source": "own"
+    },
+    {
+      "id": "tih-c929913cca",
+      "round": "hr",
+      "subtopic": "self_awareness",
+      "text": "What aspects of your work are most often criticized?",
+      "model_answer": "Be honest about a real but non-critical area (for example, spending too long perfecting details), then show the steps you have taken and the progress you have made.",
+      "source": "tih",
+      "licence": "MIT",
+      "answer_source": "own"
+    },
+    {
+      "id": "tih-ce681b0b7c",
+      "round": "hr",
+      "subtopic": "growth",
+      "text": "How have you handled criticism of your work?",
+      "model_answer": "Show that you listen, ask questions to understand, separate the work from yourself and act on it. Give a short example of criticism that made your work better.",
+      "source": "tih",
+      "licence": "MIT",
+      "answer_source": "own"
+    },
+    {
+      "id": "tih-c951a8fac1",
+      "round": "hr",
+      "subtopic": "self_awareness",
+      "text": "What strengths do you think are most important for _your job position_?",
+      "model_answer": "Name two or three strengths the role needs (for a software role: problem solving, learning quickly, clear communication) and back each with a short example of you showing it.",
+      "source": "tih",
+      "licence": "MIT",
+      "answer_source": "own"
+    },
+    {
+      "id": "tih-c7434b0aee",
+      "round": "hr",
+      "subtopic": "self_awareness",
+      "text": "What words would your colleagues use to describe you?",
+      "model_answer": "Give three words and a one-line example for each, such as \"dependable: I never missed a project deadline\", \"curious\", \"helpful\". If you can, mention real feedback you got.",
+      "source": "tih",
+      "licence": "MIT",
+      "answer_source": "own"
+    },
+    {
+      "id": "tih-7658e5b07a",
+      "round": "hr",
+      "subtopic": "motivation",
+      "text": "What would you hope to achieve in the first six months after being hired?",
+      "model_answer": "Lay out a realistic plan: complete training and understand the product and codebase in the first months, deliver your first tasks independently, earn the team's trust and pick up one area to go deeper in.",
+      "source": "tih",
+      "licence": "MIT",
+      "answer_source": "own"
+    },
+    {
+      "id": "tih-6548c34dde",
+      "round": "hr",
+      "subtopic": "motivation",
+      "text": "Tell me why you will be a good fit for the position.",
+      "model_answer": "Match the role's requirements to your evidence: two or three skills or experiences from the job description, each with a short proof (a project, an internship, a certification), plus your willingness to learn. Finish with genuine interest in the company.",
+      "source": "tih",
+      "licence": "MIT",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-hr-27fde5f9e6",
+      "round": "hr",
+      "subtopic": "introduction",
+      "text": "Tell me about yourself.",
+      "model_answer": "Keep it to about a minute, in a present-past-future order: who you are now (degree, branch, college), two or three highlights that fit the role (a project, an internship, a skill), and why you are here. Leave out family details and anything already in front of them unless it adds something.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-hr-4ef131e124",
+      "round": "hr",
+      "subtopic": "motivation",
+      "text": "Why should we hire you?",
+      "model_answer": "Summarise your fit in three points tied to the role: relevant skills with evidence, a quality that sets you apart (you learn fast, you finish what you start) with an example, and genuine interest in this company. Be confident without comparing yourself to others.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-hr-4f5c4eceaa",
+      "round": "hr",
+      "subtopic": "self_awareness",
+      "text": "What are your strengths and weaknesses?",
+      "model_answer": "Pick a strength the job needs and prove it with an example. For the weakness, choose a real one that is not essential to the role, and show what you are doing about it and the progress so far. Avoid disguised boasts such as \"I work too hard\".",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-hr-b49c0f4472",
+      "round": "hr",
+      "subtopic": "career_goals",
+      "text": "Where do you see yourself in five years?",
+      "model_answer": "Show ambition that fits the company: becoming strong in your area, taking ownership of larger features or a module, perhaps mentoring juniors, while growing with this organisation. Avoid saying you plan to leave for higher studies or another company.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-hr-81d3facf1d",
+      "round": "hr",
+      "subtopic": "logistics",
+      "text": "Are you willing to relocate?",
+      "model_answer": "Answer honestly. If yes, say so clearly and positively. If you have a constraint, explain it briefly and show flexibility (for example, open to relocating after a fixed period). Do not say yes if you do not mean it: it affects your joining location.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-hr-978b3dc6d0",
+      "round": "hr",
+      "subtopic": "logistics",
+      "text": "Are you comfortable working in shifts or on weekends when a project needs it?",
+      "model_answer": "Show flexibility while being honest: you understand some projects (support, global clients) need it and you are willing to adjust. If you have a genuine constraint, mention it calmly.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-hr-5277bb1201",
+      "round": "hr",
+      "subtopic": "education",
+      "text": "Why did you choose your branch, and why do you now want this role?",
+      "model_answer": "Explain your original reason honestly, then the link to this role: skills your branch gave you that transfer (logic, maths, problem solving), and what you did to build the new skills (courses, projects, certifications). Show it is a considered choice.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-hr-07503a5e83",
+      "round": "hr",
+      "subtopic": "projects",
+      "text": "Explain your final-year project.",
+      "model_answer": "Cover the problem, your solution and architecture, the technologies and why you chose them, your own role in the team, the result, and what you would improve. Expect follow-up questions on anything you mention, so only name what you can explain.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-hr-be58e4adff",
+      "round": "hr",
+      "subtopic": "research",
+      "text": "What do you know about our company?",
+      "model_answer": "Give three accurate facts you checked on the company's own website or annual report: what it does and for whom, a recent initiative or product, and its values or culture. Then say why that matters to you. Never guess figures.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-hr-13fb390e5c",
+      "round": "hr",
+      "subtopic": "closing",
+      "text": "Do you have any questions for us?",
+      "model_answer": "Always ask one or two thoughtful questions, such as what the first months of training look like, what a typical project for freshers is, or how performance is reviewed. Avoid asking about salary or leave in the first round.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-hr-9aac629282",
+      "round": "hr",
+      "subtopic": "pressure",
+      "text": "How do you handle pressure or stress?",
+      "model_answer": "Describe your method (break work down, prioritise, keep calm, communicate early) and give a short example such as handling exams and a project deadline in the same week.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-hr-5f45704ebe",
+      "round": "hr",
+      "subtopic": "teamwork",
+      "text": "Describe a time you worked in a team to achieve something.",
+      "model_answer": "Use STAR: the situation, your task, the actions you took, and the result. Make your own role clear (what you did, not just \"we\"), how you coordinated with others, and the team's result.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-hr-b28fac5bb1",
+      "round": "hr",
+      "subtopic": "failure",
+      "text": "Tell me about a failure and what you learned from it.",
+      "model_answer": "Use STAR: the situation, your task, the actions you took, and the result. Choose a real setback (a failed project demo, a missed target), take responsibility without excuses, and spend most of the answer on what you learned and how you applied it later.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-hr-a8081d6587",
+      "round": "hr",
+      "subtopic": "leadership",
+      "text": "Give an example of when you showed leadership.",
+      "model_answer": "Use STAR: the situation, your task, the actions you took, and the result. Leadership need not be a title: organising a college event, leading a project team, or stepping in when something went wrong. Show how you motivated people and the result.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-hr-a9f84c80a4",
+      "round": "hr",
+      "subtopic": "personal",
+      "text": "What are your hobbies and interests?",
+      "model_answer": "Mention one or two genuine interests and what they say about you (chess: planning; running: discipline; blogging: communication). Be ready to talk about them in depth.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-hr-9c37f54628",
+      "round": "hr",
+      "subtopic": "education",
+      "text": "Can you explain the gap in your education or career?",
+      "model_answer": "Be brief and honest about the reason (health, family, exam preparation), then focus on what you did during that time to stay productive and that you are now ready and committed.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-hr-f879e58284",
+      "round": "hr",
+      "subtopic": "logistics",
+      "text": "Are you comfortable with a service agreement or bond?",
+      "model_answer": "Know the terms beforehand from the offer details. Answer honestly; if you are comfortable, say that you plan a long-term career with the company anyway.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-hr-41f0666862",
+      "round": "hr",
+      "subtopic": "career_goals",
+      "text": "Do you plan to pursue higher studies?",
+      "model_answer": "Be honest but show commitment: you want to build practical experience first, and any further learning (certifications, part-time courses) would be in support of your work here.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-hr-5f26997ead",
+      "round": "hr",
+      "subtopic": "logistics",
+      "text": "What are your salary expectations?",
+      "model_answer": "For campus roles the package is usually fixed, so say you are comfortable with the offered package. Off-campus, research the typical range for the role and give a range, saying you are flexible for the right learning opportunity.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-hr-a41a7ad6b0",
+      "round": "hr",
+      "subtopic": "learning",
+      "text": "How do you learn a new technology quickly?",
+      "model_answer": "Describe your method (official documentation, a small hands-on project, then deeper topics) and give one example of a technology you learned this way and what you built with it.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-hr-ddefb977ae",
+      "round": "hr",
+      "subtopic": "communication",
+      "text": "Explain a technical concept you know well to someone who is not technical.",
+      "model_answer": "Choose a simple concept (for example, how the internet finds a website: DNS as a phone book). Use an everyday analogy, avoid jargon and check understanding. Clarity is being tested, not depth.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-hr-c44b7254dc",
+      "round": "hr",
+      "subtopic": "motivation",
+      "text": "What motivates you?",
+      "model_answer": "Give a genuine answer tied to work: solving problems, learning, seeing people use what you built, or growing your responsibility, with a short example.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-hr-c03a97edc5",
+      "round": "hr",
+      "subtopic": "time_management",
+      "text": "How do you prioritise when you have several tasks due at once?",
+      "model_answer": "Explain how you judge urgency and impact, confirm priorities with the people involved, plan the order and communicate if something will slip. Give a short example.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-hr-1d00b3007a",
+      "round": "hr",
+      "subtopic": "ethics",
+      "text": "What would you do if you saw a teammate copying code or cheating in an assessment?",
+      "model_answer": "Show integrity with tact: talk to the person first if appropriate, and if it continues or is serious, raise it with the right person. Emphasise fairness and the team's reputation.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-hr-7f517b7714",
+      "round": "hr",
+      "subtopic": "introduction",
+      "text": "Describe yourself in three words.",
+      "model_answer": "Pick three words that suit the role and give a one-line example for each, for instance \"curious, reliable, collaborative\", with a project or event that shows each one.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-tech-3faa9fcadb",
+      "round": "technical",
+      "subtopic": "arrays",
+      "text": "How would you find two numbers in an unsorted array that add up to a target, and what is the time complexity of your approach?",
+      "model_answer": "The brute force checks every pair in O(n^2). Better: scan once with a hash set of values seen so far; for each number x, check whether target - x is already in the set. That is O(n) time and O(n) extra space. If the array is sorted, two pointers from both ends give O(n) time and O(1) space.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-tech-7e7a3208b8",
+      "round": "technical",
+      "subtopic": "strings",
+      "text": "How do you check whether two strings are anagrams of each other?",
+      "model_answer": "Anagrams have the same characters with the same counts. Compare lengths first, then count characters of one string in a hash map (or a 26-slot array for lowercase letters) and decrement for the other; all counts must end at zero. O(n) time. Sorting both strings and comparing also works in O(n log n).",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-tech-be5f58e84f",
+      "round": "technical",
+      "subtopic": "hash_table",
+      "text": "What is a hash table, and how are collisions handled?",
+      "model_answer": "A hash table maps keys to values by computing a hash of the key to find a bucket, giving average O(1) insert and lookup. Two keys can land in the same bucket (a collision). Chaining keeps a list per bucket; open addressing probes for the next free slot. When the load factor grows, the table is resized and rehashed to keep operations fast.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-tech-3d26022a76",
+      "round": "technical",
+      "subtopic": "linked_list",
+      "text": "How do you detect a cycle in a linked list?",
+      "model_answer": "Use Floyd's two-pointer method: a slow pointer moves one node at a time and a fast pointer two. If there is a cycle, they eventually meet; if fast reaches the end, there is none. O(n) time and O(1) space, better than storing visited nodes in a set (O(n) space).",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-tech-06b3519231",
+      "round": "technical",
+      "subtopic": "stack",
+      "text": "How would you check whether brackets in an expression are balanced?",
+      "model_answer": "Scan left to right with a stack. Push every opening bracket; on a closing bracket, the stack must not be empty and its top must be the matching opener, which you pop. At the end the stack must be empty. O(n) time and O(n) space in the worst case.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-tech-a6a320d470",
+      "round": "technical",
+      "subtopic": "queue",
+      "text": "What is the difference between a stack and a queue, with a real use of each?",
+      "model_answer": "A stack is last-in, first-out: function calls, undo history, expression evaluation. A queue is first-in, first-out: print jobs, task scheduling, breadth-first search. Both support O(1) insert and remove at their ends.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-tech-c8ca637c90",
+      "round": "technical",
+      "subtopic": "tree",
+      "text": "Explain the difference between inorder, preorder and postorder traversal of a binary tree.",
+      "model_answer": "They differ in when the node is visited relative to its subtrees. Preorder: node, left, right (useful to copy a tree). Inorder: left, node, right (gives sorted order in a binary search tree). Postorder: left, right, node (useful to delete a tree or evaluate expressions). Each visits every node once: O(n).",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-tech-809260126c",
+      "round": "technical",
+      "subtopic": "graph",
+      "text": "When would you use breadth-first search instead of depth-first search?",
+      "model_answer": "BFS explores level by level with a queue, so it finds the shortest path in an unweighted graph (fewest edges) and suits nearest-first problems. DFS goes deep with a stack or recursion and suits cycle detection, topological sorting and exploring all paths. Both run in O(V + E).",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-tech-ea1a621ea1",
+      "round": "technical",
+      "subtopic": "heap",
+      "text": "How would you find the k largest elements in a large array?",
+      "model_answer": "Keep a min-heap of size k: push each element and pop the smallest when the heap grows past k. The heap then holds the k largest. O(n log k) time and O(k) space, better than sorting everything (O(n log n)) when k is small.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-tech-907c62bcdb",
+      "round": "technical",
+      "subtopic": "binary_search",
+      "text": "How does binary search work, and what does it require?",
+      "model_answer": "It needs sorted data. Compare the target with the middle element: if equal, done; if smaller, search the left half, else the right half. Each step halves the range, so it takes O(log n) time. Compute the middle as low + (high - low) / 2 to avoid overflow.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-tech-b09dc790e2",
+      "round": "technical",
+      "subtopic": "sorting",
+      "text": "What does it mean for a sorting algorithm to be stable, and why does it matter?",
+      "model_answer": "A stable sort keeps equal elements in their original relative order. It matters when sorting by several keys: sort by the secondary key first, then stably by the primary key. Merge sort and insertion sort are stable; quicksort and heapsort usually are not.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-tech-1e71fe1cda",
+      "round": "technical",
+      "subtopic": "recursion",
+      "text": "What are the key parts of a recursive function, and what can go wrong?",
+      "model_answer": "A base case that stops the recursion, and a recursive case that moves towards it. Without a reachable base case, calls never end and the call stack overflows. Deep recursion can also overflow even when correct; an iterative version or memoisation can help.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-tech-a854dbbfb0",
+      "round": "technical",
+      "subtopic": "dynamic_programming",
+      "text": "What is the difference between memoisation and tabulation in dynamic programming?",
+      "model_answer": "Both store answers to overlapping subproblems so each is solved once. Memoisation is top-down: recursion with a cache, computing only the subproblems needed. Tabulation is bottom-up: fill a table from the smallest subproblems, with no recursion overhead. Example: Fibonacci drops from exponential time to O(n) either way.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-tech-0e36fc9889",
+      "round": "technical",
+      "subtopic": "interval",
+      "text": "How would you merge overlapping intervals?",
+      "model_answer": "Sort the intervals by start time. Walk through them, keeping the last merged interval: if the next one starts before or at its end, extend the end to the larger of the two ends; otherwise start a new merged interval. O(n log n) for the sort, O(n) for the merge.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-tech-21898c5d80",
+      "round": "technical",
+      "subtopic": "trie",
+      "text": "What is a trie and where is it useful?",
+      "model_answer": "A trie is a tree where each edge is a character and each path from the root spells a prefix. Looking up a word or prefix takes O(length of the word), independent of how many words are stored. It suits autocomplete, spell checking and prefix searches.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    },
+    {
+      "id": "own-tech-0f29a75ff6",
+      "round": "technical",
+      "subtopic": "bit_manipulation",
+      "text": "How can you check whether a number is a power of two using bits?",
+      "model_answer": "A positive power of two has exactly one bit set, so n & (n - 1) clears that bit and gives zero. The check is n > 0 and (n & (n - 1)) == 0, in O(1) time.",
+      "source": "own",
+      "licence": "own",
+      "answer_source": "own"
+    }
+  ]
+}

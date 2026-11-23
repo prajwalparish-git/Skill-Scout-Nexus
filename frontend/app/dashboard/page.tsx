@@ -195,6 +195,9 @@ export default function DashboardPage() {
                   <th scope="col" className="pb-2 text-right font-medium">Quizzes</th>
                   <th scope="col" className="w-40 pb-2 pl-4 font-medium">Latest score</th>
                   <th scope="col" className="pb-2 font-medium">Trend</th>
+                  <th scope="col" className="pb-2 font-medium">
+                    <span title="Where your next quiz on the topic starts: up after 80%, down under 50%">Level</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -218,6 +221,9 @@ export default function DashboardPage() {
                       </td>
                       <td className="py-3">
                         <Badge state={TREND[m.trend] ?? "todo"}>{m.trend}</Badge>
+                      </td>
+                      <td className="py-3">
+                        <span className="chip border-hair font-mono text-[11px] capitalize text-ink">{d.levels?.[m.topic] ?? "medium"}</span>
                       </td>
                     </tr>
                   );

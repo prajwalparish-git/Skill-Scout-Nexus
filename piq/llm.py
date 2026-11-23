@@ -9,6 +9,9 @@ with key pools, circuit breakers and a prompt cache. When none can answer, the o
 was tried is out of quota, else `LLMError`. In MOCK_MODE the response comes from `piq.mock`
 without touching the network. Either way the output goes through the same validation, and
 only a validated answer is stored in the prompt cache.
+
+A student's own local model (core/local_ai.py) is passed to the router for their calls. In
+MOCK_MODE it answers first when the student prefers it, and the mock answers are the fallback.
 """
 
 import json
@@ -18,7 +21,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ValidationError
 
-from core import ai_router
+from core import ai_router, local_ai
 from piq import db, mock, offline
 from piq.config import settings
 
@@ -62,6 +65,9 @@ def call[T: BaseModel](
 ) -> tuple[T, int]:
     """Return (validated output, agent_logs row id). `context` feeds MOCK_MODE only."""
     model = "mock" if settings().mock_mode else ""  # live: the router names it per answer
+    local = local_ai.for_student(student_id)
+    mock_local = model == "mock" and local is not None and local.preferred
+    json_schema = schema.model_json_schema()  # a local LM Studio model is held to it
     messages = [
         {
             "role": "system",
@@ -76,16 +82,27 @@ def call[T: BaseModel](
     error = ""
     used = model or "none"  # what agent_logs.model_used records
     try:
-        for attempt in range(2):
+        for attempt in range(3 if mock_local else 2):
             content = ""
-            if model == "mock":
-                content, i, o = json.dumps(mock.respond(agent, context)), 0, 0
-                used = "mock"
-            else:
-                i = o = 0
+            i = o = 0
+            done = None
+            if mock_local and attempt < 2:  # their model, then one repair; then mock answers
+                done = ai_router.try_local(
+                    local, messages, temperature=temperature, agent=agent, json_schema=json_schema
+                )
+                if done:
+                    content, i, o, used = done.text, done.tokens_in, done.tokens_out, done.label
+            if model == "mock" and done is None:
+                content, used = json.dumps(mock.respond(agent, context)), "mock"
+            elif model != "mock":
                 try:
                     done = ai_router.complete(
-                        messages, size=size, temperature=temperature, agent=agent
+                        messages,
+                        size=size,
+                        temperature=temperature,
+                        agent=agent,
+                        local=local,
+                        json_schema=json_schema,
                     )
                     content, i, o, used = done.text, done.tokens_in, done.tokens_out, done.label
                 except ai_router.InvalidJson as e:  # the provider's words tell what to fix

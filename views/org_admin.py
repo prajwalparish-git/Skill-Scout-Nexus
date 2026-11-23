@@ -14,8 +14,28 @@ from datetime import UTC, datetime
 
 import streamlit as st
 
-from piq import charts, cohort, formatter, journey, org_insights, orgs, services, ui
-from piq.config import ACCOUNT_STATUSES, ACTIVE_WITHIN_DAYS, VOICE_RUBRIC_MAX
+from core import proctor_guard
+from core import proctoring as proctor_rules
+from piq import (
+    charts,
+    cohort,
+    contributions,
+    db,
+    experiences,
+    formatter,
+    journey,
+    org_insights,
+    orgs,
+    proctoring,
+    services,
+    ui,
+)
+from piq.config import (
+    ACCOUNT_STATUSES,
+    ACTIVE_WITHIN_DAYS,
+    EXPERIENCE_ROUNDS,
+    VOICE_RUBRIC_MAX,
+)
 from piq.ui import Stat, empty_state, page_header, stat_row, status_badge
 
 CREDS = "org_creds"  # the credentials just made, until downloaded or discarded (one time)
@@ -622,14 +642,17 @@ def _profile(sid: str) -> None:
         )
         ui.step_bars(org_insights.journey_steps(row, cut))
 
-        skills, quizzes, voices, actions = st.tabs(
+        skills, quizzes, voices, watched, actions = st.tabs(
             [
                 ":material/checklist: Skills and plan",
                 ":material/quiz: Quizzes",
                 ":material/graphic_eq: Voice sessions",
+                ":material/shield: Proctoring",
                 ":material/manage_accounts: Admin actions",
             ]
         )
+        with watched:
+            proctor_guard.render_record(proctoring.history(sid), for_admin=True)
         with skills:
             if d.match_percent is None:
                 st.caption("No resume scan yet. Every skill of the target role is still to build.")
@@ -808,6 +831,55 @@ def _actions(sid: str, acct: dict, row, cand) -> None:  # type: ignore[no-untype
 # --- tab 4: settings and placement drives -----------------------------------------------------
 
 
+PROCTOR_MODES = {
+    "off": "Off: students may proctor practice tests themselves",
+    "required": "Required: every quiz and mock interview is proctored in the browser",
+    "seb": "Required in Safe Exam Browser (web app): the browser is locked down",
+}
+
+
+def _proctoring_settings() -> None:
+    """Whether this organization's students take quizzes and interviews proctored."""
+    mode, keys = db.organization_proctoring(org.id)
+    with st.container(border=True):
+        st.subheader("Proctoring", anchor=False)
+        st.caption(
+            "Proctoring detects (it cannot prevent) switching tabs or windows, leaving "
+            "fullscreen, copying and pasting, and with the camera a second person or a phone. "
+            "Only those are strikes; 3 strikes submit the test. Looking away, posture and light "
+            "are only noted for your review. No video or image is stored; students see their "
+            "own record. Safe Exam Browser actually locks the computer during a test."
+        )
+        with st.form("org_proctoring", border=False):
+            picked = st.radio(
+                "Proctoring for your students",
+                list(PROCTOR_MODES),
+                index=list(PROCTOR_MODES).index(mode),
+                format_func=PROCTOR_MODES.__getitem__,
+                key="org_proctor_mode",
+            )
+            config_keys = st.text_area(
+                "Safe Exam Browser Config Key(s)",
+                value=keys,
+                height=80,
+                help="In SEB Config Tool open your .seb file: the Config Key is shown under "
+                "Exam > Advanced (64 hexadecimal characters). One per line; keep the old key "
+                "while students switch to a new .seb file. Set the file's start URL to "
+                "your site's /quiz or /interview page.",
+                key="org_proctor_keys",
+            )
+            go = st.form_submit_button("Save proctoring", type="primary", icon=":material/shield:")
+        if go:
+            try:
+                proctoring.set_org_mode(org.id, picked, config_keys)
+            except services.ServiceError as e:
+                st.error(formatter.md_escape(str(e)), icon=":material/error:")
+            else:
+                st.toast("Proctoring saved.", icon=":material/check_circle:")
+                st.rerun()
+        st.caption(f"Strikes end a test at {proctor_rules.MAX_STRIKES}.")
+
+
 def _settings() -> None:
     with st.container(border=True):
         st.subheader("Organization profile and pass marks", anchor=False)
@@ -846,6 +918,8 @@ def _settings() -> None:
             else:
                 st.toast("Saved.", icon=":material/check_circle:")
                 st.rerun()
+
+    _proctoring_settings()
 
     with st.container(border=True):
         st.subheader("Placement drive shortlist", anchor=False)
@@ -933,11 +1007,126 @@ def _settings() -> None:
         )
 
 
-overview_tab, provisioning_tab, students_tab, settings_tab = st.tabs(
+def _interview_posts() -> None:
+    """Interview experiences the organization's own students shared, waiting for approval."""
+    st.caption(
+        "Your students' interview experiences wait here until you approve them. Approved posts "
+        "are visible to every signed-in student, never with the student's name: they read 'a "
+        "student, <year>', and name your college only once five of that batch have shared. "
+        "Personal details were removed automatically, but read each post and its flags."
+    )
+    queue = experiences.review_queue(org.id)
+    if not queue:
+        st.success("Nothing waiting for review.", icon=":material/task_alt:")
+        return
+    for p in queue:
+        with st.container(border=True):
+            hidden = " :orange-badge[Hidden after reports]" if p["status"] == "hidden" else ""
+            st.markdown(
+                f"**{formatter.md_escape(p['company'])}** · {formatter.md_escape(p['role'])} · "
+                f"{EXPERIENCE_ROUNDS[p['round']]} · {p['interview_month']} · shown as "
+                f"*{formatter.md_escape(p['label'])}*{hidden}"
+            )
+            for flag in p["flags"]:
+                st.markdown(f":orange[:material/flag: {formatter.md_escape(flag)}]")
+            for n, q in enumerate(p["questions"], 1):
+                st.markdown(f"**Q{n}.** {formatter.md_escape(q['text'])}")
+                if q["kind"] == "mcq":
+                    right = q["correct_index"]
+                    st.caption(
+                        " · ".join(
+                            f"{'ABCD'[i]}. {formatter.md_escape(o)}" + (" ✓" if i == right else "")
+                            for i, o in enumerate(q["options"])
+                        )
+                    )
+            if proc := p.get("process"):
+                order = " → ".join(
+                    r["label"] + (f" ({r['minutes']} min)" if r["minutes"] else "")
+                    + f", {r['difficulty']}"
+                    for r in proc["rounds"]
+                )  # fmt: skip
+                st.markdown(
+                    f"**Interview process** · {proc['result_label']}  \n"
+                    f":gray[{formatter.md_escape(order)}]"
+                    + (f"  \n{formatter.md_escape(proc['summary'])}" if proc["summary"] else "")
+                )
+            if p["tip"]:
+                st.caption(f"Tip: {formatter.md_escape(p['tip'])}")
+            with st.form(f"review_{p['id']}", border=False):
+                company = st.text_input(
+                    "Company name",
+                    value=p["company"],
+                    help="Correct a misspelt or unknown company before approving.",
+                )
+                reason = st.text_input("Reason (needed to reject; the student sees it)")
+                approve_col, reject_col = st.columns(2, gap="small")
+                approve = approve_col.form_submit_button(
+                    "Approve", type="primary", icon=":material/check:"
+                )
+                reject = reject_col.form_submit_button("Reject", icon=":material/close:")
+            if approve or reject:
+                try:
+                    fix = company if company.strip() != p["company"] else None
+                    experiences.review(org.id, p["id"], bool(approve), reason, fix)
+                except services.ServiceError as e:
+                    st.error(formatter.md_escape(str(e)), icon=":material/error:")
+                else:
+                    st.toast("Approved." if approve else "Rejected.", icon=":material/check:")
+                    st.rerun()
+
+
+def _contributed_questions() -> None:
+    """Questions the organization's own students contributed to the open bank (CC BY 4.0),
+    waiting for approval: multiple choice joins the quiz bank, open ones the interviews."""
+    st.subheader("Contributed questions", anchor=False)
+    queue = contributions.review_queue(org.id)
+    if not queue:
+        st.caption("No contributed questions waiting.")
+        return
+    for c in queue:
+        with st.container(border=True):
+            st.caption(
+                f"{contributions.ROUNDS[c['round']]} · {formatter.md_escape(c['topic'])} · "
+                f"{c['difficulty']} · {c['licence']}"
+            )
+            for f in c["flags"]:
+                st.markdown(f":orange[:material/flag: {formatter.md_escape(f)}]")
+            st.markdown(f"**{formatter.md_escape(c['text'])}**")
+            if c["kind"] == "mcq":
+                st.markdown(
+                    "  \n".join(
+                        f"{'ABCD'[j]}. {formatter.md_escape(o)}"
+                        + (" :green[:material/check:]" if j == c["correct_index"] else "")
+                        for j, o in enumerate(c["options"])
+                    )
+                )
+                st.caption(f"Explanation: {formatter.md_escape(c['explanation'])}")
+            else:
+                st.caption(f"Model answer: {formatter.md_escape(c['model_answer'])}")
+            with st.form(f"contrib_review_{c['id']}", border=False):
+                reason = st.text_input("Reason (needed to reject; the author sees it)")
+                approve_col, reject_col = st.columns(2, gap="small")
+                approve = approve_col.form_submit_button(
+                    "Approve", type="primary", icon=":material/check:"
+                )
+                reject = reject_col.form_submit_button("Reject", icon=":material/close:")
+            if approve or reject:
+                try:
+                    contributions.review(org.id, c["id"], bool(approve), reason)
+                except services.ServiceError as e:
+                    st.error(formatter.md_escape(str(e)), icon=":material/error:")
+                else:
+                    st.toast("Approved." if approve else "Rejected.", icon=":material/check:")
+                    st.rerun()
+
+
+waiting = len(experiences.review_queue(org.id)) + len(contributions.review_queue(org.id))
+overview_tab, provisioning_tab, students_tab, posts_tab, settings_tab = st.tabs(
     [
         ":material/dashboard: Overview",
         ":material/group_add: Provisioning",
         ":material/groups: Students",
+        f":material/forum: Interview posts ({waiting})",
         ":material/tune: Settings and drives",
     ]
 )
@@ -947,5 +1136,8 @@ with provisioning_tab:
     _provisioning()
 with students_tab:
     _directory()
+with posts_tab:
+    _interview_posts()
+    _contributed_questions()
 with settings_tab:
     _settings()

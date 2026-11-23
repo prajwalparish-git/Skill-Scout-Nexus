@@ -46,6 +46,10 @@ evaluation/results/*
 # --- Raw question-bank source; the cleaned bank (data/questions/mcq_bank.csv) is committed --------
 MCQ.csv*
 
+# --- Open question bank: download cache and the optional full import (the seed is committed) --
+.cache/open_questions/
+data/questions/open_bank_full.csv
+
 # --- Planning documents and personal files ------------------------------------------------------
 PlacementIQ_Project_Spec*
 REDESIGN_BRIEF.md
@@ -71,3 +75,8 @@ desktop.ini
 
 # --- Personal to-do / scratch notes ----------------------------------------------------------------
 /test.html
+
+# MediaPipe for proctoring, fetched by frontend/scripts/fetch-mediapipe.mjs
+frontend/public/mediapipe/
+# Voice detection for the hands-free interview, copied by frontend/scripts/copy-vad.mjs
+frontend/public/vad/
