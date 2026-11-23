@@ -282,13 +282,15 @@ export default function CompaniesPage() {
                   className="w-full rounded-xl border border-hair px-4 py-3 text-left transition-colors hover:border-line disabled:cursor-default"
                 >
                   <span className="block font-semibold">{c.name}</span>
-                  <span className="block text-xs text-muted">
-                    {c.posts ? `${c.posts} post${c.posts === 1 ? "" : "s"} · ${Object.keys(c.rounds).map((r) => ROUNDS[r]).join(", ")}` : "No posts yet"}
+                  <span className="block text-xs text-muted" title="Practice questions are general practice from the open question bank, not questions asked at this company">
+                    {c.counts_line}
                   </span>
+                  {c.posts > 0 && <span className="block text-[11px] text-muted">{Object.keys(c.rounds).map((r) => ROUNDS[r]).join(", ")}</span>}
                 </button>
               </li>
             ))}
           </ul>
+          <p className="mt-3 text-xs text-muted">Reported questions come from students and alumni who were interviewed there, approved by a moderator. Practice questions are general practice from the open question bank, not questions asked at that company.</p>
         </section>
       )}
       {candidate && (

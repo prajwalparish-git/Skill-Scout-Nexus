@@ -251,7 +251,9 @@ def _browse(sid: str, in_org: bool) -> None:
     slug = st.selectbox(
         "Company",
         list(by_slug),
-        format_func=lambda s: f"{by_slug[s]['name']} · {by_slug[s]['posts']} posts",
+        format_func=lambda s: f"{by_slug[s]['name']} · {by_slug[s]['counts_line']}",
+        help="Practice questions are general practice from the open question bank, not "
+        "questions asked at that company.",
         key="cq_company",
     )
     rounds = list(EXPERIENCE_ROUNDS)

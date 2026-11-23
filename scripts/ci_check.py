@@ -217,6 +217,7 @@ def api() -> None:
             open_questions_checks(c, sid)
             process_checks(c, sid)
             contribute_checks(c)
+            company_counts_checks(c)
             project_ideas_checks(c, sid)
             drive(c, sid)
             proctoring_checks(c, sid)
@@ -1312,6 +1313,46 @@ def quiz_sessions_checks(c: "TestClient", sid: str, shown_right: Callable[[dict]
         and guest_graded.status_code == 200,
         "Quiz sessions: another student's, unknown and expired sessions refused; guests keep "
         "the unsessioned quiz",
+    )
+
+
+def company_counts_checks(c: "TestClient") -> None:
+    """The Companies list's counts: reported questions are the approved questions for that
+    company; practice questions are the open bank's for the rounds its page offers (aptitude,
+    the default technical topics, the HR interview questions), the same for guests."""
+    from fastapi.testclient import TestClient
+
+    from piq import experiences, question_bank
+    from piq.db import tx
+
+    practice = (
+        sum(question_bank.open_count(t) for t in ("Aptitude", "Reasoning"))
+        + sum(question_bank.open_count(t) for t in experiences.DEFAULT_TECH_TOPICS)
+        + len(experiences.interview_pool("hr"))
+    )
+    with tx() as conn:
+        reported = dict(
+            conn.execute(
+                """SELECT e.company_slug, COUNT(q.id) FROM interview_experiences e
+                   JOIN experience_questions q ON q.experience_id = e.id
+                   WHERE e.status = 'approved' GROUP BY e.company_slug"""
+            ).fetchall()
+        )
+    listed = {x["slug"]: x for x in c.get("/api/companies").json()["companies"]}
+    guest = {x["slug"]: x for x in TestClient(c.app).get("/api/companies").json()["companies"]}
+    quiet = next(s for s, x in listed.items() if not reported.get(s))
+    check(
+        practice > 1000
+        and all(x["practice_questions"] == practice for x in listed.values())
+        and all(x["questions"] == reported.get(s, 0) for s, x in listed.items())
+        and listed["tcs"]["counts_line"]
+        == f"{reported['tcs']:,} reported question{'s' if reported['tcs'] != 1 else ''} · "
+        f"{practice:,} practice questions"
+        and listed[quiet]["counts_line"] == f"{practice:,} practice questions · no reports yet"
+        and {s: x["counts_line"] for s, x in guest.items()}
+        == {s: x["counts_line"] for s, x in listed.items()},
+        f"Companies list: reported questions match the approved reports, practice questions "
+        f"the open bank's rounds ({listed['tcs']['counts_line']}); guests see the same",
     )
 
 

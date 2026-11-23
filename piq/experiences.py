@@ -304,8 +304,35 @@ def _question(q: Mapping, reveal: bool) -> dict:
     return out
 
 
+_PRACTICE_TOTAL: dict[int, int] = {}  # id(the loaded bank) -> practice questions (one entry)
+
+
+def practice_total() -> int:
+    """Open-bank questions a company page offers for practice, before a student's profile is
+    known: its aptitude and technical rounds (open_topics without a student) plus the HR round's
+    interview questions. The same for every company, since every page offers the same rounds.
+    Cached until the bank reloads (a new contribution, a new seed)."""
+    key = id(question_bank._load())
+    if key not in _PRACTICE_TOTAL:
+        rounds = open_practice(None, "")["rounds"]
+        _PRACTICE_TOTAL.clear()
+        _PRACTICE_TOTAL[key] = sum(rounds.values())
+    return _PRACTICE_TOTAL[key]
+
+
+def counts_line(reported: int, practice: int) -> str:
+    """The honest count shown on a company card: reported questions first, then general
+    practice (never claimed as asked there)."""
+    p = f"{practice:,} practice question{'s' if practice != 1 else ''}"
+    if not reported:
+        return f"{p} · no reports yet"
+    return f"{reported:,} reported question{'s' if reported != 1 else ''} · {p}"
+
+
 def companies_overview() -> list[dict]:
-    """Every known company and any with approved posts: counts per round, careers link."""
+    """Every known company and any with approved posts: counts per round, careers link, and
+    the questions it offers: reported (approved, from students and contributors) and general
+    practice (the open question bank's, for the rounds its page offers)."""
     out: dict[str, dict] = {
         c["slug"]: {
             "slug": c["slug"],
@@ -340,6 +367,10 @@ def companies_overview() -> list[dict]:
             name = db.approved_experiences(slug)[0]["company_name"]
             out[slug] = {"slug": slug, "name": name, "careers_url": "", "posts": 0,
                          "questions": 0, "rounds": {}, "processes": n}  # fmt: skip
+    practice = practice_total()
+    for c in out.values():
+        c["practice_questions"] = practice
+        c["counts_line"] = counts_line(c["questions"], practice)
     return sorted(out.values(), key=lambda c: (-c["posts"] - c["processes"], c["name"].lower()))
 
 

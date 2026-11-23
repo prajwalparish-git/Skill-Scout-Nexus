@@ -400,6 +400,10 @@ export type CompanySummary = {
   rounds: Record<string, { posts: number; questions: number }>;
   /** Approved interview-process reports. */
   processes: number;
+  /** Open-bank questions its page offers for practice (general practice, not asked there). */
+  practice_questions: number;
+  /** "12 reported questions · 1,240 practice questions" (or "… · no reports yet"). */
+  counts_line: string;
 };
 export type ReportedQuestion = {
   kind: "open" | "mcq";
