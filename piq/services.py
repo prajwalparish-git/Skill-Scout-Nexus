@@ -26,7 +26,17 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel, Field, model_validator
 
 from core import drive
-from piq import agents, checks, db, degrees, question_bank, resume_builder, scorecard, syllabus
+from piq import (
+    agents,
+    checks,
+    db,
+    degrees,
+    keywords,
+    question_bank,
+    resume_builder,
+    scorecard,
+    syllabus,
+)
 from piq.config import (
     BULLET_MAX_CHARS,
     CERTIFICATE_MAX_BYTES,
@@ -1755,26 +1765,19 @@ class Tailoring:
 
 
 def job_keywords(role: str, job_description: str, resume: Mapping) -> tuple[list[str], list[str]]:
-    """(on the resume, not on it): the role's ATS keywords and skills, plus the student's own
-    skills, that the job description names. Worked out from text only, no model."""
+    """(on the resume, not on it): the terms the job description asks for (taken from the job
+    description itself by piq/keywords.py, plus the role's ATS keywords and skills and the
+    student's own skills when it names them), matched across word forms and aliases ("unit
+    tests" shows "Unit Testing", "k8s" shows "Kubernetes"). Text only, no model. A list for the
+    student: missing terms are never added to the resume."""
     info = resume_builder.get_role_info(role) or {}
-    terms = list(
-        dict.fromkeys(
-            [
-                *info.get("ats_keywords", []),
-                *syllabus.role_skills().get(role, {}),
-                *resume.get("skills", []),
-            ]
-        )
-    )
-    jd = job_description.lower()
-    corpus = resume_builder.resume_text(resume_builder.without_private(resume)).lower()
-
-    def has(text: str, term: str) -> bool:
-        return re.search(rf"(?<!\w){re.escape(term.lower())}(?!\w)", text) is not None
-
-    asked = [t for t in terms if has(jd, t)]
-    return [t for t in asked if has(corpus, t)], [t for t in asked if not has(corpus, t)]
+    extra = [
+        *info.get("ats_keywords", []),
+        *syllabus.role_skills().get(role, {}),
+        *resume.get("skills", []),
+    ]
+    corpus = resume_builder.resume_text(resume_builder.without_private(resume))
+    return keywords.split(job_description, corpus, extra)
 
 
 def tailor_resume(

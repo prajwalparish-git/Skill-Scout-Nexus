@@ -2108,6 +2108,27 @@ def resume_templates(c: "TestClient", sid: str) -> None:
         and not _checks.invented_numbers(before, after),
         "tailoring (mock): every bullet kept once, no number invented",
     )
+    jd2 = (
+        "Platform engineer: we run Kubernetes on AWS, provisioned with Terraform. You will "
+        "write Unit Testing suites for Python services and REST APIs. Bengaluru, hybrid."
+    )
+    tested = {
+        **SAMPLE_RESUME,
+        "project_desc": SAMPLE_RESUME["project_desc"] + "\nWrote unit tests for the REST API",
+    }
+    asked = c.post("/api/resume/tailor", json={**tested, "job_description": jd2}).json()
+    missing, matched = asked.get("missing_keywords", []), asked.get("matched_keywords", [])
+    tailored_text = _json.dumps(
+        [asked.get("summary", ""), *[b for v in asked.get("bullets", {}).values() for b in v]]
+    )
+    check(
+        {"Kubernetes", "Terraform", "AWS"} <= set(missing)
+        and "Unit Testing" in matched
+        and "Unit Testing" not in missing
+        and not any(k in tailored_text for k in ("Kubernetes", "Terraform")),
+        f"tailoring: missing keywords come from the job description ({missing}), word forms "
+        "count as present (unit tests = Unit Testing), and none is added to the resume",
+    )
 
     res = c.post("/api/resume/ats", json={**SAMPLE_RESUME, "template": "government"}).json()
     check(
