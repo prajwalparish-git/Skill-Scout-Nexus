@@ -9,6 +9,7 @@ import {
   CalendarDays,
   Cpu,
   FileText,
+  FolderGit2,
   Gauge,
   HandHeart,
   Home,
@@ -36,6 +37,7 @@ const NAV: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/interview", label: "Mock interview", icon: MessagesSquare },
   { href: "/companies", label: "Company questions", icon: Building2 },
   { href: "/plan", label: "Study plan", icon: CalendarDays },
+  { href: "/projects", label: "Project ideas", icon: FolderGit2 },
   { href: "/contribute", label: "Contribute a question", icon: HandHeart },
   { href: "/settings", label: "Settings", icon: Settings },
 ];

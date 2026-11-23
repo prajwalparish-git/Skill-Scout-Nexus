@@ -660,3 +660,55 @@ export type ContributorProfile = {
 };
 export type Leaderboard = { season: string; since: string; top: { name: string; approved: number }[] };
 export type ContributeMe = { profile: ContributorProfile; contributions: Contribution[]; leaderboard: Leaderboard };
+
+// --- project space and project ideas (server_projects.py) --------------------------------------
+
+/** A GitHub repository, metadata only (never README text or code). */
+export type InspirationRepo = {
+  full_name: string;
+  owner: string;
+  owner_is_org: boolean;
+  /** The company's name when a listed company organization owns it. */
+  company: string;
+  description: string;
+  stars: number;
+  language: string;
+  topics: string[];
+  licence: string;
+  url: string;
+  pushed_at: string;
+};
+export type DerivedFrom = { repo: string; takes: string; differs: string; meta: InspirationRepo | null };
+export type ProjectIdea = {
+  title: string;
+  derivation: "combine" | "student_scale" | "indian_use_case" | "missing_feature";
+  label: string;
+  problem: string;
+  why_it_fits: string;
+  derived_from: DerivedFrom[];
+  stack: string[];
+  gap_skills: string[];
+  scope_weeks: number;
+  milestones: string[];
+  stretch_goals: string[];
+};
+export type IdeaTopic = {
+  topic: string;
+  keyword: string;
+  skill: string;
+  popular: InspirationRepo[];
+  company: InspirationRepo[];
+  hackathon: InspirationRepo[];
+  links: { name: string; url: string }[];
+};
+export type IdeaSet = {
+  id: number;
+  created_at: string;
+  /** live: GitHub just now; cache: GitHub, within a day; seed: built-in examples (offline). */
+  source: "live" | "cache" | "seed";
+  based_on: string;
+  topics: IdeaTopic[];
+  ideas: ProjectIdea[];
+};
+export type ProjectIdeasPayload = { set: IdeaSet | null; topics: { topic: string; keyword: string; skill: string }[]; gaps: string[] };
+export type MyProject = { id: number; name: string; status: string; tech: string; repo_url: string; on_resume: boolean; updated_at: string };
