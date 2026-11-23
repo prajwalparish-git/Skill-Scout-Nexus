@@ -283,3 +283,33 @@ class Organization(BaseModel):
     def short_name(self) -> str:
         """The name before a ' - ' or ',' (long names read badly in a sidebar)."""
         return self.name.split(" - ")[0].split(",")[0].strip() or self.name
+
+
+# --- project ideas (piq/project_ideas.py) --------------------------------------------------------
+
+Derivation = Literal["combine", "student_scale", "indian_use_case", "missing_feature"]
+
+
+class DerivedFrom(BaseModel):
+    """One fetched repository an idea is built from, and how (in our own words)."""
+
+    repo: str = Field(min_length=3, max_length=140)  # its full_name, e.g. owner/name
+    takes: str = Field(max_length=300)  # "we take its idea of ..."
+    differs: str = Field(max_length=300)  # "differs by ..."
+
+
+class ProjectIdea(BaseModel):
+    title: str = Field(min_length=5, max_length=80)
+    derivation: Derivation
+    problem: str = Field(max_length=600)
+    why_it_fits: str = Field(max_length=400)
+    derived_from: list[DerivedFrom] = Field(min_length=1, max_length=3)
+    stack: list[str] = Field(min_length=1, max_length=8)
+    gap_skills: list[str] = Field(min_length=1, max_length=4)
+    scope_weeks: int = Field(ge=1, le=4)
+    milestones: list[str] = Field(min_length=1, max_length=8)
+    stretch_goals: list[str] = Field(default_factory=list, max_length=4)
+
+
+class ProjectIdeas(BaseModel):
+    ideas: list[ProjectIdea] = Field(min_length=1, max_length=6)

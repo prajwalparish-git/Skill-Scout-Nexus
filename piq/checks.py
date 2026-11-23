@@ -13,6 +13,7 @@ from piq.schemas import (
     ExperienceScreen,
     InterviewTurn,
     ProfileExtraction,
+    ProjectIdeas,
     QuizSet,
     TailoredResume,
     WeeklyPlan,
@@ -261,4 +262,80 @@ def check_turn(turn: InterviewTurn, asked: list[str]) -> list[str]:
         reasons.append("ask exactly one question per turn")
     if text_hash(turn.question) in {text_hash(q) for q in asked}:
         reasons.append(f"question already asked: {turn.question[:80]!r}")
+    return reasons
+
+
+# --- project ideas (piq/project_ideas.py) --------------------------------------------------------
+
+DERIVATIONS = ("combine", "student_scale", "indian_use_case", "missing_feature")
+INDIAN_HINTS = (
+    "india", "indian", "upi", "rupee", "₹", "hindi", "kannada", "tamil", "telugu", "marathi",
+    "bengali", "malayalam", "gujarati", "punjabi", "indic", "regional language", "railway",
+    "irctc", "gst", "ondc", "aadhaar", "digilocker", "kisan", "mandi", "bharat", "panchayat",
+    "metro", "bengaluru", "mumbai", "delhi", "chennai", "hyderabad", "pune", "kolkata",
+)  # fmt: skip
+DERIVED_MIN = 15  # characters of "takes" / "differs"
+
+
+def _norm_words(text: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", text.lower()))
+
+
+def _copied(text: str, description: str) -> bool:
+    """`text` is mostly the repo's own description (not our words)."""
+    words, desc = _norm_words(text), _norm_words(description)
+    if len(desc) < 5 or not words:
+        return False
+    return len(words & desc) / len(words) > 0.8 and len(words) >= 5
+
+
+def check_project_ideas(inp: Mapping, out: ProjectIdeas) -> list[str]:
+    """Ideas built from the repos fetched for this request: 3-5, each citing at least two of
+    them (none invented) with what it takes and how it differs in its own words; fitting the
+    student (a skill they have and a real gap in the stack, one or two weeks, concrete)."""
+    reasons: list[str] = []
+    repos = {r["full_name"]: r for r in inp["repos"]}
+    gaps = {g.lower() for g in inp["gaps"]}
+    skills = {s.lower() for s in inp["skills"]}
+    if not 3 <= len(out.ideas) <= 5:
+        reasons.append(f"write 3 to 5 ideas, got {len(out.ideas)}")
+    titles = [i.title.strip().lower() for i in out.ideas]
+    if len(set(titles)) != len(titles):
+        reasons.append("give every idea a different title")
+    for n, idea in enumerate(out.ideas, 1):
+        tag = f"idea {n} ({idea.title[:40]!r})"
+        cited = [d.repo for d in idea.derived_from]
+        invented = [r for r in cited if r not in repos]
+        if invented:
+            reasons.append(f"{tag}: cites repositories that were not fetched: {invented}")
+        if len({r for r in cited if r in repos}) < 2:
+            reasons.append(f"{tag}: build it from at least two different listed repositories")
+        for d in idea.derived_from:
+            if len(d.takes.strip()) < DERIVED_MIN or len(d.differs.strip()) < DERIVED_MIN:
+                reasons.append(f"{tag}: say what it takes from {d.repo} and how it differs")
+            elif d.repo in repos and (
+                _copied(d.takes, repos[d.repo]["description"])
+                or _copied(d.differs, repos[d.repo]["description"])
+            ):
+                reasons.append(f"{tag}: describe {d.repo} in your own words, not its description")
+        if idea.derivation == "indian_use_case" and not any(
+            h in f"{idea.title} {idea.problem}".lower() for h in INDIAN_HINTS
+        ):
+            reasons.append(f"{tag}: name the Indian context (e.g. UPI, an Indic language, GST)")
+        named = {g.lower() for g in idea.gap_skills}
+        if not named or not named <= gaps:
+            reasons.append(f"{tag}: gap_skills must be among the student's gaps {sorted(gaps)}")
+        stack = {s.lower() for s in idea.stack}
+        if skills and not stack & skills:  # a student who lists no skills yet is not held to it
+            reasons.append(f"{tag}: use at least one skill the student already has")
+        if not stack & gaps and not named & gaps:
+            reasons.append(f"{tag}: put at least one skill gap in the stack")
+        if not 1 <= idea.scope_weeks <= 2:
+            reasons.append(f"{tag}: keep the scope to one or two weeks")
+        if not 3 <= len(idea.milestones) <= 6 or any(len(m) < 15 for m in idea.milestones):
+            reasons.append(f"{tag}: give three to six concrete milestones")
+        if not 1 <= len(idea.stretch_goals) <= 3:
+            reasons.append(f"{tag}: give one to three stretch goals")
+        if len(idea.problem.strip()) < 60:
+            reasons.append(f"{tag}: describe the problem in two or three sentences")
     return reasons

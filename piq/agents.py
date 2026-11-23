@@ -22,6 +22,7 @@ from piq.schemas import (
     ExperienceScreen,
     InterviewTurn,
     ProfileExtraction,
+    ProjectIdeas,
     Question,
     QuestionVerdict,
     QuizCritique,
@@ -531,3 +532,43 @@ def tailor_resume(inp: dict, on_event: OnEvent | None = None) -> TailoredResume:
     """`inp`: role, skills, summary, entries {id: bullets}, titles {id: title}, corpus (the
     resume's text, for the summary's numbers), job_description, student_id."""
     return run_or_raise(TAILOR_TASK, inp, on_event)
+
+
+# --- Project ideas derived from fetched repositories --------------------------------------------
+
+
+def _repo_card(n: int, r: dict) -> str:
+    owner = f"{r['owner']} (company: {r['company']})" if r.get("company") else r["owner"]
+    return (
+        f"[{n}] {r['full_name']} by {owner}; {r['stars']} stars; "
+        f"{r['language'] or 'language n/a'}; last pushed {r['pushed_at'] or 'unknown'}; "
+        f"licence {r['licence'] or 'none stated'}\n    topics: {', '.join(r['topics']) or '-'}\n"
+        f"    about: {r['description'] or '(no description)'}"
+    )
+
+
+def _ideas_gen(inp: dict, reasons: list[str], _prev: object) -> tuple[ProjectIdeas, int]:
+    cards = "\n".join(_repo_card(n, r) for n, r in enumerate(inp["repos"], 1))
+    seed = f"\nGo deeper on this direction: {inp['based_on']}\n" if inp.get("based_on") else ""
+    user = (
+        f"Target role: {inp['role']}\nSkills the student has: {', '.join(inp['skills'])}\n"
+        f"Skill gaps: {', '.join(inp['gaps'])}\nTopics: {', '.join(inp['keywords'])}\n{seed}\n"
+        f"Repositories fetched for this request (metadata only):\n{cards}{_feedback(reasons)}"
+    )
+    return llm.call(
+        ProjectIdeas,
+        agent="project_ideas",
+        system=prompts.PROJECT_IDEAS,
+        user=user,
+        context=inp,
+        temperature=0.7,
+        student_id=inp.get("student_id"),
+    )
+
+
+PROJECT_IDEAS_TASK = Task("project_ideas", _ideas_gen, checks.check_project_ideas)
+
+
+def project_ideas(inp: dict, on_event: OnEvent | None = None) -> ProjectIdeas:
+    """`inp`: role, skills, gaps, keywords, repos (metadata dicts), based_on, student_id."""
+    return run_or_raise(PROJECT_IDEAS_TASK, inp, on_event)
