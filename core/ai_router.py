@@ -629,6 +629,7 @@ def try_local(
     temperature: float,
     agent: str,
     failures: dict[str, str] | None = None,
+    json_schema: dict | None = None,
 ) -> Completion | None:
     """The student's own model's answer, or None (the reason goes in `failures`). Its breaker
     is the student's own, so one student's stopped model never pauses anyone else."""
@@ -638,7 +639,7 @@ def try_local(
             failures[LOCAL] = f"paused after errors ({b.reason})"
         return None
     try:
-        out = local.complete(messages, temperature=temperature)
+        out = local.complete(messages, temperature=temperature, json_schema=json_schema)
     except ProviderError as e:
         b.failure(str(e), cooldown=e.cooldown)
         if failures is not None:
@@ -656,6 +657,7 @@ def complete(
     temperature: float,
     agent: str,
     local: "LocalModel | None" = None,
+    json_schema: dict | None = None,
 ) -> Completion:
     """The cached answer, else the first healthy provider's. `local`: the student's own model
     (first when preferred or offline, else last). Raises InvalidJson (repairable; the provider
@@ -669,7 +671,14 @@ def complete(
     limited = 0
     local_first = local is not None and (local.preferred or not connectivity.online())
     if local_first:
-        out = try_local(local, messages, temperature=temperature, agent=agent, failures=failures)
+        out = try_local(
+            local,
+            messages,
+            temperature=temperature,
+            agent=agent,
+            failures=failures,
+            json_schema=json_schema,
+        )
         if out:
             return out
     for name in settings().ai_providers:
@@ -707,7 +716,14 @@ def complete(
         b.success()
         return out
     if local is not None and not local_first:  # the last resort before the offline tier
-        out = try_local(local, messages, temperature=temperature, agent=agent, failures=failures)
+        out = try_local(
+            local,
+            messages,
+            temperature=temperature,
+            agent=agent,
+            failures=failures,
+            json_schema=json_schema,
+        )
         if out:
             return out
     known = [h for h in hints if h]

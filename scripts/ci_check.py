@@ -1679,6 +1679,9 @@ def _fake_local_model() -> tuple[object, int]:
     answer = json.dumps({"bullet": "Built the feature end to end, measured by a passing check."})
 
     class Handler(BaseHTTPRequestHandler):
+        bodies: list[tuple[str, dict]] = []  # every chat request: (path, body)
+        reject_format = False  # answer 400 to response_format, like an older LM Studio
+
         def log_message(self, *args: object) -> None:
             pass
 
@@ -1700,8 +1703,12 @@ def _fake_local_model() -> tuple[object, int]:
                 self._reply(302, location="http://example.com/")  # never followed
 
         def do_POST(self) -> None:
-            self.rfile.read(int(self.headers.get("Content-Length") or 0))
-            if self.path == "/api/chat":
+            raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            body = json.loads(raw or b"{}")
+            Handler.bodies.append((self.path, body))
+            if Handler.reject_format and "response_format" in body:
+                self._reply(400, {"error": "Unknown field: response_format"})
+            elif self.path == "/api/chat":
                 self._reply(200, {"message": {"content": answer}})
             elif self.path == "/v1/chat/completions":
                 self._reply(200, {"choices": [{"message": {"content": f"```json\n{answer}\n```"}}]})
@@ -1766,6 +1773,35 @@ def local_model(c: "TestClient", sid: str) -> None:
                 out.status_code == 200 and db.last_model_used(sid) == f"local:{model}",
                 f"a preferred {provider} model answers the student's AI call{_why(out)}",
             )
+            if provider == "lmstudio":
+                handler = server.RequestHandlerClass
+                sent = [b for path, b in handler.bodies if path == "/v1/chat/completions"]
+                fmt = (sent[-1] if sent else {}).get("response_format") or {}
+                check(
+                    fmt.get("type") == "json_schema"
+                    and "bullet" in json.dumps(fmt.get("json_schema", {}).get("schema", {})),
+                    "LM Studio is asked for JSON (response_format with the expected schema)",
+                )
+                handler.reject_format = True
+                local_ai._NO_RESPONSE_FORMAT.clear()
+                before = len(handler.bodies)
+                again = c.post("/api/resume/enhance-bullet", json=bullet)
+                tries = [b for _, b in handler.bodies[before:]]
+                later = c.post("/api/resume/enhance-bullet", json=bullet)
+                after = [b for _, b in handler.bodies[before + len(tries) :]]
+                handler.reject_format = False
+                local_ai._NO_RESPONSE_FORMAT.clear()
+                check(
+                    again.status_code == 200
+                    and db.last_model_used(sid) == f"local:{model}"
+                    and len(tries) == 2
+                    and "response_format" in tries[0]
+                    and "response_format" not in tries[1]
+                    and later.status_code == 200
+                    and all("response_format" not in b for b in after),
+                    "an LM Studio server that rejects response_format is asked once more "
+                    "without it, and not sent it again",
+                )
         me = c.get("/api/auth/me").json()
         check(me.get("local_ai") == {"model": "ci-model:latest"}, "GET /api/auth/me shows local_ai")
         check(

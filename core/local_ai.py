@@ -186,6 +186,20 @@ def _unfence(text: str) -> str:
     return m.group(1) if m else text
 
 
+# LM Studio servers (base URL, model) that refused response_format: asked without it after.
+_NO_RESPONSE_FORMAT: set[tuple[str, str]] = set()
+
+
+def response_format(json_schema: dict | None) -> dict:
+    """OpenAI-style structured output: the schema when we have it, else any JSON object."""
+    if json_schema:
+        return {
+            "type": "json_schema",
+            "json_schema": {"name": "answer", "strict": False, "schema": json_schema},
+        }
+    return {"type": "json_object"}
+
+
 @dataclass(frozen=True)
 class LocalModel:
     student_id: str
@@ -212,8 +226,13 @@ class LocalModel:
             "preferred": self.preferred,
         }
 
-    def complete(self, messages: Messages, *, temperature: float) -> Completion:
-        """One answer from the student's model; ProviderError when it cannot give one."""
+    def complete(
+        self, messages: Messages, *, temperature: float, json_schema: dict | None = None
+    ) -> Completion:
+        """One answer from the student's model; ProviderError when it cannot give one. Every
+        call wants JSON: Ollama gets format "json"; LM Studio's OpenAI-compatible endpoint gets
+        response_format (json_schema with the expected schema, else json_object). A server
+        that rejects that field is asked once more without it, and is not sent it again."""
         who = label(self.provider)
         try:
             _require_allowed()  # the gate may have closed since the setting was saved
@@ -228,19 +247,7 @@ class LocalModel:
                     body=Ollama.payload(messages, self.model),
                 )
             else:
-                status, data = _send(
-                    "POST",
-                    f"{base}/v1/chat/completions",
-                    who=who,
-                    read_timeout=OLLAMA_TIMEOUT_S,
-                    max_bytes=MAX_ANSWER_BYTES,
-                    body={
-                        "model": self.model,
-                        "messages": messages,
-                        "temperature": temperature,
-                        "stream": False,
-                    },
-                )
+                status, data = self._lmstudio(base, who, messages, temperature, json_schema)
         except LocalAIError as e:
             raise ProviderError(str(e)) from e
         if status == 404:
@@ -258,6 +265,45 @@ class LocalModel:
         except (KeyError, IndexError, TypeError, ValueError) as e:
             raise ProviderError(f"{who} sent an answer this app could not read.") from e
         return Completion(_unfence(str(text)), *tokens, NAME, self.model)
+
+    def _lmstudio(
+        self,
+        base: str,
+        who: str,
+        messages: Messages,
+        temperature: float,
+        json_schema: dict | None,
+    ) -> tuple[int, Any]:
+        body = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature,
+            "stream": False,
+        }
+        key = (base, self.model)
+        asked = key not in _NO_RESPONSE_FORMAT
+        if asked:
+            body["response_format"] = response_format(json_schema)
+        status, data = _send(
+            "POST",
+            f"{base}/v1/chat/completions",
+            who=who,
+            read_timeout=OLLAMA_TIMEOUT_S,
+            max_bytes=MAX_ANSWER_BYTES,
+            body=body,
+        )
+        if asked and status in (400, 422):  # an older server that does not know the field
+            _NO_RESPONSE_FORMAT.add(key)
+            body.pop("response_format")
+            status, data = _send(
+                "POST",
+                f"{base}/v1/chat/completions",
+                who=who,
+                read_timeout=OLLAMA_TIMEOUT_S,
+                max_bytes=MAX_ANSWER_BYTES,
+                body=body,
+            )
+        return status, data
 
 
 def for_student(student_id: str | None) -> LocalModel | None:
