@@ -68,6 +68,7 @@ from server_handsfree import speech_for
 from server_ops import router as ops_router
 from server_proctor import call as proctor_call
 from server_proctor import router as proctor_router
+from server_projects import router as projects_router
 
 log = logging.getLogger("server")
 
@@ -111,6 +112,7 @@ app.include_router(proctor_router)
 app.include_router(handsfree_router)
 app.include_router(contribute_router)
 app.include_router(contribute_ops_router)
+app.include_router(projects_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins(),
