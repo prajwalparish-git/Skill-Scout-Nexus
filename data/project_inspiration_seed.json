@@ -1,31 +1,9 @@
 {
- "_comment": "Curated example repositories per topic for offline use and MOCK_MODE (core/github_search.py), fetched once through GitHub's official Search API. Metadata only: never README text or code.",
+ "_comment": "Curated example repositories per topic for offline use and MOCK_MODE (core/github_search.py), fetched once through GitHub's official Search API. Metadata only: never README text or code. Results that look star-farmed or topic-stuffed are left out.",
  "fetched": "2026-11-23",
  "topics": {
   "react": {
    "popular": [
-    {
-     "full_name": "morluto/rea",
-     "owner": "morluto",
-     "owner_is_org": false,
-     "company": "",
-     "description": "Reverse engineer anything with agents, from app behavior down to native binaries.",
-     "stars": 474069,
-     "language": "TypeScript",
-     "topics": [
-      "agent-skills",
-      "ai",
-      "android",
-      "claude-code",
-      "cli",
-      "cpp",
-      "dsh-plugin",
-      "html"
-     ],
-     "licence": "MIT",
-     "url": "https://github.com/morluto/rea",
-     "pushed_at": "2026-11-23"
-    },
     {
      "full_name": "freeCodeCamp/freeCodeCamp",
      "owner": "freeCodeCamp",
@@ -388,28 +366,6 @@
   },
   "javascript": {
    "popular": [
-    {
-     "full_name": "morluto/rea",
-     "owner": "morluto",
-     "owner_is_org": false,
-     "company": "",
-     "description": "Reverse engineer anything with agents, from app behavior down to native binaries.",
-     "stars": 474069,
-     "language": "TypeScript",
-     "topics": [
-      "agent-skills",
-      "ai",
-      "android",
-      "claude-code",
-      "cli",
-      "cpp",
-      "dsh-plugin",
-      "html"
-     ],
-     "licence": "MIT",
-     "url": "https://github.com/morluto/rea",
-     "pushed_at": "2026-11-23"
-    },
     {
      "full_name": "freeCodeCamp/freeCodeCamp",
      "owner": "freeCodeCamp",
@@ -780,28 +736,6 @@
   "typescript": {
    "popular": [
     {
-     "full_name": "morluto/rea",
-     "owner": "morluto",
-     "owner_is_org": false,
-     "company": "",
-     "description": "Reverse engineer anything with agents, from app behavior down to native binaries.",
-     "stars": 474070,
-     "language": "TypeScript",
-     "topics": [
-      "agent-skills",
-      "ai",
-      "android",
-      "claude-code",
-      "cli",
-      "cpp",
-      "dsh-plugin",
-      "html"
-     ],
-     "licence": "MIT",
-     "url": "https://github.com/morluto/rea",
-     "pushed_at": "2026-11-23"
-    },
-    {
      "full_name": "microsoft/vscode",
      "owner": "microsoft",
      "owner_is_org": true,
@@ -1162,28 +1096,6 @@
   },
   "nodejs": {
    "popular": [
-    {
-     "full_name": "morluto/rea",
-     "owner": "morluto",
-     "owner_is_org": false,
-     "company": "",
-     "description": "Reverse engineer anything with agents, from app behavior down to native binaries.",
-     "stars": 474070,
-     "language": "TypeScript",
-     "topics": [
-      "agent-skills",
-      "ai",
-      "android",
-      "claude-code",
-      "cli",
-      "cpp",
-      "dsh-plugin",
-      "html"
-     ],
-     "licence": "MIT",
-     "url": "https://github.com/morluto/rea",
-     "pushed_at": "2026-11-23"
-    },
     {
      "full_name": "freeCodeCamp/freeCodeCamp",
      "owner": "freeCodeCamp",
@@ -1550,28 +1462,6 @@
   },
   "python": {
    "popular": [
-    {
-     "full_name": "morluto/rea",
-     "owner": "morluto",
-     "owner_is_org": false,
-     "company": "",
-     "description": "Reverse engineer anything with agents, from app behavior down to native binaries.",
-     "stars": 474071,
-     "language": "TypeScript",
-     "topics": [
-      "agent-skills",
-      "ai",
-      "android",
-      "claude-code",
-      "cli",
-      "cpp",
-      "dsh-plugin",
-      "html"
-     ],
-     "licence": "MIT",
-     "url": "https://github.com/morluto/rea",
-     "pushed_at": "2026-11-23"
-    },
     {
      "full_name": "practical-tutorials/project-based-learning",
      "owner": "practical-tutorials",
@@ -1946,28 +1836,6 @@
   },
   "java": {
    "popular": [
-    {
-     "full_name": "morluto/rea",
-     "owner": "morluto",
-     "owner_is_org": false,
-     "company": "",
-     "description": "Reverse engineer anything with agents, from app behavior down to native binaries.",
-     "stars": 474072,
-     "language": "TypeScript",
-     "topics": [
-      "agent-skills",
-      "ai",
-      "android",
-      "claude-code",
-      "cli",
-      "cpp",
-      "dsh-plugin",
-      "html"
-     ],
-     "licence": "MIT",
-     "url": "https://github.com/morluto/rea",
-     "pushed_at": "2026-11-23"
-    },
     {
      "full_name": "Snailclimb/JavaGuide",
      "owner": "Snailclimb",
@@ -5782,28 +5650,6 @@
   "android": {
    "popular": [
     {
-     "full_name": "morluto/rea",
-     "owner": "morluto",
-     "owner_is_org": false,
-     "company": "",
-     "description": "Reverse engineer anything with agents, from app behavior down to native binaries.",
-     "stars": 474076,
-     "language": "TypeScript",
-     "topics": [
-      "agent-skills",
-      "ai",
-      "android",
-      "claude-code",
-      "cli",
-      "cpp",
-      "dsh-plugin",
-      "html"
-     ],
-     "licence": "MIT",
-     "url": "https://github.com/morluto/rea",
-     "pushed_at": "2026-11-23"
-    },
-    {
      "full_name": "flutter/flutter",
      "owner": "flutter",
      "owner_is_org": true,
@@ -7882,28 +7728,6 @@
   },
   "linux": {
    "popular": [
-    {
-     "full_name": "morluto/rea",
-     "owner": "morluto",
-     "owner_is_org": false,
-     "company": "",
-     "description": "Reverse engineer anything with agents, from app behavior down to native binaries.",
-     "stars": 474082,
-     "language": "TypeScript",
-     "topics": [
-      "agent-skills",
-      "ai",
-      "android",
-      "claude-code",
-      "cli",
-      "cpp",
-      "dsh-plugin",
-      "html"
-     ],
-     "licence": "MIT",
-     "url": "https://github.com/morluto/rea",
-     "pushed_at": "2026-11-23"
-    },
     {
      "full_name": "clash-verge-rev/clash-verge-rev",
      "owner": "clash-verge-rev",

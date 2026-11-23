@@ -1026,6 +1026,8 @@ def project_ideas_checks(c: "TestClient", sid: str) -> None:
             item(f"netflix-fan/{t}-clone", owner_type="User", topics=(t,)),  # a namesake user
             item(f"student-one/{t}-hack", owner_type="User", topics=(t, "hackathon"), licence=None),
             item(f"nolicence/{t}-thing", topics=(t,), licence=None),
+            item(f"spam-farm/{t}-hype", stars=900_000, topics=(t,))
+            | {"created_at": _time.strftime("%Y-%m-%dT00:00:00Z")},  # star farming: dropped
         )
     fake.install()
     live = dataclasses.replace(settings(), mock_mode=False)
@@ -1044,8 +1046,10 @@ def project_ideas_checks(c: "TestClient", sid: str) -> None:
             and README_MARK not in stored["payload_json"]
             and "@example.com" not in stored["payload_json"]
             and ".git" not in stored["payload_json"]
+            and "spam-farm" not in stored["payload_json"]
             and set(fake.paths) == {"/search/repositories"},
-            "Project ideas: only whitelisted GitHub metadata is stored, never a README or code",
+            "Project ideas: only whitelisted GitHub metadata is stored (never a README or code), "
+            "star-farmed repos dropped",
         )
         company = {r.full_name for r in gh.find(t0, "company").repos}
         check(

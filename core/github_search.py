@@ -124,6 +124,24 @@ def _one_line(text: str | None) -> str:
     return line if len(line) <= DESCRIPTION_MAX else line[: DESCRIPTION_MAX - 1].rstrip() + "…"
 
 
+STUFFED_TOPICS = 20  # GitHub's maximum: a repo tagged with everything to appear everywhere
+FARMED_STARS_PER_DAY = 1000  # sustained over a young repo's life: bought stars, not interest
+
+
+def suspicious(item: dict, today: date | None = None) -> bool:
+    """A result not to show students: topics stuffed to the limit, or a repo under a year old
+    that averaged more than FARMED_STARS_PER_DAY stars a day (star farming)."""
+    if len(item.get("topics") or []) >= STUFFED_TOPICS:
+        return True
+    try:
+        created = date.fromisoformat(str(item.get("created_at") or "")[:10])
+    except ValueError:
+        return False
+    age = ((today or date.today()) - created).days
+    stars = int(item.get("stargazers_count") or 0)
+    return 0 <= age < 365 and stars / max(age, 1) > FARMED_STARS_PER_DAY
+
+
 def to_repo(item: dict) -> Repo | None:
     """A search result as a Repo: the whitelisted fields only (None when it is malformed)."""
     owner = item.get("owner") or {}
@@ -250,7 +268,11 @@ def search(query: str, sort: str = "stars") -> list[Repo]:
         items = r.json().get("items") or []
     except ValueError as e:
         raise Unavailable("GitHub sent no JSON") from e
-    return [repo for item in items if isinstance(item, dict) and (repo := to_repo(item))]
+    return [
+        repo
+        for item in items
+        if isinstance(item, dict) and not suspicious(item) and (repo := to_repo(item))
+    ]
 
 
 # --- cache --------------------------------------------------------------------------------------
