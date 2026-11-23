@@ -9,6 +9,10 @@ Tiers, in AI_PROVIDERS order (default: speed first):
    loaded (keep_alive -1) with a small context and answer budget for speed.
 4. Then piq/llm.py's offline tier answers from data/ (question bank, role skills, tracks).
 
+A student's own model (core/local_ai.py, `local=`) joins the order: first when they prefer it,
+first when the network is down (no waiting on cloud timeouts), else last before giving up. Its
+answers are never stored in the shared prompt cache: that model is the student's, not ours.
+
 Each provider also sits behind a circuit breaker: errors that mean "this provider is down"
 (network, timeouts, HTTP 5xx, a retired model) open it after ROUTER_FAILURE_THRESHOLD in a row,
 and requests skip it until a cooldown passes. A provider with no key, or with every key
@@ -33,6 +37,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from core import connectivity
 from core.ai_cache import PromptCache, request_key
 from core.key_pool import KeyPoolManager
 from piq.config import (
@@ -52,14 +57,22 @@ from piq.config import (
 if TYPE_CHECKING:
     from groq import Groq
 
+    from core.local_ai import LocalModel
+
 Size = Literal["large", "small"]
 Messages = list[dict[str, str]]
 State = Literal["ready", "paused", "off"]
 log = logging.getLogger("core.ai_router")
 
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-LABELS = {"gemini": "Gemini", "groq": "Groq", "ollama": "Ollama (local)"}
+LABELS = {
+    "gemini": "Gemini",
+    "groq": "Groq",
+    "ollama": "Ollama (local)",
+    "local": "Your local model",
+}
 CACHE = "cache"  # Completion.provider of an answer served from the prompt cache
+LOCAL = "local"  # Completion.provider of an answer from a student's own model
 
 
 @dataclass(frozen=True)
@@ -585,8 +598,9 @@ def cached(messages: Messages, *, size: Size, temperature: float, agent: str) ->
 def remember(
     messages: Messages, text: str, label: str, *, size: Size, temperature: float, agent: str
 ) -> None:
-    """Store an answer that passed validation (piq/llm.py calls this; never an invalid one)."""
-    if _cacheable(agent) and not label.startswith(f"{CACHE}:"):
+    """Store an answer that passed validation (piq/llm.py calls this; never an invalid one).
+    A student's own model is never stored: its answers must not reach other students."""
+    if _cacheable(agent) and not label.startswith((f"{CACHE}:", f"{LOCAL}:")):
         prompt_cache().put(request_key(messages, size, temperature, agent), text, label)
 
 
@@ -608,9 +622,46 @@ def reset() -> None:
 # --- routing ----------------------------------------------------------------------------------
 
 
-def complete(messages: Messages, *, size: Size, temperature: float, agent: str) -> Completion:
-    """The cached answer, else the first healthy provider's. Raises InvalidJson (repairable;
-    the provider is up) or AllProvidersDown."""
+def try_local(
+    local: "LocalModel",
+    messages: Messages,
+    *,
+    temperature: float,
+    agent: str,
+    failures: dict[str, str] | None = None,
+    json_schema: dict | None = None,
+) -> Completion | None:
+    """The student's own model's answer, or None (the reason goes in `failures`). Its breaker
+    is the student's own, so one student's stopped model never pauses anyone else."""
+    b = breaker(local.breaker_key)
+    if not b.allow():
+        if failures is not None:
+            failures[LOCAL] = f"paused after errors ({b.reason})"
+        return None
+    try:
+        out = local.complete(messages, temperature=temperature, json_schema=json_schema)
+    except ProviderError as e:
+        b.failure(str(e), cooldown=e.cooldown)
+        if failures is not None:
+            failures[LOCAL] = str(e)
+        log.info("%s: the student's local model could not answer (%s)", agent, e)
+        return None
+    b.success()
+    return out
+
+
+def complete(
+    messages: Messages,
+    *,
+    size: Size,
+    temperature: float,
+    agent: str,
+    local: "LocalModel | None" = None,
+    json_schema: dict | None = None,
+) -> Completion:
+    """The cached answer, else the first healthy provider's. `local`: the student's own model
+    (first when preferred or offline, else last). Raises InvalidJson (repairable; the provider
+    is up) or AllProvidersDown."""
     hit = cached(messages, size=size, temperature=temperature, agent=agent)
     if hit:
         return hit
@@ -618,6 +669,18 @@ def complete(messages: Messages, *, size: Size, temperature: float, agent: str) 
     skipped: dict[str, str] = {}
     hints: list[float | None] = []
     limited = 0
+    local_first = local is not None and (local.preferred or not connectivity.online())
+    if local_first:
+        out = try_local(
+            local,
+            messages,
+            temperature=temperature,
+            agent=agent,
+            failures=failures,
+            json_schema=json_schema,
+        )
+        if out:
+            return out
     for name in settings().ai_providers:
         provider = PROVIDERS[name]
         why = provider.unavailable()
@@ -652,6 +715,17 @@ def complete(messages: Messages, *, size: Size, temperature: float, agent: str) 
             continue
         b.success()
         return out
+    if local is not None and not local_first:  # the last resort before the offline tier
+        out = try_local(
+            local,
+            messages,
+            temperature=temperature,
+            agent=agent,
+            failures=failures,
+            json_schema=json_schema,
+        )
+        if out:
+            return out
     known = [h for h in hints if h]
     raise AllProvidersDown(
         failures,

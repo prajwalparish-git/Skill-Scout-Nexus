@@ -53,6 +53,32 @@ _TRACK_TEMPLATES = [
 ]
 
 
+def _words(text: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z][a-z0-9+#.]{2,}", text.lower())}
+
+
+def _tailor(ctx: dict) -> dict:
+    """Bullets ranked by how many of the job description's words they share (ties keep their
+    order), wording unchanged; the summary gains the student's own skills the job asks for.
+    Nothing is invented, so it passes the same checks a model's answer must."""
+    jd = _words(ctx["job_description"])
+    entries = []
+    for eid, bullets in ctx["entries"].items():
+        ranked = sorted(range(len(bullets)), key=lambda i: (-len(_words(bullets[i]) & jd), i))
+        entries.append({"id": eid, "bullets": [{"n": i + 1, "text": bullets[i]} for i in ranked]})
+    text = ctx["job_description"].lower()
+    asked = [s for s in ctx["skills"] if re.search(rf"(?<!\w){re.escape(s.lower())}(?!\w)", text)]
+    summary = ctx["summary"].strip()
+    if asked:
+        summary = f"{summary} Relevant to this role: {', '.join(asked[:6])}."
+    return {"summary": summary[:800], "entries": entries}
+
+
+def _screener(ctx: dict) -> dict:
+    """Nothing beyond the deterministic cleaning (piq/experience_checks.py): text unchanged."""
+    return {"questions": list(ctx["questions"]), "tip": ctx["tip"], "flags": []}
+
+
 def _bullet(ctx: dict) -> dict:
     text = ctx["text"].strip().rstrip(".")
     return {"bullet": f"Delivered {text[0].lower()}{text[1:]}, measured by [metric]."}
@@ -217,7 +243,97 @@ _HANDLERS = {
     "judge": _judge,
     "bullet": _bullet,
     "github_readme": _github_readme,
+    "tailor": _tailor,
+    "screener": _screener,
 }
+
+
+def _short(full_name: str) -> str:
+    return full_name.split("/", 1)[-1].replace("-", " ").replace("_", " ")[:28]
+
+
+def _project_ideas(ctx: dict) -> dict:
+    """Deterministic ideas built from the repos actually given: one per derivation, each citing
+    two of them by name with what it takes and how it differs (in its own words)."""
+    repos = sorted(ctx["repos"], key=lambda r: (-r["stars"], r["full_name"]))
+    gaps = list(ctx["gaps"]) or ["Git"]
+    have = list(ctx["skills"]) or ["Python"]
+    kw = (ctx.get("keywords") or ["software"])[0]
+    n = len(repos)
+    plans = [
+        ("combine", 0, 1), ("student_scale", 1, 2), ("indian_use_case", 2, 0),
+        ("missing_feature", 0, 3),
+    ]  # fmt: skip
+    ideas = []
+    for i, (derivation, a, b) in enumerate(plans):
+        if n < 2:
+            break
+        ra, rb = repos[a % n], repos[b % n]
+        if ra["full_name"] == rb["full_name"]:
+            rb = repos[(b + 1) % n]
+        gap, skill = gaps[i % len(gaps)], have[i % len(have)]
+        about = ", ".join(ra["topics"][:2]) or kw
+        title, problem = {
+            "combine": (
+                f"{_short(ra['full_name']).title()} with {_short(rb['full_name'])} ideas",
+                f"Students learning {kw} rarely see two approaches working together. This "
+                f"project joins what {ra['full_name']} does with how {rb['full_name']} works, "
+                f"as one small {gap} app with a clear demo.",
+            ),
+            "student_scale": (
+                f"Mini {_short(ra['full_name'])} for one team",
+                f"{ra['full_name']} is built for large teams. A one-week version keeps its core "
+                f"{about} idea, small enough to explain line by line in a viva, and uses {gap}.",
+            ),
+            "indian_use_case": (
+                f"{kw.title()} for Indian users: UPI and Hindi ready",
+                f"Most {kw} tools assume Western payments and English. This adapts the idea "
+                f"behind {ra['full_name']} for Indian users: UPI payment links, Hindi and "
+                f"regional language labels, and Indian open data as its sample data.",
+            ),
+            "missing_feature": (
+                f"The missing piece in {kw} tools",
+                f"Neither {ra['full_name']} nor {rb['full_name']} gives a beginner a guided "
+                f"first-run walkthrough. This project adds one as a standalone {gap} tool, "
+                f"tested on three classmates.",
+            ),
+        }[derivation]
+        ideas.append(
+            {
+                "title": title[:80],
+                "derivation": derivation,
+                "problem": problem,
+                "why_it_fits": f"It practises {gap}, a gap in your profile, on top of {skill}, "
+                "which you already know.",
+                "derived_from": [
+                    {
+                        "repo": ra["full_name"],
+                        "takes": f"We take its approach to {about}, kept small.",
+                        "differs": f"Differs by targeting one student project built with {gap}.",
+                    },
+                    {
+                        "repo": rb["full_name"],
+                        "takes": f"We take its way of structuring a {rb['language'] or kw} "
+                        "project.",
+                        "differs": "Differs by covering one use case end to end, not a toolkit.",
+                    },
+                ],
+                "stack": [skill, gap] + ([ra["language"]] if ra["language"] else []),
+                "gap_skills": [gap],
+                "scope_weeks": 2 if derivation in ("combine", "missing_feature") else 1,
+                "milestones": [
+                    f"Set up the repository, README and a {skill} skeleton",
+                    f"Build the core feature using {gap}",
+                    "Add tests for the main path and one failure case",
+                    "Record a two-minute demo and write the results in the README",
+                ],
+                "stretch_goals": [f"Deploy it and invite five users to try the {kw} feature"],
+            }
+        )
+    return {"ideas": ideas}
+
+
+_HANDLERS["project_ideas"] = _project_ideas
 
 
 def respond(agent: str, ctx: dict) -> dict:

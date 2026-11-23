@@ -1,0 +1,760 @@
+"""Company interview experiences: our own bank, reported by students in their own words.
+
+Nothing is copied from any website. A post is cleaned (piq/experience_checks.py), screened in
+live mode (names only, never new text), and stays pending until a person approves it: the
+poster's organization admin, or the operations view for an individual learner. Approved posts
+are visible to every signed-in student under a label worked out when shown (never the poster's
+name): "a <college> student, <year>" once at least LABEL_MIN_POSTERS of that batch have approved
+posts, otherwise "a student, <year>".
+
+Practice keeps reported, open and AI material apart: reported MCQs become a quiz and reported
+open questions a mock interview (asked word for word); "AI practice in the style of a company" is
+always marked source "ai" and never stored as reported. Until students report a company, every
+company page offers "Practice by round" from the open question bank (piq/open_questions.py),
+source "open", labelled "General practice (open question bank)" and never claimed as asked at
+that company. Company practice scores never touch the syllabus topics' quiz history, levels or
+weekly plan.
+"""
+
+import json
+import logging
+import random
+import uuid
+from collections import Counter
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
+
+from piq import (
+    agents,
+    contributions,
+    db,
+    experience_checks,
+    open_questions,
+    question_bank,
+    services,
+    syllabus,
+)
+from piq.config import (
+    DIFFICULTIES,
+    EXPERIENCE_DAILY_MAX,
+    EXPERIENCE_PENDING_MAX,
+    EXPERIENCE_ROUNDS,
+    LABEL_MIN_POSTERS,
+    PROCESS_RESULTS,
+    PROCESS_ROUND_TYPES,
+    REPORTS_TO_HIDE,
+    settings,
+)
+from piq.experience_checks import ExperienceRejected
+from piq.graph import CriticRejected, OnEvent
+from piq.llm import LLMError
+from piq.schemas import Question
+from piq.services import ServiceError
+
+log = logging.getLogger("piq.experiences")
+OPS = "ops"  # the operations view: moderates individual learners' posts (org_id NULL)
+QUIZ_ROUNDS = {"aptitude": "Aptitude", "coding": "DSA"}  # AI practice topic per quiz round
+INTERVIEW_ROUNDS = ("hr", "group_discussion", "technical")
+AI_LABEL = "AI practice, not reported by a student"
+OPEN_ROUNDS = {"aptitude": "Aptitude", "technical": "Technical", "hr": "HR"}  # practice by round
+APTITUDE_TOPICS = ("Aptitude", "Reasoning")
+DEFAULT_TECH_TOPICS = ("DSA", "OOP", "OS", "CN", "DBMS", "ML & Data Science")
+OPEN_SCRIPT = 4  # open questions asked word for word before the AI interviewer closes
+
+
+class ExperienceLimit(ServiceError):
+    """Too many posts for now (the API answers 429)."""
+
+
+# --- submitting --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Submitted:
+    id: int
+    status: str
+    removed: list[str]  # kinds of personal data taken out, shown to the poster
+
+
+def _org_short(org_id: int | None) -> str:
+    row = db.organization(org_id) if org_id else None
+    if row is None:
+        return ""
+    name = row["name"]
+    return name.split(" - ")[0].split(",")[0].strip() or name
+
+
+def submit(student_id: str, form: Mapping) -> Submitted:
+    """Clean a post and keep it pending for its moderator. Raises ServiceError (with the reason
+    a post was refused) or ExperienceLimit."""
+    student = db.student(student_id)
+    if student is None:
+        raise ServiceError("Sign in first.")
+    since = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+    if db.experience_posts_since(student_id, since) >= EXPERIENCE_DAILY_MAX:
+        raise ExperienceLimit(
+            f"You can share up to {EXPERIENCE_DAILY_MAX} interviews a day. Try again tomorrow."
+        )
+    if db.experience_pending_count(student_id) >= EXPERIENCE_PENDING_MAX:
+        raise ExperienceLimit(
+            f"You have {EXPERIENCE_PENDING_MAX} posts waiting for review; wait for those first."
+        )
+    own = experience_checks.own_identity(student["name"], student["username"], student["email"])
+    try:
+        cleaned = experience_checks.clean_submission(form, own)
+    except ExperienceRejected as e:
+        raise ServiceError(str(e)) from e
+    questions, tip, process, flags = _screen(student_id, cleaned)
+    content_hash = experience_checks.content_hash(
+        cleaned.company_slug, experience_checks.post_texts(questions, process)
+    )
+    if db.experience_hash_taken(content_hash):
+        raise ServiceError("These questions have already been shared for this company.")
+    org_id = student["org_id"]
+    batch = str(student["batch_year"] or "").strip()[:4] or cleaned.interview_month[:4]
+    exp_id = db.add_experience(
+        {
+            "student_id": student_id,
+            "org_id": org_id,
+            "org_short": _org_short(org_id),
+            "batch_year": batch,
+            "show_college": int(cleaned.show_college),
+            "company_slug": cleaned.company_slug,
+            "company_name": cleaned.company_name,
+            "role": cleaned.role,
+            "round": cleaned.round,
+            "interview_month": cleaned.interview_month,
+            "tip": tip,
+            "flags": json.dumps(flags),
+            "content_hash": content_hash,
+        },
+        questions,
+        process,
+    )
+    return Submitted(exp_id, "pending", cleaned.removed)
+
+
+def _screen(
+    student_id: str, cleaned: experience_checks.Cleaned
+) -> tuple[list[dict], str, dict | None, list[str]]:
+    """Live mode: the screener may replace names the regexes missed and add flags (it can never
+    add text: checks.check_screen); the process summary is screened with the questions.
+    MOCK_MODE: the deterministic cleaning alone."""
+    flags = list(cleaned.flags)
+    process = cleaned.process
+    if settings().mock_mode:
+        return cleaned.questions, cleaned.tip, process, flags
+    texts = [q["text"] for q in cleaned.questions]
+    with_summary = bool(process and process["summary"])
+    try:
+        out = agents.screen_experience(
+            {
+                "company": cleaned.company_name,
+                "round": EXPERIENCE_ROUNDS[cleaned.round],
+                "questions": [*texts, process["summary"]] if with_summary else texts,
+                "tip": cleaned.tip,
+                "student_id": student_id,
+            }
+        )
+    except (LLMError, CriticRejected) as e:
+        log.info("experience screening unavailable (%s); deterministic cleaning only", e)
+        unavailable = [*flags, "automatic name screening unavailable"]
+        return cleaned.questions, cleaned.tip, process, unavailable
+    screened = list(out.questions)
+    if with_summary:
+        process = {**process, "summary": screened.pop()}
+    questions = [{**q, "text": t} for q, t in zip(cleaned.questions, screened, strict=True)]
+    return questions, out.tip, process, [*flags, *(f"AI screen: {f}" for f in out.flags)]
+
+
+def my_posts(student_id: str) -> list[dict]:
+    rows = db.experiences_of(student_id)
+    qs = db.experience_questions([r["id"] for r in rows])
+    processes = db.experience_processes([r["id"] for r in rows])
+    return [
+        {
+            "id": r["id"],
+            "company": r["company_name"],
+            "role": r["role"],
+            "round": r["round"],
+            "interview_month": r["interview_month"],
+            "status": r["status"],
+            "reject_reason": r["reject_reason"],
+            "questions": len(qs[r["id"]]),
+            "process": r["id"] in processes,
+            "created_at": r["created_at"],
+        }
+        for r in rows
+    ]
+
+
+def _process_out(row: Mapping) -> dict:
+    """A stored process (an experience_processes row, or a post joined with it), for display:
+    each round with its label."""
+    rounds = json.loads(row["rounds_json"])
+    return {
+        "rounds": [{**r, "label": PROCESS_ROUND_TYPES[r["type"]]} for r in rounds],
+        "result": row["result"],
+        "result_label": PROCESS_RESULTS[row["result"]],
+        "summary": row["summary"],
+    }
+
+
+# --- labels -----------------------------------------------------------------------------------
+
+
+def label(row: Mapping, batch_sizes: Mapping[tuple[int, str], int]) -> str:
+    """Who shared a post, without naming them: the college only when they allowed it and
+    at least LABEL_MIN_POSTERS of their batch have approved posts (a small batch could
+    otherwise point at one person)."""
+    year = row["batch_year"] or row["interview_month"][:4]
+    big_enough = batch_sizes.get((row["org_id"], row["batch_year"]), 0) >= LABEL_MIN_POSTERS
+    if row["org_id"] and row["show_college"] and row["org_short"] and big_enough:
+        return f"a {row['org_short']} student, {year}"
+    return f"a student, {year}"
+
+
+# --- moderation -------------------------------------------------------------------------------
+
+
+def _moderates(moderator: int | str, row: Mapping) -> bool:
+    if moderator == OPS:
+        return row["org_id"] is None
+    return row["org_id"] is not None and row["org_id"] == moderator
+
+
+def review_queue(moderator: int | str) -> list[dict]:
+    """Posts waiting for this moderator (an organization id, or OPS), oldest first, with the
+    automated flags and the label they would show."""
+    rows = db.experiences_to_review(None if moderator == OPS else int(moderator))
+    qs = db.experience_questions([r["id"] for r in rows])
+    processes = db.experience_processes([r["id"] for r in rows])
+    sizes = db.approved_posters_by_batch()
+    return [
+        {
+            "id": r["id"],
+            "company": r["company_name"],
+            "company_slug": r["company_slug"],
+            "known_company": not r["company_slug"].startswith("x-"),
+            "role": r["role"],
+            "round": r["round"],
+            "interview_month": r["interview_month"],
+            "tip": r["tip"],
+            "status": r["status"],
+            "flags": json.loads(r["flags"] or "[]"),
+            "label": label(r, sizes),
+            "questions": [_question(q, reveal=True) for q in qs[r["id"]]],
+            "process": _process_out(processes[r["id"]]) if r["id"] in processes else None,
+            "created_at": r["created_at"],
+        }
+        for r in rows
+    ]
+
+
+def review(
+    moderator: int | str,
+    experience_id: int,
+    approve: bool,
+    reason: str = "",
+    company: str | None = None,
+) -> None:
+    """Approve or reject one post this moderator is responsible for (refused otherwise)."""
+    row = db.experience(experience_id)
+    if row is None or not _moderates(moderator, row):
+        raise ServiceError("That post is not one you moderate.")
+    if row["status"] not in ("pending", "hidden"):
+        raise ServiceError("That post has already been reviewed.")
+    reason = " ".join((reason or "").split())[:300]
+    if not approve and not reason:
+        raise ServiceError("Say why the post is rejected; the student sees the reason.")
+    fixed = None
+    if company and company.strip():
+        try:
+            slug, name, _ = experience_checks.normalise_company(company)
+        except ExperienceRejected as e:
+            raise ServiceError(str(e)) from e
+        fixed = (slug, name)
+    by = OPS if moderator == OPS else f"org:{moderator}"
+    db.review_experience(
+        experience_id, "approved" if approve else "rejected", by, "" if approve else reason, fixed
+    )
+
+
+def report(student_id: str, experience_id: int) -> int:
+    """A signed-in student reports a published post; enough reports hide it for review."""
+    row = db.experience(experience_id)
+    if row is None or row["status"] != "approved":
+        raise ServiceError("Only published posts can be reported.")
+    if row["student_id"] == student_id:
+        raise ServiceError("You cannot report your own post.")
+    return db.report_experience(experience_id, student_id, REPORTS_TO_HIDE)
+
+
+# --- browsing ---------------------------------------------------------------------------------
+
+
+def _question(q: Mapping, reveal: bool) -> dict:
+    out = {"kind": q["kind"], "text": q["text"]}
+    if q["kind"] == "mcq":
+        out["options"] = json.loads(q["options_json"] or "[]")
+        if reveal:
+            out["correct_index"] = q["correct_index"]
+            out["explanation"] = q["explanation"]
+    return out
+
+
+_PRACTICE_TOTAL: dict[int, int] = {}  # id(the loaded bank) -> practice questions (one entry)
+
+
+def practice_total() -> int:
+    """Open-bank questions a company page offers for practice, before a student's profile is
+    known: its aptitude and technical rounds (open_topics without a student) plus the HR round's
+    interview questions. The same for every company, since every page offers the same rounds.
+    Cached until the bank reloads (a new contribution, a new seed)."""
+    key = id(question_bank._load())
+    if key not in _PRACTICE_TOTAL:
+        rounds = open_practice(None, "")["rounds"]
+        _PRACTICE_TOTAL.clear()
+        _PRACTICE_TOTAL[key] = sum(rounds.values())
+    return _PRACTICE_TOTAL[key]
+
+
+def counts_line(reported: int, practice: int) -> str:
+    """The honest count shown on a company card: reported questions first, then general
+    practice (never claimed as asked there)."""
+    p = f"{practice:,} practice question{'s' if practice != 1 else ''}"
+    if not reported:
+        return f"{p} · no reports yet"
+    return f"{reported:,} reported question{'s' if reported != 1 else ''} · {p}"
+
+
+def companies_overview() -> list[dict]:
+    """Every known company and any with approved posts: counts per round, careers link, and
+    the questions it offers: reported (approved, from students and contributors) and general
+    practice (the open question bank's, for the rounds its page offers)."""
+    out: dict[str, dict] = {
+        c["slug"]: {
+            "slug": c["slug"],
+            "name": c["name"],
+            "careers_url": c.get("careers_url", ""),
+            "posts": 0,
+            "questions": 0,
+            "rounds": {},
+        }
+        for c in experience_checks.companies()
+    }
+    for r in db.approved_experience_counts():
+        c = out.setdefault(
+            r["company_slug"],
+            {
+                "slug": r["company_slug"],
+                "name": r["company_name"],
+                "careers_url": "",
+                "posts": 0,
+                "questions": 0,
+                "rounds": {},
+            },
+        )
+        c["posts"] += r["posts"]
+        c["questions"] += r["questions"]
+        c["rounds"][r["round"]] = {"posts": r["posts"], "questions": r["questions"]}
+    processes = db.approved_process_counts()
+    for c in out.values():
+        c["processes"] = processes.get(c["slug"], 0)
+    for slug, n in processes.items():  # a company only processes were reported for
+        if slug not in out:
+            name = db.approved_experiences(slug)[0]["company_name"]
+            out[slug] = {"slug": slug, "name": name, "careers_url": "", "posts": 0,
+                         "questions": 0, "rounds": {}, "processes": n}  # fmt: skip
+    practice = practice_total()
+    for c in out.values():
+        c["practice_questions"] = practice
+        c["counts_line"] = counts_line(c["questions"], practice)
+    return sorted(out.values(), key=lambda c: (-c["posts"] - c["processes"], c["name"].lower()))
+
+
+def company_detail(slug: str, round_: str | None = None, student_id: str | None = None) -> dict:
+    """A company's approved posts (newest interview first), labelled, never named; the open
+    question bank's practice by round (counts for this student's topics); and the company's
+    test pattern only when taken from its official page (with that link)."""
+    if round_ is not None and round_ not in EXPERIENCE_ROUNDS:
+        raise ServiceError("Unknown round.")
+    known = experience_checks.company(slug)
+    rows = db.approved_experiences(slug, round_)
+    if known is None and not rows and not db.approved_experiences(slug):
+        raise ServiceError("No such company.")
+    overview = next((c for c in companies_overview() if c["slug"] == slug), None)
+    qs = db.experience_questions([r["id"] for r in rows])
+    sizes = db.approved_posters_by_batch()
+    name = known["name"] if known else (rows[0]["company_name"] if rows else slug)
+    return {
+        "slug": slug,
+        "name": name,
+        "careers_url": (known or {}).get("careers_url", ""),
+        "test_pattern": official_test_pattern(known),
+        "open_practice": open_practice(student_id, name),
+        "rounds": (overview or {}).get("rounds", {}),
+        "reported": bool(overview and (overview["posts"] or overview["processes"])),
+        "posts": [
+            {
+                "id": r["id"],
+                "label": label(r, sizes),
+                "role": r["role"],
+                "round": r["round"],
+                "interview_month": r["interview_month"],
+                "tip": r["tip"],
+                "questions": [_question(q, reveal=True) for q in qs[r["id"]]],
+            }
+            for r in rows
+            if qs[r["id"]]  # a post with only its process is shown under the process
+        ],
+        "process": process_summary(slug, sizes),
+    }
+
+
+def process_summary(slug: str, sizes: Mapping[tuple[int, str], int] | None = None) -> dict:
+    """ "Interview process (from N reports)": the most common round order (a tie goes to the
+    most recent report), the average number of rounds, how hard each kind of round was and
+    overall, the results, and every report's own summary under its label, newest first."""
+    rows = db.approved_processes(slug)
+    if not rows:
+        return {"reports": 0}
+    sizes = db.approved_posters_by_batch() if sizes is None else sizes
+    reports = [(r, _process_out(r)) for r in rows]
+    orders = [tuple(x["type"] for x in p["rounds"]) for _, p in reports]
+    common, times = Counter(orders).most_common(1)[0]
+    by_type: dict[str, Counter] = {}
+    overall: Counter = Counter()
+    for _, p in reports:
+        for x in p["rounds"]:
+            by_type.setdefault(x["type"], Counter())[x["difficulty"]] += 1
+            overall[x["difficulty"]] += 1
+    spread = {d: overall[d] for d in DIFFICULTIES}
+    return {
+        "reports": len(rows),
+        "common_order": [PROCESS_ROUND_TYPES[t] for t in common],
+        "common_order_reports": times,
+        "average_rounds": round(sum(map(len, orders)) / len(orders), 1),
+        "difficulty": spread,
+        "difficulty_by_round": {
+            PROCESS_ROUND_TYPES[t]: {d: c[d] for d in DIFFICULTIES} for t, c in by_type.items()
+        },
+        "results": {
+            PROCESS_RESULTS[k]: v for k, v in Counter(r["result"] for r, _ in reports).items()
+        },
+        "summaries": [
+            {
+                "id": r["id"],
+                "label": label(r, sizes),
+                "role": r["role"],
+                "interview_month": r["interview_month"],
+                **p,
+                "tip": r["tip"],
+            }
+            for r, p in reports
+        ],
+    }
+
+
+# --- practice -----------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PracticeQuiz:
+    company: str
+    round: str
+    source: str  # "reported" (students' questions) or "ai" (AI practice, never reported)
+    questions: list[tuple[str, Question]]  # (id, question)
+    label: str = ""
+    notes: list[str] = field(default_factory=list)
+
+
+def _company_name(slug: str) -> str:
+    known = experience_checks.company(slug)
+    if known:
+        return known["name"]
+    rows = db.approved_experiences(slug)
+    if not rows:
+        raise ServiceError("No such company.")
+    return rows[0]["company_name"]
+
+
+def reported_quiz(slug: str, round_: str, count: int = 10) -> PracticeQuiz:
+    """Approved multiple-choice questions students reported for this company and round."""
+    name = _company_name(slug)
+    rows = db.approved_company_questions(slug, round_, "mcq")
+    if not rows:
+        raise ServiceError(
+            f"No multiple-choice {EXPERIENCE_ROUNDS.get(round_, round_)} questions have been "
+            f"reported for {name} yet. Try the AI practice instead."
+        )
+    picked = random.Random(uuid.uuid4().hex).sample(rows, min(count, len(rows)))
+    questions = [(question_bank.qid(q), q) for q in map(_as_question, picked)]
+    return PracticeQuiz(name, round_, "reported", questions, "Reported by students")
+
+
+REPORTED_NOTE = "As reported by the student who was asked it."
+
+
+def _as_question(row: Mapping) -> Question:
+    """A reported MCQ (an experience_questions row) as a quiz question; its id is the usual
+    text hash, so grading finds it again."""
+    return Question(
+        text=row["text"],
+        options=json.loads(row["options_json"]),
+        correct_index=row["correct_index"],
+        explanation=row["explanation"] or REPORTED_NOTE,
+        bloom_level="understand",
+    )
+
+
+# --- general practice from the open question bank ------------------------------------------------
+
+
+def official_test_pattern(known: Mapping | None) -> dict | None:
+    """A company's test pattern only when data/companies.json took it from the company's own
+    page: {sections, source_url, checked}. Nothing else about a company is stated."""
+    pattern = (known or {}).get("test_pattern")
+    if not pattern or not pattern.get("source_url") or not pattern.get("sections"):
+        return None
+    return {
+        "sections": list(pattern["sections"]),
+        "source_url": pattern["source_url"],
+        "checked": pattern.get("checked", ""),
+    }
+
+
+def open_topics(student_id: str | None, round_: str) -> list[str]:
+    """The syllabus topics a round's general practice draws on: aptitude and reasoning, or the
+    student's own focus topics for the technical round (common CS topics without a profile)."""
+    if round_ == "aptitude":
+        wanted: Sequence[str] = APTITUDE_TOPICS
+    else:
+        profile = services.current_profile(student_id) if student_id else None
+        focus = syllabus.focus_topics(profile.target_role) if profile else []
+        wanted = [t for t in focus if t not in APTITUDE_TOPICS] or DEFAULT_TECH_TOPICS
+    return [t for t in wanted if question_bank.open_count(t)]
+
+
+def open_practice(student_id: str | None, company: str) -> dict:
+    """What "Practice by round" offers: counts per round, the label and the note that these are
+    not that company's questions."""
+    rounds = {
+        "aptitude": sum(question_bank.open_count(t) for t in open_topics(student_id, "aptitude")),
+        "technical": sum(question_bank.open_count(t) for t in open_topics(student_id, "technical")),
+        "hr": len(interview_pool("hr")),
+    }
+    return {
+        "label": open_questions.OPEN_LABEL,
+        "note": open_questions.NOT_ASKED.format(company=company),
+        "rounds": rounds,
+        "technical_interview": len(interview_pool("technical")),
+        "hr_questions": [
+            {"text": q["text"], "model_answer": q["model_answer"], "credit": _open_credit(q)}
+            for q in interview_pool("hr")
+        ],
+    }
+
+
+def interview_pool(round_: str) -> list[dict]:
+    """Open interview questions for a round: the open question bank's, then approved community
+    contributions (both with model answers)."""
+    return [*open_questions.for_round(round_), *contributions.interview_questions(round_)]
+
+
+def _open_credit(q: Mapping) -> str:
+    return open_questions.credit(q["source"], False, q.get("by", ""))
+
+
+def open_quiz(student_id: str, slug: str, round_: str, count: int = 10) -> PracticeQuiz:
+    """General practice for a company's aptitude or technical round from the open question bank,
+    at the student's level on each topic (nearest levels when one runs short). Never presented
+    as asked at that company."""
+    if round_ == "hr":
+        raise ServiceError("The HR round is practised as a mock interview.")
+    if round_ not in ("aptitude", "technical"):
+        raise ServiceError("General practice covers the aptitude, technical and HR rounds.")
+    name = _company_name(slug)
+    topics = open_topics(student_id, round_)
+    if not topics:
+        raise ServiceError("The open question bank has no questions for this round yet.")
+    seed = uuid.uuid4().hex
+    picked: list[tuple[str, Question]] = []
+    share, extra = divmod(count, len(topics))
+    for i, topic in enumerate(topics):
+        want = share + (i < extra)
+        level = services.topic_level(student_id, topic)
+        got = question_bank.draw_open(
+            topic, level, want, db.asked_questions(student_id, topic), f"{seed}|{topic}"
+        )
+        picked += [(question_bank.qid(q), q) for _, q in got]
+    if len(picked) < count:  # a thin topic: top up from the others
+        have = {i for i, _ in picked}
+        for topic in topics:
+            for _, q in question_bank.draw_open(topic, "medium", count, [], f"{seed}|more|{topic}"):
+                if len(picked) < count and question_bank.qid(q) not in have:
+                    picked.append((question_bank.qid(q), q))
+                    have.add(question_bank.qid(q))
+    random.Random(seed).shuffle(picked)
+    return PracticeQuiz(
+        name,
+        round_,
+        "open",
+        picked,
+        open_questions.OPEN_LABEL,
+        [open_questions.NOT_ASKED.format(company=name), f"Topics: {', '.join(topics)}."],
+    )
+
+
+def open_interview(
+    student_id: str, slug: str, round_: str, on_event: OnEvent | None = None
+) -> services.InterviewSession:
+    """A general-practice mock interview for a company's HR or technical round: open questions
+    (with our model answers), asked word for word, then the AI interviewer closes. The type and
+    focus say plainly that these are not that company's questions."""
+    if round_ not in ("hr", "technical"):
+        raise ServiceError("General practice interviews cover the HR and technical rounds.")
+    name = _company_name(slug)
+    pool = [q["text"] for q in interview_pool(round_)]
+    if not pool:
+        raise ServiceError("The open question bank has no interview questions for this round.")
+    script = random.Random(uuid.uuid4().hex).sample(pool, min(OPEN_SCRIPT, len(pool)))
+    label = OPEN_ROUNDS[round_]
+    return services.start_interview(
+        student_id,
+        f"General practice - {label} (open question bank)",
+        on_event,
+        script=script,
+        focus=(
+            f"a general fresher {label} interview round; these are general practice questions, "
+            f"not questions {name} is known to ask: never claim a question is one {name} asks"
+        ),
+    )
+
+
+def ai_topic(student_id: str, round_: str) -> str:
+    if round_ in QUIZ_ROUNDS:
+        return QUIZ_ROUNDS[round_]
+    profile = services.current_profile(student_id)
+    focus = syllabus.focus_topics(profile.target_role) if profile else []
+    return focus[0] if focus else "DSA"
+
+
+def ai_quiz(student_id: str, slug: str, round_: str, count: int = 5) -> PracticeQuiz:
+    """AI practice in the style of a company's round: the usual generator and critic on the
+    round's topic. Always labelled AI, never stored as reported."""
+    if round_ in ("hr", "group_discussion"):
+        raise ServiceError("HR and group discussion rounds are practised as a mock interview.")
+    if round_ not in EXPERIENCE_ROUNDS:
+        raise ServiceError("Unknown round.")
+    name = _company_name(slug)
+    topic = ai_topic(student_id, round_)
+    made = agents.make_quiz(
+        topic,
+        "medium",
+        db.asked_questions(student_id, topic),
+        count=count,
+        student_id=student_id,
+        area=f"{name}-style {EXPERIENCE_ROUNDS[round_]} round "
+        "(AI practice, not reported questions)",
+    )
+    db.save_generated(
+        _ai_key(slug, round_), "medium", made.questions, "mock" if settings().mock_mode else "ai"
+    )
+    return PracticeQuiz(
+        name,
+        round_,
+        "ai",
+        [(question_bank.qid(q), q) for q in made.questions],
+        AI_LABEL,
+        [f"Written by AI on {topic}, in the style of a {name} {EXPERIENCE_ROUNDS[round_]} round."],
+    )
+
+
+def _ai_key(slug: str, round_: str) -> str:
+    return f"company:{slug}:{round_}"[:60]
+
+
+def grade_practice(
+    student_id: str,
+    slug: str,
+    round_: str,
+    source: str,
+    answers: Sequence[tuple[str, int | None]],
+) -> dict:
+    """Grade a company practice quiz. Recorded in company_practice only: no syllabus topic's
+    quiz history, level, weakness or plan changes."""
+    if source not in ("reported", "ai", "open"):
+        raise ServiceError("Unknown practice source.")
+    if not answers or len(answers) > 30:
+        raise ServiceError("Send between 1 and 30 answers.")
+    if source == "reported":
+        known = {
+            question_bank.qid(_as_question(r)): r
+            for r in db.approved_company_questions(slug, round_, "mcq")
+        }
+    review = []
+    correct = 0
+    for qid, chosen in answers:
+        if chosen is not None and chosen not in range(4):
+            raise ServiceError("Invalid answer choice.")
+        if source == "reported":
+            row = known.get(qid)
+            if row is None:
+                raise ServiceError("An answer does not match a question of this practice.")
+            right, explanation = row["correct_index"], row["explanation"]
+        elif source == "open":
+            found = question_bank.get(qid)
+            if found is None or not question_bank.is_open(qid):
+                raise ServiceError("An answer does not match a question of this practice.")
+            right, explanation = found[2].correct_index, found[2].explanation
+        else:
+            found = db.generated(qid)
+            if found is None or found[0] != _ai_key(slug, round_):
+                raise ServiceError("An answer does not match a question of this practice.")
+            right, explanation = found[2].correct_index, found[2].explanation
+        correct += chosen == right
+        review.append(
+            {
+                "id": qid,
+                "chosen": chosen,
+                "correct_index": right,
+                "is_correct": chosen == right,
+                "explanation": explanation or REPORTED_NOTE,
+                "credit": question_bank.credit(qid) if source == "open" else "",
+            }
+        )
+    db.save_company_practice(student_id, slug, round_, source, correct, len(answers))
+    return {
+        "correct": correct,
+        "total": len(answers),
+        "score_pct": round(100 * correct / len(answers), 1),
+        "review": review,
+        "source": source,
+    }
+
+
+def interview_practice(
+    student_id: str, slug: str, round_: str, on_event: OnEvent | None = None
+) -> services.InterviewSession:
+    """A mock interview for a company's round: the open questions students reported, asked word
+    for word, then the AI interviewer closes in that company's style. With none reported, it
+    is AI practice from the start."""
+    if round_ not in EXPERIENCE_ROUNDS:
+        raise ServiceError("Unknown round.")
+    name = _company_name(slug)
+    reported = [r["text"] for r in db.approved_company_questions(slug, round_, "open")]
+    random.Random(uuid.uuid4().hex).shuffle(reported)
+    label = EXPERIENCE_ROUNDS[round_]
+    focus = (
+        f"a {name} {label} interview round for a fresher; keep to what such a round covers, "
+        f"and never claim a question is one {name} asks"
+    )
+    return services.start_interview(
+        student_id,
+        f"Company practice - {name} ({label})",
+        on_event,
+        script=reported,
+        focus=focus,
+    )

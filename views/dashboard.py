@@ -3,8 +3,8 @@ interview scores), then how the agents and the critic behave, kept apart."""
 
 import streamlit as st
 
-from core import calendar_export
-from piq import charts, formatter, services, ui
+from core import calendar_export, drive, proctor_guard
+from piq import charts, formatter, proctoring, services, ui
 from piq.config import CERTIFICATE_TEXT_MAX
 from piq.ui import Stat, empty_state, page_header, require_profile, stat_row
 
@@ -95,6 +95,20 @@ def _certificate_card(sid: str, row) -> None:
                 )
             else:
                 st.caption("The file is missing.")
+            if drive.connected(sid):
+                if row["drive_file_id"]:
+                    st.badge("In Drive", icon=":material/cloud_done:", color="green")
+                elif found and st.button(
+                    "Retry Drive", icon=":material/cloud_upload:", key=f"cert_drive_{cid}"
+                ):
+                    try:
+                        ok = services.retry_certificate_drive(sid, cid)
+                    except (services.ServiceError, drive.DriveError) as e:
+                        st.error(formatter.md_escape(str(e)), icon=":material/error:")
+                    else:
+                        if not ok:
+                            st.error("Google Drive did not take it. Try again later.")
+                        st.rerun()
             with st.popover("Delete", icon=":material/delete:"):
                 st.markdown(f"Delete **{formatter.md_escape(row['title'])}**?")
                 if st.button("Delete for good", type="primary", key=f"cert_del_{cid}"):
@@ -143,8 +157,9 @@ def _certificates(sid: str) -> None:
                     _certificate_card(sid, row)
 
 
-def _topic_mastery(d: services.Dashboard) -> None:
-    """Every tracked topic, weakest first: weakness now, which way it moves, its scores."""
+def _topic_mastery(d: services.Dashboard, levels: dict[str, str]) -> None:
+    """Every tracked topic, weakest first: weakness now, which way it moves, its scores, and
+    the level its next quiz is asked at."""
     mastery = d.mastery
     st.subheader(
         formatter.topic_scores_headline({m.topic: m.scores for m in mastery}), anchor=False
@@ -154,13 +169,15 @@ def _topic_mastery(d: services.Dashboard) -> None:
         return
     st.caption(
         "Weakest topic first. Weakness is what the next plan uses; the line is every quiz "
-        "score on the topic, oldest to latest, on a 0-100% scale."
+        "score on the topic, oldest to latest, on a 0-100% scale. The level is where your next "
+        "quiz on the topic starts."
     )
     for start in range(0, len(mastery), 3):
         row = mastery[start : start + 3]
         for column, m in zip(st.columns(3, gap="small"), row, strict=False):
             with column, st.container(border=True, gap="small"):
                 st.markdown(formatter.mastery_line(m.topic, m.weakness, m.scores))
+                st.markdown(formatter.level_badge(levels.get(m.topic, "medium")))
                 if m.scores:
                     st.markdown(formatter.trend_md(m.trend))
                     st.vega_lite_chart(
@@ -326,7 +343,12 @@ ui.org_progress_card(sid)  # an organization's student: their stage against its 
 _kpis(d, streak)
 _syllabus(d)
 _certificates(sid)
-_topic_mastery(d)
+
+if attempts := proctoring.history(sid):  # transparency: the same record the admin sees
+    with st.container(border=True):
+        st.subheader("Your proctoring record", anchor=False)
+        proctor_guard.render_record(attempts)
+_topic_mastery(d, services.topic_levels(sid))
 accuracy_col, runs_col = st.columns(2, gap="medium")
 with accuracy_col, st.container(border=True, height="stretch"):
     _accuracy(d)

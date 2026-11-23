@@ -5,9 +5,9 @@ contribution calendar. Projects marked "On resume" feed the Resume builder."""
 import streamlit as st
 
 from core import github_readme as gh
-from piq import charts, formatter, services
+from piq import charts, formatter, project_ideas, services
 from piq.config import PROJECT_STATUSES
-from piq.ui import Stat, empty_state, page_header, require_profile, stat_row
+from piq.ui import Stat, empty_state, page_header, require_profile, run_agent, stat_row
 
 # Session-state keys used by the GitHub importer
 _GH_INTEL = "gh_intel"  # last GitHubIntelligence result
@@ -72,6 +72,122 @@ def _fields(prefix: str, row: dict | None = None) -> dict:
         "readme": readme,
         "on_resume": on_resume,
     }
+
+
+IDEA_SOURCE = {
+    "live": "Repositories fetched from GitHub just now.",
+    "cache": "Repositories from GitHub, fetched within the last day.",
+    "seed": "GitHub was not reachable: built-in example repositories (offline).",
+}
+
+
+def _repo_md(r: dict) -> str:
+    company = f" :blue-badge[by {formatter.md_escape(r['company'])}]" if r.get("company") else ""
+    licence = f" · {r['licence']}" if r.get("licence") else ""
+    name = formatter.md_escape(r["full_name"])
+    return f"[{name}]({r['url']}) :gray[★ {r['stars']:,}{licence}]{company}"
+
+
+def _idea_card(sid: str, set_id: int, i: int, idea: dict) -> None:
+    with st.container(border=True):
+        st.markdown(f"**{formatter.md_escape(idea['title'])}** :violet-badge[{idea['label']}]")
+        st.markdown(formatter.md_escape(idea["problem"]))
+        st.caption(formatter.md_escape(idea["why_it_fits"]))
+        st.markdown(
+            "**Inspired by**  \n"
+            + "  \n".join(
+                (_repo_md(d["meta"]) if d.get("meta") else formatter.md_escape(d["repo"]))
+                + f"  \n:gray[{formatter.md_escape(d['takes'] + ' ' + d['differs'])}]"
+                for d in idea["derived_from"]
+            )
+        )
+        stack = " ".join(
+            f":orange-badge[{formatter.md_escape(s)} · gap]"
+            if s in idea["gap_skills"]
+            else f":gray-badge[{formatter.md_escape(s)}]"
+            for s in idea["stack"]
+        )
+        st.markdown(f"{stack} :gray-badge[{idea['scope_weeks']} week(s)]")
+        with st.expander("Milestones and stretch goals"):
+            st.markdown(
+                "\n".join(
+                    f"{n}. {formatter.md_escape(m)}" for n, m in enumerate(idea["milestones"], 1)
+                )
+            )
+            if idea["stretch_goals"]:
+                st.caption("Stretch: " + " · ".join(idea["stretch_goals"]))
+        start_col, more_col = st.columns(2)
+        if start_col.button(
+            "Start this project",
+            key=f"idea_start_{set_id}_{i}",
+            type="primary",
+            icon=":material/play_arrow:",
+        ):
+            try:
+                project_ideas.start(sid, set_id, i)
+                st.toast("Added to your repositories as an Idea.", icon=":material/check:")
+                st.rerun()
+            except services.ServiceError as e:
+                st.error(formatter.md_escape(str(e)), icon=":material/error:")
+        more = more_col.button(
+            "More like this", key=f"idea_more_{set_id}_{i}", icon=":material/auto_awesome:"
+        )
+        if more and run_agent(
+            "Project ideas", lambda ev: project_ideas.more_like(sid, set_id, i, ev)
+        ):
+            st.rerun()
+
+
+def _ideas(sid: str) -> None:
+    """Project ideas for the student's skill gaps, built from real GitHub repositories."""
+    with st.expander(
+        "Project ideas for your skill gaps", icon=":material/lightbulb:", expanded=True
+    ):
+        try:
+            profile = project_ideas._profile(sid)
+            latest = project_ideas.latest(sid)
+        except services.ServiceError as e:
+            st.caption(formatter.md_escape(str(e)))
+            return
+        topics = ", ".join(t["skill"] or t["keyword"] for t in project_ideas.topics(profile))
+        st.caption(
+            "Built from real open-source repositories on your gap topics "
+            f"({formatter.md_escape(topics)}), including ones companies publish. Only names, "
+            "descriptions, stars, topics and licences are used, never code or READMEs."
+        )
+        label = "Suggest new ideas" if latest else "Suggest projects"
+        if st.button(label, icon=":material/auto_awesome:", key="idea_suggest") and run_agent(
+            "Project ideas", lambda ev: project_ideas.suggest(sid, ev)
+        ):
+            st.rerun()
+        if not latest:
+            return
+        st.caption(
+            IDEA_SOURCE[latest["source"]]
+            + (
+                f" More like: {formatter.md_escape(latest['based_on'])}."
+                if latest["based_on"]
+                else ""
+            )
+        )
+        for i, idea in enumerate(latest["ideas"]):
+            _idea_card(sid, latest["id"], i, idea)
+        for t in latest["topics"]:
+            lines = []
+            if t["company"]:
+                lines.append(
+                    "**Built by companies:** " + " · ".join(_repo_md(r) for r in t["company"])
+                )
+            if t["hackathon"]:
+                lines.append(
+                    "**Hackathon repos (GitHub):** "
+                    + " · ".join(_repo_md(r) for r in t["hackathon"])
+                )
+            links = " · ".join(f"[{link['name']}]({link['url']})" for link in t["links"])
+            lines.append(f":material/emoji_events: Find winning projects on this topic: {links}")
+            st.markdown(
+                f"**Inspiration: {formatter.md_escape(t['keyword'])}**  \n" + "  \n".join(lines)
+            )
 
 
 def _save(sid: str, fields: dict, project_id: int | None = None) -> bool:
@@ -207,7 +323,7 @@ with list_col:
                     else:
                         st.session_state["gh_readme_raw"] = readme
                         with st.spinner("Extracting project intelligence …"):
-                            intel = gh.extract_github_intelligence(readme)
+                            intel = gh.extract_github_intelligence(readme, student_id=sid)
                         if intel.is_empty:
                             st.warning(
                                 "README fetched but structured extraction failed. "
@@ -240,6 +356,8 @@ with list_col:
                     ":material/mic: Viva questions are saved and will appear in your next "
                     "Voice Interview automatically."
                 )
+
+    _ideas(sid)
 
     # --- New repository form --------------------------------------------------------------
     new_expanded = not space.projects or bool(st.session_state.get(_GH_INTEL))

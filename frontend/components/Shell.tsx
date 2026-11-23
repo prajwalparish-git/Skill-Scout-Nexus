@@ -2,11 +2,16 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect } from "react";
 import { motion } from "motion/react";
 import {
+  Building2,
   CalendarDays,
+  Cpu,
   FileText,
+  FolderGit2,
   Gauge,
+  HandHeart,
   Home,
   ListChecks,
   MessagesSquare,
@@ -30,12 +35,18 @@ const NAV: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/resume-builder", label: "Resume builder", icon: FileText },
   { href: "/quiz", label: "Quiz", icon: ListChecks },
   { href: "/interview", label: "Mock interview", icon: MessagesSquare },
+  { href: "/companies", label: "Company questions", icon: Building2 },
   { href: "/plan", label: "Study plan", icon: CalendarDays },
+  { href: "/projects", label: "Project ideas", icon: FolderGit2 },
+  { href: "/contribute", label: "Contribute a question", icon: HandHeart },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
+/** What a contributor account sees: it shares questions, it has no student tools. */
+const CONTRIBUTOR_NAV = new Set(["/companies", "/contribute", "/settings"]);
+
 /** Public pages: the floating top bar, full-bleed content and the footer, no app sidebar. */
-const PUBLIC = new Set(["/", "/organizations", "/privacy", "/terms", "/cookies"]);
+const PUBLIC = new Set(["/", "/organizations", "/privacy", "/terms", "/cookies", "/credits"]);
 
 const initials = (name: string) =>
   name
@@ -108,8 +119,13 @@ function ProfileCard() {
 
 /** Compact status bar: which tool, the candidate's track, and their readiness score. */
 function StatusBar({ path }: { path: string }) {
-  const { candidate, loading } = useCandidate();
+  const { candidate, loading, localModel, refreshLocalModel } = useCandidate();
   const page = NAV.find((n) => path.startsWith(n.href));
+  const signedIn = Boolean(candidate);
+  // Which AI answered last can change on any page: check again on each navigation.
+  useEffect(() => {
+    if (signedIn) refreshLocalModel();
+  }, [path, signedIn, refreshLocalModel]);
   if (loading || !candidate || !page) return null;
   return (
     <div className="mb-5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
@@ -126,12 +142,23 @@ function StatusBar({ path }: { path: string }) {
       <span className="font-mono tabular-nums">
         Readiness <span className="font-semibold text-ink">{candidate.readiness_score}</span>/100
       </span>
+      {localModel && (
+        <Link
+          href="/settings"
+          className="chip ml-auto border-ok/40 text-ok hover:border-ok"
+          title={`Your latest AI answer came from ${localModel} on this computer`}
+        >
+          <Cpu size={12} aria-hidden /> Using your local model
+        </Link>
+      )}
     </div>
   );
 }
 
 export function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
+  const { candidate } = useCandidate();
+  const nav = candidate?.account_kind === "contributor" ? NAV.filter((n) => CONTRIBUTOR_NAV.has(n.href)) : NAV;
 
   if (path.startsWith("/ops")) return <>{children}</>; // a page of its own, without the app's chrome
 
@@ -163,7 +190,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <nav aria-label="Pages" className="-mx-1 overflow-x-auto lg:mx-0 lg:mt-8 lg:overflow-visible">
               <p className="eyebrow mb-2 hidden px-3 lg:block">Tools</p>
               <ul className="flex gap-1 px-1 lg:flex-col lg:px-0">
-                {NAV.map(({ href, label, icon: Icon }) => {
+                {nav.map(({ href, label, icon: Icon }) => {
                   const active = path.startsWith(href);
                   return (
                     <li key={href}>

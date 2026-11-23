@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Award, ExternalLink, Trash2, Upload } from "lucide-react";
+import { Award, CloudUpload, ExternalLink, Trash2, Upload } from "lucide-react";
 import { API, get, post, upload, type Certificate } from "@/lib/api";
-import { Empty, ErrorNote } from "@/components/ui";
+import { Badge, Empty, ErrorNote } from "@/components/ui";
+import { useDrive } from "@/lib/drive";
 
 const MAX_BYTES = 5 * 1024 * 1024; // the server's limit (piq/config.py CERTIFICATE_MAX_BYTES)
 const TEXT_MAX = 120;
@@ -28,6 +29,8 @@ export function Certificates({ candidateId }: { candidateId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [deleting, setDeleting] = useState<number | null>(null);
+  const [retrying, setRetrying] = useState<number | null>(null);
+  const [drive] = useDrive(candidateId);
   const form = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
@@ -74,6 +77,20 @@ export function Certificates({ candidateId }: { candidateId: string }) {
       setError((err as Error).message);
     } finally {
       setDeleting(null);
+    }
+  }
+
+  async function onRetryDrive(c: Certificate) {
+    setRetrying(c.id);
+    setError(null);
+    try {
+      const r = await post<{ in_drive: boolean }>(`/api/drive/certificates/${c.id}/retry`, {});
+      if (!r.in_drive) setError("Google Drive did not take it. Try again later.");
+      setItems((prev) => prev?.map((x) => (x.id === c.id ? { ...x, in_drive: r.in_drive } : x)) ?? prev);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setRetrying(null);
     }
   }
 
@@ -144,6 +161,22 @@ export function Certificates({ candidateId }: { candidateId: string }) {
                 <p className="mt-3 truncate font-mono text-xs text-muted" title={c.filename}>
                   {c.filename} · {size(c.size_bytes)}
                 </p>
+                {drive.connected && (
+                  <div className="mt-2">
+                    {c.in_drive ? (
+                      <Badge state="ok">In Drive</Badge>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => onRetryDrive(c)}
+                        disabled={retrying === c.id}
+                        className="btn-ghost min-h-0 px-3 py-1 text-xs"
+                      >
+                        <CloudUpload size={13} aria-hidden /> {retrying === c.id ? "Copying…" : "Retry Drive"}
+                      </button>
+                    )}
+                  </div>
+                )}
                 <div className="mt-3 flex gap-2">
                   <a
                     href={`${API}/api/certificates/${candidateId}/${c.id}/file`}

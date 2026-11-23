@@ -29,6 +29,7 @@ export const LEGAL = [
   { href: "/privacy", label: "Privacy" },
   { href: "/terms", label: "Terms" },
   { href: "/cookies", label: "Cookies" },
+  { href: "/credits", label: "Question sources & credits" },
 ] as const;
 
 export const isGuestTool = (href: string) => TOOLS.some((t) => t.guest && href.startsWith(t.href));

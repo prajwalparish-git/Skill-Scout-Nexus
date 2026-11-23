@@ -115,7 +115,9 @@ def calculate_learner_momentum(
                 voice_sessions=len(vs),
                 rubric_average=v_avg,
                 rubric_best=max((v.rubric_score for v in vs), default=None),
-                proctor_flags=sum(len(v.proctor_flags) for v in vs),
+                proctor_flags=sum(len(v.proctor_flags) for v in vs)
+                + sum(len(q.proctor_flags or []) for q in qs),
+                proctor_breaches=cohort.breaches(vs, qs),
                 plans=len(sess.plans),
                 tasks_done=t_done,
                 last_active=max(stamps, default=None),
@@ -614,7 +616,7 @@ SHORTLIST_COLUMNS = (
     (f"Voice average (/{VOICE_RUBRIC_MAX})", lambda r: r.rubric_average),
     (f"Voice best (/{VOICE_RUBRIC_MAX})", lambda r: r.rubric_best),
     ("Proctor flags", lambda r: r.proctor_flags),
-    ("Proctor breach", lambda r: "BREACH" if r.proctor_flags > 0 else "CLEARED"),
+    ("Proctor breach", lambda r: "BREACH" if r.proctor_breaches > 0 else "CLEARED"),
 )
 
 
@@ -917,7 +919,7 @@ def executive_summary_pdf(s: Summary) -> bytes:
                     _fmt(r.quiz_average, "%"),
                     _fmt(r.rubric_average, f"/{VOICE_RUBRIC_MAX}"),
                     _fmt(r.readiness),
-                    "BREACH" if r.proctor_flags > 0 else "CLEARED",
+                    "BREACH" if r.proctor_breaches > 0 else "CLEARED",
                 ]
                 for r in s.shortlisted
             ],

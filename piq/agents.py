@@ -19,13 +19,16 @@ from piq.graph import OnEvent, Task, run_or_raise
 from piq.schemas import (
     AnswerEvaluation,
     BulletRewrite,
+    ExperienceScreen,
     InterviewTurn,
     ProfileExtraction,
+    ProjectIdeas,
     Question,
     QuestionVerdict,
     QuizCritique,
     QuizSet,
     StudentProfile,
+    TailoredResume,
     WeeklyPlan,
 )
 
@@ -65,6 +68,7 @@ def _profile_gen(inp: dict, reasons: list[str], _prev: object) -> tuple[ProfileE
         context=ctx,
         size="small",
         temperature=0.1,
+        student_id=inp.get("student_id"),
     )
 
 
@@ -76,13 +80,15 @@ PROFILE_TASK = Task(
 
 
 def create_profile(
-    resume_text: str, target_role: str, on_event: OnEvent | None = None
+    resume_text: str,
+    target_role: str,
+    on_event: OnEvent | None = None,
+    student_id: str | None = None,
 ) -> StudentProfile:
     if target_role not in roles():
         raise ValueError(f"unknown target role {target_role!r}")
-    ext: ProfileExtraction = run_or_raise(
-        PROFILE_TASK, {"resume_text": resume_text, "target_role": target_role}, on_event
-    )
+    inp = {"resume_text": resume_text, "target_role": target_role, "student_id": student_id}
+    ext: ProfileExtraction = run_or_raise(PROFILE_TASK, inp, on_event)
     skill_topics = roles()[target_role]
     required = list(skill_topics)
     canon = {s.lower(): s for s in required}
@@ -448,6 +454,7 @@ def _bullet_gen(inp: dict, reasons: list[str], _prev: object) -> tuple[BulletRew
         context=inp,
         size="small",
         temperature=0.3,
+        student_id=inp.get("student_id"),
     )
 
 
@@ -456,7 +463,112 @@ BULLET_TASK = Task(
 )
 
 
-def enhance_bullet(text: str, role: str, on_event: OnEvent | None = None) -> str:
+def enhance_bullet(
+    text: str, role: str, on_event: OnEvent | None = None, student_id: str | None = None
+) -> str:
     """One bullet in XYZ form, with no number the student did not write."""
-    out: BulletRewrite = run_or_raise(BULLET_TASK, {"text": text, "role": role}, on_event)
+    inp = {"text": text, "role": role, "student_id": student_id}
+    out: BulletRewrite = run_or_raise(BULLET_TASK, inp, on_event)
     return out.bullet.strip().lstrip("-*• ").strip()
+
+
+# --- Screening a reported interview experience ------------------------------------------------
+
+
+def _screen_gen(inp: dict, reasons: list[str], _prev: object) -> tuple[ExperienceScreen, int]:
+    listing = "\n".join(f"{n}. {q}" for n, q in enumerate(inp["questions"], 1))
+    user = (
+        f"Company: {inp['company']}\nRound: {inp['round']}\n\nQuestions:\n{listing}\n\n"
+        f"Tip: {inp['tip'] or '(none)'}{_feedback(reasons)}"
+    )
+    return llm.call(
+        ExperienceScreen,
+        agent="screener",
+        system=prompts.SCREENER,
+        user=user,
+        context=inp,
+        size="small",
+        temperature=0.0,
+        student_id=inp.get("student_id"),
+    )
+
+
+SCREEN_TASK = Task("screener", _screen_gen, checks.check_screen)
+
+
+def screen_experience(inp: dict, on_event: OnEvent | None = None) -> ExperienceScreen:
+    """`inp`: company, round, questions (cleaned texts), tip, student_id."""
+    return run_or_raise(SCREEN_TASK, inp, on_event)
+
+
+# --- Resume tailoring to a job description --------------------------------------------------
+
+
+def _tailor_gen(inp: dict, reasons: list[str], _prev: object) -> tuple[TailoredResume, int]:
+    listing = "\n\n".join(
+        f"[{eid}] {inp['titles'][eid]}\n" + "\n".join(f"  {n}. {b}" for n, b in enumerate(bs, 1))
+        for eid, bs in inp["entries"].items()
+    )
+    user = (
+        f"Target role: {inp['role']}\nThe student's skills: {', '.join(inp['skills']) or 'none'}\n"
+        f"Current summary: {inp['summary']}\n\nEntries:\n{listing or 'none'}\n\n"
+        f"Job description:\n{inp['job_description']}{_feedback(reasons)}"
+    )
+    return llm.call(
+        TailoredResume,
+        agent="tailor",
+        system=prompts.TAILOR,
+        user=user,
+        context=inp,
+        temperature=0.3,
+        student_id=inp.get("student_id"),
+    )
+
+
+TAILOR_TASK = Task("tailor", _tailor_gen, checks.check_tailoring)
+
+
+def tailor_resume(inp: dict, on_event: OnEvent | None = None) -> TailoredResume:
+    """`inp`: role, skills, summary, entries {id: bullets}, titles {id: title}, corpus (the
+    resume's text, for the summary's numbers), job_description, student_id."""
+    return run_or_raise(TAILOR_TASK, inp, on_event)
+
+
+# --- Project ideas derived from fetched repositories --------------------------------------------
+
+
+def _repo_card(n: int, r: dict) -> str:
+    owner = f"{r['owner']} (company: {r['company']})" if r.get("company") else r["owner"]
+    return (
+        f"[{n}] {r['full_name']} by {owner}; {r['stars']} stars; "
+        f"{r['language'] or 'language n/a'}; last pushed {r['pushed_at'] or 'unknown'}; "
+        f"licence {r['licence'] or 'none stated'}\n    topics: {', '.join(r['topics']) or '-'}\n"
+        f"    about: {r['description'] or '(no description)'}"
+    )
+
+
+def _ideas_gen(inp: dict, reasons: list[str], _prev: object) -> tuple[ProjectIdeas, int]:
+    cards = "\n".join(_repo_card(n, r) for n, r in enumerate(inp["repos"], 1))
+    seed = f"\nGo deeper on this direction: {inp['based_on']}\n" if inp.get("based_on") else ""
+    user = (
+        f"Target role: {inp['role']}\nSkills the student has: {', '.join(inp['skills'])}\n"
+        f"Skill gaps: {', '.join(inp['gaps'])}\nTopics: {', '.join(inp['keywords'])}\n{seed}\n"
+        f"Repositories fetched for this request (metadata only):\n{cards}{_feedback(reasons)}"
+    )
+    return llm.call(
+        ProjectIdeas,
+        agent="project_ideas",
+        system=prompts.PROJECT_IDEAS,
+        user=user,
+        context=inp,
+        temperature=0.7,
+        student_id=inp.get("student_id"),
+    )
+
+
+PROJECT_IDEAS_TASK = Task("project_ideas", _ideas_gen, checks.check_project_ideas)
+
+
+def project_ideas(inp: dict, on_event: OnEvent | None = None) -> ProjectIdeas:
+    """`inp`: role, skills, gaps, keywords, repos (metadata dicts), based_on, student_id."""
+    return run_or_raise(PROJECT_IDEAS_TASK, inp, on_event)

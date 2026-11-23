@@ -20,6 +20,7 @@ import logging
 import os
 import tempfile
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -65,19 +66,41 @@ def _mime(filename: str) -> str:
 
 
 def _groq(audio: bytes, filename: str, api_key: str | None) -> str:
-    key = api_key or settings().groq_api_key or os.getenv("GROQ_API_KEY", "")
-    if not key:
+    s = settings()
+    if api_key:
+        keys = [api_key]
+    else:
+        keys = key_pool("groq", s.groq_api_keys).order() or list(s.groq_api_keys)
+        if not keys and os.getenv("GROQ_API_KEY"):
+            keys = [os.getenv("GROQ_API_KEY")]
+    keys = [k for k in keys if k]
+    if not keys:
         raise RuntimeError("GROQ_API_KEYS is not set")
     from groq import Groq
 
-    client = Groq(api_key=key)
-    out = client.audio.transcriptions.create(
-        file=(filename, audio),
-        model=GROQ_STT_MODEL,
-        response_format="text",
-        temperature=0.0,
-    )
-    return str(out).strip()
+    pool = key_pool("groq", s.groq_api_keys)
+    last: Exception | None = None
+    for key in keys:
+        t0 = time.monotonic()
+        try:
+            client = Groq(api_key=key)
+            out = client.audio.transcriptions.create(
+                file=(filename, audio),
+                model=GROQ_STT_MODEL,
+                response_format="text",
+                temperature=0.0,
+            )
+            pool.success(key, time.monotonic() - t0)
+            return str(out).strip()
+        except Exception as e:
+            last = e
+            status = getattr(e, "status_code", None)
+            if status == 429:
+                pool.rate_limited(key)
+            elif status in (401, 403):
+                pool.refused(key, f"HTTP {status}")
+            continue
+    raise RuntimeError(f"Groq transcription failed: {last}")
 
 
 def _gemini(audio: bytes, filename: str) -> str:

@@ -16,6 +16,8 @@ import random
 from collections import Counter
 from pathlib import Path
 
+from piq import question_bank
+
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE_CSV = ROOT / "MCQ.csv"
 OUTPUT_DIR = ROOT / "data" / "questions"
@@ -165,6 +167,13 @@ def clean_and_ingest():
             new_correct_idx = next(i for i, item in enumerate(items) if item[1])
             new_correct_letter = ["A", "B", "C", "D"][new_correct_idx]
 
+            if why := question_bank.problems(
+                dict(zip(HEADER[5:11], [question, *new_options, new_correct_letter], strict=True))
+                | {"explanation": explanation, "bloom_level": bloom}
+            ):
+                print(f"Warning: Line {line_no}: {why}, skipping.")
+                skipped_rows += 1
+                continue
             cleaned_rows.append(
                 [
                     stream,
@@ -226,9 +235,8 @@ def normalise_bank(path: Path = TARGET_CSV, catalog: Path = CATALOG) -> Counter:
             row["role"], row["domain"] = row.pop("role_or_stream"), row.pop("category")
             row.setdefault("stream", "")
             changes["header upgraded"] += 1
-        options = [row[f"option_{c}"].strip().lower() for c in "abcd"]
-        if len(set(options)) < 4:
-            changes["dropped: repeated option"] += 1
+        if why := question_bank.problems(row):  # the checks the loader and the import share
+            changes[f"dropped: {why}"] += 1
             continue
         role = ROLE_ALIASES.get(row["role"], row["role"])
         if role != row["role"]:

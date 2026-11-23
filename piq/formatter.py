@@ -4,7 +4,7 @@ Pure functions, no Streamlit import, so every rendering decision is unit-testabl
 """
 
 import re
-from collections.abc import Collection, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from html import escape
@@ -1136,6 +1136,39 @@ def run_result_md(correct: int, wrong: int, skipped: int, total: int) -> str:
     )
 
 
+LEVEL_ICONS = {
+    "easy": "signal_cellular_1_bar",
+    "medium": "signal_cellular_3_bar",
+    "hard": "signal_cellular_4_bar",
+}
+
+
+def level_badge(level: str) -> str:
+    """A topic level as a small badge: what the student's next quiz on it uses."""
+    return f":blue-badge[:material/{LEVEL_ICONS.get(level, 'tune')}: Level: {level}]"
+
+
+def topic_levels_md(topics: Sequence[str], level_of: Callable[[str], str]) -> str:
+    """Each chosen topic with the level its questions will be at."""
+    return "  \n".join(f"{md_escape(t)} {level_badge(level_of(t))}" for t in topics)
+
+
+def level_changes_md(levels: Mapping[str, tuple[str, str]]) -> str:
+    """After a quiz: each topic's level, and whether it moved."""
+    lines = []
+    for topic, (before, after) in levels.items():
+        step = DIFFICULTIES.index(after) - DIFFICULTIES.index(before)
+        name = f"**{md_escape(topic)}**"
+        if step > 0:
+            lines.append(f":green[:material/trending_up:] {name}: level up, {before} → **{after}**")
+        elif step < 0:
+            icon = ":orange[:material/trending_down:]"
+            lines.append(f"{icon} {name}: easing off, {before} → **{after}**")
+        else:
+            lines.append(f":material/trending_flat: {name}: staying at **{after}**")
+    return "  \n".join(lines)
+
+
 def next_difficulty_md(next_by_topic: Mapping[str, str]) -> str:
     """Each topic's suggested next difficulty, as a short list."""
     return "  \n".join(
@@ -1171,9 +1204,15 @@ def grid_table(grid: Mapping[tuple[str, str], object]) -> pd.DataFrame:
 
 
 def mistake_md(n: int, topic: str, difficulty: str, question: Question, chosen: int | None) -> str:
-    """A question answered wrong or left blank: where it came from, then the review."""
+    """A question answered wrong or left blank: where it came from, then the review (and, for
+    an open-bank question, its source and licence)."""
+    from piq import question_bank  # the bank loads data: only when a review is shown
+
     head = f":gray[{md_escape(topic)} · {difficulty}]"
-    return f"{head}  \n{review_md(n, question, chosen)}"
+    body = f"{head}  \n{review_md(n, question, chosen)}"
+    if credit := question_bank.credit(question_bank.qid(question)):
+        body += f"  \n:gray[Source: {md_escape(credit)}]"
+    return body
 
 
 def run_notes(

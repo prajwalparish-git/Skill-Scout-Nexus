@@ -130,6 +130,33 @@ class BulletRewrite(BaseModel):
     bullet: str = Field(min_length=10, max_length=320)
 
 
+class ExperienceScreen(BaseModel):
+    """A reported interview, screened: names the regexes missed replaced with [name], and notes
+    for the human moderator. It may only take words out, never add any."""
+
+    questions: list[str] = Field(description="each question, same order, names replaced")
+    tip: str = ""
+    flags: list[str] = Field(default_factory=list, max_length=5)
+
+
+class TailoredBullet(BaseModel):
+    n: int = Field(ge=1, description="the number of the original bullet this one rewrites")
+    text: str = Field(min_length=3, max_length=320)
+
+
+class TailoredEntry(BaseModel):
+    id: str = Field(min_length=2, max_length=10, description="an entry id as given, e.g. E1")
+    bullets: list[TailoredBullet] = Field(description="every original bullet once, best first")
+
+
+class TailoredResume(BaseModel):
+    """A resume tailored to a job description: a new summary, and each entry's bullets
+    reordered and reworded. Nothing added, nothing dropped, no new facts or numbers."""
+
+    summary: str = Field(min_length=20, max_length=800)
+    entries: list[TailoredEntry] = Field(default_factory=list)
+
+
 class FollowUpJudgement(BaseModel):
     """Evaluation only: does an interview question actually follow up on the last answer?"""
 
@@ -256,3 +283,33 @@ class Organization(BaseModel):
     def short_name(self) -> str:
         """The name before a ' - ' or ',' (long names read badly in a sidebar)."""
         return self.name.split(" - ")[0].split(",")[0].strip() or self.name
+
+
+# --- project ideas (piq/project_ideas.py) --------------------------------------------------------
+
+Derivation = Literal["combine", "student_scale", "indian_use_case", "missing_feature"]
+
+
+class DerivedFrom(BaseModel):
+    """One fetched repository an idea is built from, and how (in our own words)."""
+
+    repo: str = Field(min_length=3, max_length=140)  # its full_name, e.g. owner/name
+    takes: str = Field(max_length=300)  # "we take its idea of ..."
+    differs: str = Field(max_length=300)  # "differs by ..."
+
+
+class ProjectIdea(BaseModel):
+    title: str = Field(min_length=5, max_length=80)
+    derivation: Derivation
+    problem: str = Field(max_length=600)
+    why_it_fits: str = Field(max_length=400)
+    derived_from: list[DerivedFrom] = Field(min_length=1, max_length=3)
+    stack: list[str] = Field(min_length=1, max_length=8)
+    gap_skills: list[str] = Field(min_length=1, max_length=4)
+    scope_weeks: int = Field(ge=1, le=4)
+    milestones: list[str] = Field(min_length=1, max_length=8)
+    stretch_goals: list[str] = Field(default_factory=list, max_length=4)
+
+
+class ProjectIdeas(BaseModel):
+    ideas: list[ProjectIdea] = Field(min_length=1, max_length=6)

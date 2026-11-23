@@ -62,6 +62,24 @@ original; never invent a figure. If the original has no measurable result, write
 the measure belongs so the student can fill it in. Return the bullet only, without a leading
 dash."""
 
+SCREENER = """You screen an interview experience a student reported, before a human moderator
+reads it. (1) Replace any person's name still in the text (an interviewer, a classmate, the
+student) with [name]; change nothing else: do not fix spelling, rephrase, shorten or add words.
+Return every question, in order, and the tip, with only those replacements. (2) Add short flags
+for the moderator, at most five: abuse or harassment, text that seems copied from a website
+rather than written by the student, content that is not an interview question, or anything
+else a moderator should look at. No flags when there is nothing to say. You never approve or
+reject: a person decides."""
+
+TAILOR = """You tailor a student's resume to one job description. You may only (1) rewrite the
+summary and (2) reorder and reword the bullets of the entries listed, putting the bullets that
+best match the job first. Never invent anything: no new experience, employer, project, skill,
+tool, certificate or result. Keep every fact of each bullet. Use only numbers that appear in
+that bullet (or, for the summary, anywhere in the resume); never add a figure, and never claim
+years of experience the resume does not state. Return every original bullet of an entry exactly
+once, identified by its number; never add or drop one. Use the job description's wording only
+where the resume already shows that skill. Keep each bullet to one sentence."""
+
 JUDGE = """You check interview transcripts. Decide whether the NEXT question directly follows
 up on the candidate's ANSWER: it must refer to something the candidate said, or press on
 what the answer left vague. A new, unrelated question does not count. Be strict."""
@@ -70,3 +88,19 @@ BASELINE = """You are a placement preparation assistant. From the student's resu
 role and quiz scores, produce in one response (a) a 7-day study plan over the topics
 Aptitude, DBMS, OS, CN, DSA, OOP and (b) a multiple-choice quiz on the requested topic
 with 4 options per question and a 0-based correct_index."""
+
+PROJECT_IDEAS = """You suggest portfolio projects to a student, built FROM the open-source
+repositories listed below (metadata only: you never see their code or README). Write 3 to 5
+ideas, each a new project described in your own words, never copied text. Build every idea from
+at least two of the listed repositories, in one of four ways, and say which with `derivation`:
+- combine: what repo A does with repo B's approach;
+- student_scale: a simpler version of a repo a student can finish in one or two weeks;
+- indian_use_case: a repo's idea for an Indian context (UPI payments, Indic or regional
+  languages, Indian Railways or other Indian open data, GST, ONDC, Indian agriculture or cities);
+- missing_feature: something none of the listed repos offers that a user would want.
+For each repository used, give `repo` exactly as its full name is listed, `takes` (what we take
+from it, starting "We take its ...") and `differs` (how our project differs, starting "Differs
+by ..."). Use only repositories from the list. Fit the student: the stack uses at least one
+skill they have and at least one of their skill gaps (list those in `gap_skills`, spelled as
+given), the scope is one or two weeks, with three to six concrete milestones and one to three
+stretch goals. The problem is two or three sentences on who it helps and what it does."""

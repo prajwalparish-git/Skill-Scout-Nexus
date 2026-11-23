@@ -7,6 +7,7 @@ import { get, type Catalog } from "@/lib/api";
 import { Bento } from "@/components/home/Bento";
 import { Hero } from "@/components/home/Hero";
 import { OpenSource } from "@/components/home/OpenSource";
+import { ContributeTeaser } from "@/components/home/ContributeTeaser";
 import { OrgTeaser } from "@/components/home/OrgTeaser";
 import { StudyHub } from "@/components/home/StudyHub";
 import { Tracks } from "@/components/home/Tracks";
@@ -27,6 +28,7 @@ export default function Home() {
       <Workflow />
       <Tracks catalog={catalog} error={error} />
       <StudyHub />
+      <ContributeTeaser />
       <OrgTeaser />
       <OpenSource />
     </MotionConfig>

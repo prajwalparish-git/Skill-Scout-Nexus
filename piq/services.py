@@ -5,8 +5,10 @@ its input, runs the agents, persists the result and returns typed state, so ever
 flow is testable without Streamlit. `ServiceError` messages are safe to show to users.
 """
 
+import copy
 import csv
 import json
+import logging
 import math
 import re
 import shutil
@@ -18,12 +20,23 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal, Self
+from typing import Annotated, Literal, Self
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
-from piq import agents, checks, db, degrees, question_bank, resume_builder, scorecard, syllabus
+from core import drive
+from piq import (
+    agents,
+    checks,
+    db,
+    degrees,
+    keywords,
+    question_bank,
+    resume_builder,
+    scorecard,
+    syllabus,
+)
 from piq.config import (
     BULLET_MAX_CHARS,
     CERTIFICATE_MAX_BYTES,
@@ -32,10 +45,13 @@ from piq.config import (
     DATA_DIR,
     DEFAULT_SAMPLE,
     DIFFICULTIES,
+    DIFFICULTY_UP_AT,
     EMAIL_RE,
     INSTANT_QUIZ_SIZE,
+    INTERVIEW_MAX_TURNS,
     INTERVIEW_TIPS,
     INTERVIEW_TYPES,
+    LEVEL_MIN_QUESTIONS,
     PROJECT_STATUSES,
     QUIZ_BANK_SHARE,
     QUIZ_BATCH,
@@ -45,13 +61,16 @@ from piq.config import (
     RESULTS_DIR,
     RESUME_MASTERY_AT,
     RESUME_REVIEW_DAYS,
+    REVIEW_MAX_MISSES,
+    REVIEW_PER_QUIZ,
     TIMEZONE,
     TREND_STEP,
     USERNAME_RE,
     WEAK_THRESHOLD,
     settings,
 )
-from piq.graph import OnEvent
+from piq.graph import CriticRejected, OnEvent
+from piq.llm import LLMError
 from piq.resume import ResumeError as ResumeError  # re-exported: views catch it via services
 from piq.resume import extract_text
 from piq.schemas import (
@@ -64,6 +83,7 @@ from piq.schemas import (
 )
 from piq.syllabus import Domain
 
+log = logging.getLogger("piq.services")
 URL_RE = re.compile(r"^https?://[^\s<>()\[\]\"'`]+$")
 SAMPLES_DIR = DATA_DIR / "sample_resumes"
 MAX_ANSWER_CHARS = 4000
@@ -182,6 +202,7 @@ def delete_student(student_id: str | None, confirm_username: str | None) -> None
         raise ServiceError("This account no longer exists.")
     if (confirm_username or "").strip().lower() != student["username"]:
         raise ServiceError("That is not this account's username; nothing was deleted.")
+    drive.disconnect(student["id"])  # revoke the app's Drive access first (best effort)
     db.delete_student(student["id"])
     remove_certificate_files(student["id"])
 
@@ -239,7 +260,7 @@ def onboard(
         raise ServiceError(
             f"This student's domain is locked to {lock.domain.name}: choose one of its roles."
         )
-    profile = agents.create_profile(resume_text, target_role, on_event)
+    profile = agents.create_profile(resume_text, target_role, on_event, student_id)
     return db.save_profile(student_id, profile), profile
 
 
@@ -351,7 +372,9 @@ class QuizResult:
     quiz: QuizSet
     chosen: list[int | None]
     score_pct: float
-    next_difficulty: str
+    next_difficulty: str  # a student's topic level after this quiz (a guest: the suggestion)
+    level_before: str | None = None  # a student's topic level before this quiz
+    level_after: str | None = None
 
     @property
     def correct(self) -> int:
@@ -369,6 +392,10 @@ class QuizSetup:
     last: dict[str, tuple[float, str]]  # topic -> (score %, difficulty) of the latest quiz
     others: list[str] = field(default_factory=list)  # the rest of the domain
     focus: list[str] = field(default_factory=list)  # the role's focus topics
+    levels: dict[str, str] = field(default_factory=dict)  # topic -> the student's level
+
+    def level(self, topic: str) -> str:
+        return self.levels.get(topic, "medium")
 
     @property
     def topics(self) -> list[str]:
@@ -393,6 +420,7 @@ def quiz_setup(student_id: str, profile: StudentProfile | None = None) -> QuizSe
         last={t: (s["last_pct"], s["last_difficulty"]) for t, s in stats.items()},
         others=syllabus.other_topics(profile.target_role, weakness),
         focus=syllabus.focus_topics(profile.target_role),
+        levels=topic_levels(student_id, stats),
     )
 
 
@@ -409,11 +437,9 @@ def _check_quiz_params(topic: str, difficulty: str | None = None) -> None:
 
 
 def suggested_difficulty(student_id: str, topic: str) -> str:
+    """The student's level on the topic: what their next quiz on it uses."""
     _check_quiz_params(topic)
-    last = db.last_attempt(student_id, topic)
-    if last is None:
-        return "medium"
-    return agents.suggest_difficulty(last["score_pct"], last["difficulty"])
+    return topic_level(student_id, topic)
 
 
 def start_quiz(
@@ -430,8 +456,12 @@ def submit_quiz(student_id: str, quiz: QuizSet, chosen: list[int | None]) -> Qui
         raise ServiceError("The answers do not match the quiz.")
     if any(a is not None and a not in range(4) for a in chosen):
         raise ServiceError("Invalid answer choice.")
-    pct = db.save_quiz_attempt(student_id, quiz, list(chosen))
-    return QuizResult(quiz, list(chosen), pct, agents.suggest_difficulty(pct, quiz.difficulty))
+    chosen = list(chosen)
+    pct, changes = _record_quiz(
+        student_id, [(quiz, chosen)], lambda: db.save_quiz_attempt(student_id, quiz, chosen)
+    )
+    before, after = changes[quiz.topic]
+    return QuizResult(quiz, chosen, pct, after, before, after)
 
 
 # --- instant quizzes: straight from the question bank, no LLM call ------------------------
@@ -464,32 +494,56 @@ def instant_quiz(
     return QuizSet(topic=topic, difficulty=difficulty, questions=questions)
 
 
+def _find_question(question_id: str) -> tuple[str, str, Question] | None:
+    """(topic, difficulty, question) for a bank question or one the AI wrote for a quiz."""
+    return question_bank.get(question_id) or db.generated(question_id)
+
+
 def grade_instant_quiz(
     student_id: str | None, topic: str, difficulty: str, answers: Sequence[tuple[str, int | None]]
 ) -> QuizResult:
-    """Grade (question id, chosen option or None) pairs against the bank. With a student the
-    attempt is saved, so their weakness, plan and next difficulty follow it."""
+    """Grade (question id, chosen option or None) pairs against the bank (and the questions the
+    AI wrote for a student's quiz). A guest's quiz is one difficulty. A student's may mix them
+    (their level, a nearest-level stand-in, a review): it is saved one part per difficulty, and
+    their level, weakness and plan follow it."""
     _check_quiz_params(topic, difficulty)
     if not answers or len(answers) > QUIZ_MAX_PER_TOPIC:
         raise ServiceError("Send between 1 and 50 answers.")
-    questions = []
-    for question_id, _ in answers:
-        found = question_bank.get(question_id)
-        if found is None or found[:2] != (topic, difficulty):
+    found = [_find_question(question_id) for question_id, _ in answers]
+    for f in found:
+        if f is None or f[0] != topic or (student_id is None and f[1] != difficulty):
             raise ServiceError("An answer does not match a question of this quiz.")
-        questions.append(found[2])
+    questions = [f[2] for f in found if f]
     if len({question_bank.qid(q) for q in questions}) != len(questions):
         raise ServiceError("A question is answered twice.")
-    quiz = QuizSet(topic=topic, difficulty=difficulty, questions=questions)
     chosen = [c for _, c in answers]
+    if any(c is not None and c not in range(4) for c in chosen):
+        raise ServiceError("Invalid answer choice.")
+    quiz = QuizSet(topic=topic, difficulty=difficulty, questions=questions)
     if student_id is None:
-        if any(c is not None and c not in range(4) for c in chosen):
-            raise ServiceError("Invalid answer choice.")
         right = sum(c == q.correct_index for q, c in zip(questions, chosen, strict=True))
         pct = round(100 * right / len(questions), 1)
         return QuizResult(quiz, chosen, pct, agents.suggest_difficulty(pct, difficulty))
     _require_profile(student_id)
-    return submit_quiz(student_id, quiz, chosen)
+    levels = {f[1] for f in found if f}
+    if len(levels) == 1:
+        one = QuizSet(topic=topic, difficulty=levels.pop(), questions=questions)
+        result = submit_quiz(student_id, one, chosen)
+        return QuizResult(quiz, chosen, *_result_tail(result))
+    parts = []
+    for d in DIFFICULTIES:
+        idx = [i for i, f in enumerate(found) if f and f[1] == d]
+        if idx:
+            part = QuizSet(topic=topic, difficulty=d, questions=[questions[i] for i in idx])
+            parts.append((part, [chosen[i] for i in idx]))
+    _, changes = _record_quiz(student_id, parts, lambda: db.save_quiz_run(student_id, parts))
+    right = sum(c == q.correct_index for q, c in zip(questions, chosen, strict=True))
+    before, after = changes[topic]
+    return QuizResult(quiz, chosen, round(100 * right / len(questions), 1), after, before, after)
+
+
+def _result_tail(r: QuizResult) -> tuple[float, str, str | None, str | None]:
+    return r.score_pct, r.next_difficulty, r.level_before, r.level_after
 
 
 # --- quizzes over several topics and difficulties -------------------------------------
@@ -576,6 +630,10 @@ class QuizRun(BaseModel):
     st.session_state between reruns."""
 
     parts: list[QuizSet]
+    reviews: list[str] = []  # ids of questions brought back after a miss
+
+    def is_review(self, q: Question) -> bool:
+        return question_bank.qid(q) in self.reviews
 
     @property
     def questions(self) -> list[tuple[QuizSet, Question]]:
@@ -597,15 +655,22 @@ def bank_share(n: int) -> int:
     return math.floor(n * QUIZ_BANK_SHARE)
 
 
-def start_quiz_run(student_id: str, spec: QuizSpec, on_event: OnEvent | None = None) -> QuizRun:
+def start_quiz_run(
+    student_id: str, spec: QuizSpec, on_event: OnEvent | None = None, adaptive: bool = False
+) -> QuizRun:
     """Each part takes up to `bank_share(n)` unseen questions from the local question bank;
     the rest are generated in batches of up to QUIZ_BATCH questions, each through the critic.
     Generated questions come first, so the critic's numbering matches the quiz's within a
     part's first batch. Nothing repeats a question the student has seen on the topic or one
-    already in this quiz. Raises like start_quiz when a batch cannot be approved."""
+    already in this quiz. Raises like start_quiz when a batch cannot be approved.
+
+    `adaptive`: the mix is ignored; each topic is asked at the student's level (pick_questions:
+    missed questions back first, nearest-level bank questions when the level runs out)."""
     profile = _require_profile(student_id)
     syl = student_syllabus(student_id, profile)
     spec = quiz_spec(spec.counts, spec.mix, syl.domain.topics)
+    if adaptive:
+        return _adaptive_run(student_id, spec, syl.area, on_event)
     seen: dict[str, list[str]] = {}  # topic -> texts the student saw before, plus this quiz's
     plan = []
     for topic, difficulty, n in spec.parts():
@@ -682,6 +747,7 @@ class QuizRunResult:
     run: QuizRun
     chosen: list[int | None]  # one per question, in quiz order
     run_id: int
+    levels: dict[str, tuple[str, str]] = field(default_factory=dict)  # topic -> (before, after)
 
     def _rows(self) -> list[tuple[int, QuizSet, Question, int | None]]:
         return [
@@ -754,8 +820,9 @@ class QuizRunResult:
 
     @property
     def next_difficulty(self) -> dict[str, str]:
-        """Each topic's suggested next difficulty: from its hardest part in this quiz (the
-        part saved last, which the Quiz page reads next time)."""
+        """Each topic's level for its next quiz (the level rule, applied when it was saved)."""
+        if self.levels:
+            return {topic: after for topic, (_, after) in self.levels.items()}
         out = {}
         for (topic, difficulty), o in self.grid().items():
             out[topic] = agents.suggest_difficulty(o.pct, difficulty)
@@ -772,8 +839,235 @@ def submit_quiz_run(student_id: str, run: QuizRun, chosen: Sequence[int | None])
     for p in run.parts:
         parts.append((p, chosen[start : start + len(p.questions)]))
         start += len(p.questions)
-    run_id = db.save_quiz_run(student_id, parts)
-    return QuizRunResult(run, chosen, run_id)
+    run_id, levels = _record_quiz(student_id, parts, lambda: db.save_quiz_run(student_id, parts))
+    return QuizRunResult(run, chosen, run_id, levels)
+
+
+# --- adaptive quizzes: each student's level per topic ---------------------------------
+
+
+@dataclass(frozen=True)
+class Picked:
+    difficulty: str
+    question: Question
+    review: bool = False  # brought back after a miss (or one like it)
+
+
+def next_level(level: str, parts: Iterable[tuple[str, int, int]]) -> str:
+    """The topic's new level from this quiz's (difficulty, correct, asked) parts on it.
+    Only questions at the level, and at least LEVEL_MIN_QUESTIONS of them, move it by the
+    usual rule (DIFFICULTY_UP_AT up, under DIFFICULTY_DOWN_BELOW down). A harder part answered
+    as well lifts the level to its difficulty. Easier parts never change it."""
+    tally: dict[str, list[int]] = {}
+    for difficulty, correct, asked in parts:
+        t = tally.setdefault(difficulty, [0, 0])
+        t[0], t[1] = t[0] + correct, t[1] + asked
+    rank = DIFFICULTIES.index
+    candidates = [level]
+    for difficulty, (correct, asked) in tally.items():
+        if asked < LEVEL_MIN_QUESTIONS:
+            continue
+        pct = 100 * correct / asked
+        if difficulty == level:
+            candidates[0] = agents.suggest_difficulty(pct, level)
+        elif rank(difficulty) > rank(level) and pct >= DIFFICULTY_UP_AT:
+            candidates.append(difficulty)
+    lifts = [c for c in candidates[1:] if rank(c) > rank(candidates[0])]
+    return max(lifts, key=rank) if lifts else candidates[0]
+
+
+def topic_levels(student_id: str, stats: Mapping[str, Mapping] | None = None) -> dict[str, str]:
+    """Every topic the student has a level on: stored, else the suggestion their latest attempt
+    gives (students from before levels carry on where they were). `stats`: db.topic_stats."""
+    stats = db.topic_stats(student_id) if stats is None else stats
+    out = {
+        t: agents.suggest_difficulty(s["last_pct"], s["last_difficulty"])
+        for t, s in stats.items()
+        if s.get("last_difficulty") in DIFFICULTIES
+    }
+    out.update(db.topic_levels(student_id))
+    return out
+
+
+def topic_level(student_id: str, topic: str) -> str:
+    """The student's level on one topic (medium before their first quiz on it)."""
+    stored = db.topic_levels(student_id).get(topic)
+    return stored or _difficulty_after(db.last_attempt(student_id, topic))
+
+
+def _record_quiz[T](
+    student_id: str, parts: Sequence[tuple[QuizSet, list[int | None]]], save: Callable[[], T]
+) -> tuple[T, dict[str, tuple[str, str]]]:
+    """Save a graded quiz with `save`, then move each topic's level and update the review
+    queue. Levels are read before saving: a topic without one falls back to its latest
+    attempt, which must not yet be this quiz."""
+    topics = list(dict.fromkeys(p.topic for p, _ in parts))
+    before = {t: topic_level(student_id, t) for t in topics}
+    saved = save()
+    after = {
+        t: next_level(
+            before[t],
+            [
+                (
+                    p.difficulty,
+                    sum(q.correct_index == a for q, a in zip(p.questions, ch, strict=True)),
+                    len(ch),
+                )
+                for p, ch in parts
+                if p.topic == t
+            ],
+        )
+        for t in topics
+    }
+    db.set_topic_levels(student_id, after)
+    db.record_reviews(
+        student_id,
+        [
+            (p.topic, p.difficulty, q, a == q.correct_index)
+            for p, ch in parts
+            for q, a in zip(p.questions, ch, strict=True)
+        ],
+        REVIEW_MAX_MISSES,
+    )
+    return saved, {t: (before[t], after[t]) for t in topics}
+
+
+def pick_questions(
+    student_id: str,
+    topic: str,
+    level: str,
+    n: int,
+    seen: Sequence[str],
+    *,
+    bank_limit: int | None = None,
+    on_event: OnEvent | None = None,
+    area: str | None = None,
+) -> list[Picked]:
+    """Up to `n` questions for the student on `topic` at `level`, none they have seen:
+    1. missed questions due back (a similar bank question, else the same one again);
+    2. bank questions at the level (at most `bank_limit`: the rest are written fresh);
+    3. live: the AI writes the rest at the level, checked by the critic (a web quiz waits for
+       one batch at most);
+    4. bank questions at the level past the limit, then at the nearest levels (MOCK_MODE, or
+       the AI could not deliver);
+    5. MOCK_MODE: sample questions, the last resort."""
+    picked: list[Picked] = []
+    avoid = list(seen)
+    seed = f"{student_id}|{topic}|{level}|{len(seen)}|{uuid.uuid4().hex}"
+
+    def take(difficulty: str, q: Question, review: bool = False) -> None:
+        picked.append(Picked(difficulty, q, review))
+        avoid.append(q.text)
+
+    # Reviews off the level must leave LEVEL_MIN_QUESTIONS at it, or the level could not move.
+    off_level_room = max(0, n - LEVEL_MIN_QUESTIONS)
+    for row in db.due_reviews(student_id, topic, min(REVIEW_PER_QUIZ, n // 2)):
+        found = question_bank.similar(row["qid"], avoid, seed, prefer=level)
+        d, q = found or (row["difficulty"], Question.model_validate_json(row["question_json"]))
+        if any(question_bank.qid(p.question) == question_bank.qid(q) for p in picked):
+            continue
+        if d != level:
+            if off_level_room <= 0:
+                continue  # it stays queued for a later quiz
+            off_level_room -= 1
+        db.mark_review_served(student_id, row["qid"], question_bank.qid(q))
+        take(d, q, review=True)
+    room = n - len(picked)
+    for q in question_bank.draw(
+        topic, level, room if bank_limit is None else min(bank_limit, room), avoid, seed
+    ):
+        take(level, q)
+    mock_mode = settings().mock_mode
+    while (short := n - len(picked)) > 0 and not mock_mode:
+        try:
+            made = agents.make_quiz(
+                topic,
+                level,
+                avoid,
+                count=min(QUIZ_BATCH, short),
+                student_id=student_id,
+                on_event=on_event,
+                area=area,
+            )
+        except (LLMError, CriticRejected) as e:
+            log.info(
+                "adaptive quiz: %s at %s could not be written (%s); bank instead", topic, level, e
+            )
+            break
+        db.save_generated(topic, level, made.questions, "ai")
+        for q in made.questions[:short]:
+            take(level, q)
+        if bank_limit is None:  # a web quiz: one batch, then the bank, so the page stays quick
+            break
+    if (short := n - len(picked)) > 0:
+        for d, q in question_bank.draw_nearest(topic, level, short, avoid, seed):
+            take(d, q)
+    if (short := n - len(picked)) > 0 and mock_mode:
+        made = agents.make_quiz(topic, level, avoid, count=short, student_id=student_id, area=area)
+        db.save_generated(topic, level, made.questions, "mock")
+        for q in made.questions[:short]:
+            take(level, q)
+    return picked
+
+
+def _parts_of(topic: str, items: Sequence[Picked]) -> list[QuizSet]:
+    """The picked questions as one part per difficulty, easy to hard."""
+    return [
+        QuizSet(
+            topic=topic, difficulty=d, questions=[i.question for i in items if i.difficulty == d]
+        )
+        for d in DIFFICULTIES
+        if any(i.difficulty == d for i in items)
+    ]
+
+
+def _adaptive_run(student_id: str, spec: QuizSpec, area: str, on_event: OnEvent | None) -> QuizRun:
+    parts: list[QuizSet] = []
+    reviews: list[str] = []
+    for topic, n in spec.counts.items():
+        level = topic_level(student_id, topic)
+        if on_event:
+            on_event(f"{topic}: your level is {level}")
+        seen = db.asked_questions(student_id, topic)
+        items = pick_questions(
+            student_id,
+            topic,
+            level,
+            n,
+            seen,
+            bank_limit=bank_share(n),
+            on_event=on_event,
+            area=area,
+        )
+        if not items:
+            raise ServiceError(f"No new {topic} questions are left. Try another topic.")
+        parts += _parts_of(topic, items)
+        reviews += [question_bank.qid(i.question) for i in items if i.review]
+    return QuizRun(parts=parts, reviews=reviews)
+
+
+@dataclass(frozen=True)
+class AdaptiveQuiz:
+    topic: str
+    level: str
+    items: list[Picked]
+
+
+def adaptive_quiz(student_id: str, topic: str, count: int = INSTANT_QUIZ_SIZE) -> AdaptiveQuiz:
+    """A quiz on one topic at the student's level (the web Quiz page's default)."""
+    _check_quiz_params(topic)
+    if not 1 <= count <= QUIZ_MAX_PER_TOPIC:
+        raise ServiceError(f"Choose 1 to {QUIZ_MAX_PER_TOPIC} questions.")
+    profile = _require_profile(student_id)
+    syl = student_syllabus(student_id, profile)
+    if topic not in syl.domain.topics:
+        raise ServiceError(f"{topic} is not in your domain's syllabus.")
+    level = topic_level(student_id, topic)
+    seen = db.asked_questions(student_id, topic)
+    items = pick_questions(student_id, topic, level, count, seen, area=syl.area)
+    if not items:
+        raise ServiceError(f"No new {topic} questions are left. Try another topic.")
+    return AdaptiveQuiz(topic, level, items)
 
 
 # --- interviews ----------------------------------------------------------------
@@ -807,6 +1101,12 @@ class InterviewSession(BaseModel):
     history: list[AnsweredTurn] = []
     current: InterviewTurn | None = None
     done: bool = False
+    # Company practice (piq/experiences.py): questions students reported, asked first and word
+    # for word, then the AI interviewer continues with this focus (None: the track's own).
+    script: list[Annotated[str, Field(max_length=1000)]] = Field(
+        default_factory=list, max_length=INTERVIEW_MAX_TURNS
+    )
+    custom_focus: str | None = Field(None, max_length=400)
 
     @model_validator(mode="after")
     def _finished_has_no_open_question(self) -> Self:
@@ -896,19 +1196,45 @@ def _track_focus(profile: StudentProfile, name: str) -> str:
     return track.focus
 
 
+REPORTED_INTENT = "Reported by a student who had this interview"
+
+
+def _scripted(question: str) -> InterviewTurn:
+    """A question a student reported, asked word for word (never written by the AI)."""
+    return InterviewTurn(
+        question=question, intent=REPORTED_INTENT, is_followup=False, is_final=False
+    )
+
+
 def start_interview(
-    student_id: str, interview_type: str, on_event: OnEvent | None = None
+    student_id: str,
+    interview_type: str,
+    on_event: OnEvent | None = None,
+    *,
+    script: Sequence[str] = (),
+    focus: str | None = None,
 ) -> InterviewSession:
-    """`interview_type`: a generic type or one of the student's tracks (interview_tracks)."""
+    """`interview_type`: a generic type or one of the student's tracks (interview_tracks).
+    Company practice passes `script` (reported questions, asked first, verbatim; the AI then
+    closes the session) and its own `focus`, so the type need not be a track."""
     profile = _require_profile(student_id)
-    focus = _track_focus(profile, interview_type)
+    track_focus = focus if focus is not None else _track_focus(profile, interview_type)
     session_id = uuid.uuid4().hex
     past = db.past_turns(student_id, exclude_session=session_id)
-    first = agents.next_question(
-        profile, interview_type, [], past, student_id, on_event, focus=focus
-    )
+    script = [q for q in script if q.strip()][: INTERVIEW_MAX_TURNS - 1]  # room for a close
+    if script:
+        first = _scripted(script[0])
+    else:
+        first = agents.next_question(
+            profile, interview_type, [], past, student_id, on_event, focus=track_focus
+        )
     return InterviewSession(
-        session_id=session_id, interview_type=interview_type, past=past, current=first
+        session_id=session_id,
+        interview_type=interview_type,
+        past=past,
+        current=first,
+        script=script,
+        custom_focus=focus,
     )
 
 
@@ -941,6 +1267,11 @@ def continue_interview(
     if session.phase != "awaiting_question":
         raise ServiceError("This session is not waiting for a new question.")
     profile = _require_profile(student_id)
+    if len(session.history) < len(session.script):  # reported questions first, verbatim
+        return session.model_copy(
+            update={"current": _scripted(session.script[len(session.history)])}
+        )
+    focus = session.custom_focus
     nxt = agents.next_question(
         profile,
         session.interview_type,
@@ -948,7 +1279,7 @@ def continue_interview(
         session.past,
         student_id,
         on_event,
-        focus=_track_focus(profile, session.interview_type),
+        focus=focus if focus is not None else _track_focus(profile, session.interview_type),
     )
     return session.model_copy(update={"current": nxt})
 
@@ -1376,7 +1707,9 @@ def save_resume(
 ) -> tuple[str, int]:
     """Save a built resume as the student's next version and re-profile them from it (their
     readiness follows the resume). Without a student, a new one is created from it. The
-    first version locks the domain. Returns (student id, version number)."""
+    first version locks the domain. Returns (student id, version number). Date of birth and
+    address are dropped first: they are only ever in the PDF, never saved."""
+    resume = resume_builder.without_private(resume)
     role = resume.get("target_role", "")
     if role not in domain_roles(domain_id):
         raise ServiceError(f"{role!r} is not a role in this domain.")
@@ -1401,7 +1734,9 @@ def save_resume(
     return sid, len(db.resume_versions(sid))
 
 
-def enhance_bullet(text: str, role: str, on_event: OnEvent | None = None) -> str:
+def enhance_bullet(
+    text: str, role: str, on_event: OnEvent | None = None, student_id: str | None = None
+) -> str:
     """One resume bullet rewritten in XYZ form by the LLM; numbers are never invented."""
     text = (text or "").strip()
     if len(text) < 5:
@@ -1410,7 +1745,106 @@ def enhance_bullet(text: str, role: str, on_event: OnEvent | None = None) -> str
         raise ServiceError(f"A bullet is limited to {BULLET_MAX_CHARS} characters.")
     if resume_builder.get_role_info(role) is None and role not in syllabus.role_skills():
         raise ServiceError(f"Unknown role {role!r}.")
-    return agents.enhance_bullet(text, role, on_event)
+    return agents.enhance_bullet(text, role, on_event, student_id)
+
+
+JD_MIN_CHARS, JD_MAX_CHARS = 80, 6000
+
+
+@dataclass(frozen=True)
+class Tailoring:
+    """A tailored resume for the student to review: nothing changes until they accept it."""
+
+    resume: dict  # the resume with the tailored summary and bullets (accept = use this)
+    summary: str
+    bullets: dict[str, list[str]]  # "experience:0" / "projects:0" -> bullets in the new order
+    original: dict[str, list[str]]  # the same entries' bullets as they were
+    changes: list[str]  # what moved or was reworded, in words
+    matched_keywords: list[str]  # the job's terms the resume already shows
+    missing_keywords: list[str]  # the job's terms it does not: never added for the student
+
+
+def job_keywords(role: str, job_description: str, resume: Mapping) -> tuple[list[str], list[str]]:
+    """(on the resume, not on it): the terms the job description asks for (taken from the job
+    description itself by piq/keywords.py, plus the role's ATS keywords and skills and the
+    student's own skills when it names them), matched across word forms and aliases ("unit
+    tests" shows "Unit Testing", "k8s" shows "Kubernetes"). Text only, no model. A list for the
+    student: missing terms are never added to the resume."""
+    info = resume_builder.get_role_info(role) or {}
+    extra = [
+        *info.get("ats_keywords", []),
+        *syllabus.role_skills().get(role, {}),
+        *resume.get("skills", []),
+    ]
+    corpus = resume_builder.resume_text(resume_builder.without_private(resume))
+    return keywords.split(job_description, corpus, extra)
+
+
+def tailor_resume(
+    student_id: str, resume: Mapping, job_description: str, on_event: OnEvent | None = None
+) -> Tailoring:
+    """Tailor the summary and the order and wording of each entry's bullets to a job
+    description, by the rules of checks.check_tailoring (nothing added, dropped or invented).
+    Personal details are never sent. The job description is neither saved nor cached."""
+    jd = (job_description or "").strip()
+    if not JD_MIN_CHARS <= len(jd) <= JD_MAX_CHARS:
+        raise ServiceError(
+            f"Paste a job description of {JD_MIN_CHARS} to {JD_MAX_CHARS:,} characters."
+        )
+    entries: dict[str, list[str]] = {}
+    titles: dict[str, str] = {}
+    where: dict[str, str] = {}
+    for kind, prefix, items in (
+        ("experience", "E", resume_builder.experience_entries(resume)),
+        ("projects", "P", list(resume.get("projects", []))),
+    ):
+        for i, item in enumerate(items):
+            if item.get("bullets"):
+                eid = f"{prefix}{i + 1}"
+                entries[eid] = [str(b) for b in item["bullets"]]
+                titles[eid] = (
+                    resume_builder.job_label(item) if kind == "experience" else item["title"]
+                )
+                where[eid] = f"{kind}:{i}"
+    safe = resume_builder.without_private(resume)
+    inp = {
+        "role": resume.get("target_role", ""),
+        "skills": list(resume.get("skills", [])),
+        "summary": resume.get("summary", ""),
+        "entries": entries,
+        "titles": titles,
+        "corpus": resume_builder.resume_text(safe),
+        "job_description": jd,
+        "student_id": student_id,
+    }
+    out = agents.tailor_resume(inp, on_event)
+
+    tailored = copy.deepcopy(dict(resume))
+    changes = []
+    summary = " ".join(out.summary.split())
+    if summary != " ".join(str(resume.get("summary", "")).split()):
+        changes.append("Summary rewritten for this job.")
+    tailored["summary"] = summary
+    tailored.setdefault("form", {})["summary"] = summary
+    bullets: dict[str, list[str]] = {}
+    original: dict[str, list[str]] = {}
+    for e in out.entries:
+        kind, i = where[e.id].split(":")
+        new = [" ".join(b.text.split()) for b in e.bullets]
+        old = entries[e.id]
+        bullets[where[e.id]] = new
+        original[where[e.id]] = old
+        tailored[kind][int(i)]["bullets"] = new
+        moved = [b.n for b in e.bullets] != list(range(1, len(old) + 1))
+        reworded = sum(b.text.strip() != old[b.n - 1].strip() for b in e.bullets)
+        if moved or reworded:
+            what = [
+                *(["bullets reordered"] if moved else []),
+                *([f"{reworded} reworded"] if reworded else []),
+            ]
+            changes.append(f"{titles[e.id]}: {', '.join(what)}.")
+    matched, missing = job_keywords(inp["role"], jd, tailored)
+    return Tailoring(tailored, summary, bullets, original, changes, matched, missing)
 
 
 def check_resume_dates(resume: Mapping) -> None:
@@ -1732,10 +2166,26 @@ def save_certificate(
     path.write_bytes(data)
     fields |= {"stored_name": stored, "size_bytes": len(data)}
     try:
-        return db.add_certificate(student_id, fields)
+        cert_id = db.add_certificate(student_id, fields)
     except Exception:
         path.unlink(missing_ok=True)
         raise
+    _mirror_to_drive(student_id, cert_id, str(fields["filename"]), data)
+    return cert_id
+
+
+def _mirror_to_drive(student_id: str, cert_id: int, filename: str, data: bytes) -> bool:
+    """Copy a certificate into the student's Drive when they connected one. Best effort: the
+    local copy is already saved, and the card offers a retry."""
+    if not drive.connected(student_id):
+        return False
+    try:
+        up = drive.upload(student_id, "certificates", filename, data)
+    except drive.DriveError as e:
+        log.info("drive: certificate %s not copied (%s)", cert_id, e)
+        return False
+    db.set_certificate_drive_id(student_id, cert_id, up["id"])
+    return True
 
 
 def certificates(student_id: str) -> list[sqlite3.Row]:
@@ -1744,21 +2194,95 @@ def certificates(student_id: str) -> list[sqlite3.Row]:
 
 def certificate_file(student_id: str, cert_id: int) -> tuple[sqlite3.Row, Path] | None:
     """The certificate and its file, or None when it is not this student's or the file is
-    gone."""
+    gone. A file gone from this disk (a host that wipes it on restart) is fetched back from
+    the student's Drive when it has a copy there, and kept here again."""
     row = db.certificate(student_id, cert_id)
     if row is None:
         return None
     path = _certificate_dir(student_id) / row["stored_name"]
-    return (row, path) if path.is_file() else None
+    if path.is_file():
+        return row, path
+    if row["drive_file_id"] and drive.connected(student_id):
+        try:
+            data = drive.download(student_id, row["drive_file_id"])
+        except drive.DriveError as e:
+            log.info("drive: certificate %s not restored (%s)", cert_id, e)
+            return None
+        if data.startswith(PDF_MAGIC):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+            return row, path
+    return None
 
 
 def delete_certificate(student_id: str, cert_id: int) -> bool:
-    """Delete the certificate and its file; False when it is not this student's."""
+    """Delete the certificate and its file; False when it is not this student's. Its copy in
+    the student's Drive goes to Drive's trash (recoverable there)."""
     row = db.delete_certificate(student_id, cert_id)
     if row is None:
         return False
     (_certificate_dir(student_id) / row["stored_name"]).unlink(missing_ok=True)
+    if row["drive_file_id"] and drive.connected(student_id):
+        try:
+            drive.trash(student_id, row["drive_file_id"])
+        except drive.DriveError as e:
+            log.info("drive: certificate %s not trashed in Drive (%s)", cert_id, e)
     return True
+
+
+def backup_certificates(student_id: str) -> int:
+    """Copy every certificate not yet in the student's Drive there; how many were copied."""
+    copied = 0
+    for row in db.certificates(student_id):
+        if row["drive_file_id"]:
+            continue
+        path = _certificate_dir(student_id) / row["stored_name"]
+        if path.is_file() and _mirror_to_drive(
+            student_id, row["id"], row["filename"], path.read_bytes()
+        ):
+            copied += 1
+    return copied
+
+
+def retry_certificate_drive(student_id: str, cert_id: int) -> bool:
+    row = db.certificate(student_id, cert_id)
+    if row is None:
+        raise ServiceError("No such certificate.")
+    path = _certificate_dir(student_id) / row["stored_name"]
+    if not path.is_file():
+        raise ServiceError("The file is no longer on this server; upload it again.")
+    return _mirror_to_drive(student_id, cert_id, row["filename"], path.read_bytes())
+
+
+def save_resume_to_drive(
+    student_id: str, resume: Mapping, *, name: str | None = None
+) -> dict[str, str]:
+    """The resume's PDF, in its template, into the student's Drive (Resumes). Nothing about it
+    is kept here; the PDF may carry details (date of birth, address) only the student sees."""
+    pdf = resume_builder.generate_ats_pdf(resume)
+    return drive.upload(student_id, "resumes", name or _resume_pdf_name(resume), pdf)
+
+
+def _resume_pdf_name(resume: Mapping) -> str:
+    from piq import formatter  # formatter imports pandas: load it only when needed
+
+    return formatter.resume_filename(
+        str(resume.get("full_name", "")), str(resume.get("target_role", ""))
+    )
+
+
+def resume_certificates(student_id: str | None) -> list[dict[str, str]]:
+    """The student's uploaded certificates as resume lines: {title, line}, newest first, e.g.
+    "AWS Cloud Practitioner, Amazon Web Services (Jan 2025)"."""
+    if not student_id:
+        return []
+    out = []
+    for r in db.certificates(student_id):
+        when = ""
+        if r["issue_date"]:
+            when = f" ({date.fromisoformat(r['issue_date']).strftime('%b %Y')})"
+        out.append({"title": r["title"], "line": f"{r['title']}, {r['issuer']}{when}"})
+    return out
 
 
 def remove_certificate_files(student_id: str) -> None:

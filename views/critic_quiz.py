@@ -15,6 +15,7 @@ from piq.services import ServiceError
 from piq.ui import Stat, page_header, require_profile, stat_row, status_badge
 
 BATCH, GRADE, ROUND = "cq_batch", "cq_grade", "cq_round"  # piq.ui.PER_STUDENT_KEYS
+PROCTOR_FLAGS = "cq_proctor_flags"  # what proctoring recorded for the graded quiz
 
 page_header(
     "Critic-checked quiz",
@@ -39,7 +40,6 @@ with st.form("cq_setup", border=True):
     count = right.segmented_control("Questions", CRITIC_QUIZ_SIZES, default=CRITIC_QUIZ_DEFAULT)
     if st.form_submit_button("Generate quiz", type="primary", icon=":material/quiz:"):
         try:
-            proctor_guard.reset_proctor_state()  # a new quiz starts with no strikes
             with st.spinner("Writing questions and checking each one"):
                 st.session_state[BATCH] = journey.critic_quiz(
                     sid,
@@ -70,13 +70,15 @@ with st.container(border=True):
 grade: journey.QuizGrade | None = st.session_state.get(GRADE)
 n = st.session_state.get(ROUND, 0)
 
+proctor_key = f"cq-{n}"
 if grade is None:
-    proctor_guard.render_proctor_guard(page_type="critic_quiz")
-    proctor_guard.render_warning_banner()
-    if proctor_guard.is_breached():
+    guard = proctor_guard.guard(sid, "quiz", batch.topic_or_skill, key=proctor_key)
+    if guard.breached:  # the third strike: submit what the form has (unsent answers are blank)
         answers = [st.session_state.get(f"cq{n}_{i}") for i in range(len(batch.questions))]
+        flags = proctor_guard.finish(sid, proctor_key)
+        st.session_state[PROCTOR_FLAGS] = flags
         st.session_state[GRADE] = grade = journey.grade_quiz(
-            sid, batch, answers, proctor_flags=[proctor_guard.FLAG_PROCTOR_BREACH]
+            sid, batch, answers, proctor_flags=flags
         )
         st.rerun()
 
@@ -100,7 +102,11 @@ with st.form(f"cq_answers_{n}", border=False):
     )
 if submitted:
     try:
-        st.session_state[GRADE] = grade = journey.grade_quiz(sid, batch, answers)
+        flags = proctor_guard.finish(sid, proctor_key)
+        st.session_state[PROCTOR_FLAGS] = flags
+        st.session_state[GRADE] = grade = journey.grade_quiz(
+            sid, batch, answers, proctor_flags=flags
+        )
         st.rerun()
     except ServiceError as e:
         st.error(formatter.md_escape(str(e)), icon=":material/error:")
@@ -108,12 +114,7 @@ if submitted:
 if grade is None:
     st.stop()
 
-if proctor_guard.is_breached():
-    st.error(
-        "🚨 **PROCTOR BREACH:** This quiz was force-submitted due to 3 proctoring violations "
-        "(tab switching, window blur, or camera absence).",
-        icon=":material/gavel:",
-    )
+proctor_guard.outcome_banner(st.session_state.get(PROCTOR_FLAGS) or [])
 
 skipped = sum(st.session_state.get(f"cq{n}_{i}") is None for i in range(grade.total))
 stat_row(

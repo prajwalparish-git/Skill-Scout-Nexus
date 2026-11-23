@@ -11,6 +11,7 @@ and work became lists (one education dict, no work) read the same through
 `education_entries` and `experience_entries`.
 """
 
+import copy
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -304,6 +305,15 @@ def build_ats_resume_data(
     education: Sequence[Mapping[str, Any]] | None = None,
     experience: Sequence[Mapping[str, Any]] | None = None,
     today: date | None = None,
+    template: str = "standard",
+    leetcode_url: str = "",
+    codeforces_url: str = "",
+    portfolio_url: str = "",
+    achievements: Sequence[str] | None = None,
+    exam_scores: Sequence[str] | None = None,
+    personal: Mapping[str, str] | None = None,
+    declaration_place: str = "",
+    summary: str = "",
 ) -> dict[str, Any]:
     """The resume from the student's inputs only. `education` and `experience` are the form's
     entries (see clean_education / clean_experience); without `education`, the single
@@ -312,7 +322,12 @@ def build_ats_resume_data(
     jobs) and `experience_level` is ignored. `extra_projects` ({title, tech, bullets}) come
     from the Project space. Nothing is invented: no keyword is added to the skills, no sample
     project and no certificate the student did not enter. The raw inputs are kept under
-    "form" so the next version starts from them."""
+    "form" so the next version starts from them.
+
+    `template` (piq/resume_templates.py) picks the layout; `summary` replaces the written one
+    (a tailored summary the student accepted). `personal` may hold date_of_birth and address:
+    they go into this resume (and its PDF) only. They are never kept under "form", and
+    without_private() strips them before anything is saved."""
     today = today or date.today()
     skills = list(dict.fromkeys(s.strip() for s in selected_skills if s.strip()))
     if education is None:
@@ -334,7 +349,7 @@ def build_ats_resume_data(
         fresher = experience_level.lower().startswith("fresher")
         level = "Entry-level" if fresher else experience_level.strip()
         lead = f"{level} {role_name}{focus}."
-    summary = (
+    written = (
         f"{lead} Builds and documents work end to end and keeps learning the fundamentals the "
         "role depends on."
     )
@@ -342,7 +357,8 @@ def build_ats_resume_data(
     if pursuing:
         name = degrees.entry_label({**pursuing, "status": "Completed"})
         when = f", completing in {pursuing['end']}" if pursuing["end"] else ""
-        summary += f" Currently pursuing {name}{when}."
+        written += f" Currently pursuing {name}{when}."
+    override = " ".join((summary or "").split())
 
     projects = []
     if custom_project_title.strip():
@@ -358,17 +374,39 @@ def build_ats_resume_data(
             projects.append(extra)
 
     links = [linkedin_url, github_url]
+    extra_links = {
+        "LeetCode": leetcode_url.strip(),
+        "Codeforces": codeforces_url.strip(),
+        "Portfolio": portfolio_url.strip(),
+    }
     contact_parts = [p.strip() for p in [location, email, phone, *links] if p.strip()]
+    contact_parts += [u for u in extra_links.values() if u]
+    personal = {k: " ".join(str(v).split()) for k, v in (personal or {}).items() if str(v).strip()}
     return {
         "full_name": full_name.strip(),
         "contact_line": " | ".join(contact_parts),
+        "contact": {
+            "location": location.strip(),
+            "email": email.strip(),
+            "phone": phone.strip(),
+        },
+        "links": {
+            "LinkedIn": linkedin_url.strip(),
+            "GitHub": github_url.strip(),
+            **extra_links,
+        },
         "target_role": role_name,
-        "summary": summary,
+        "template": template,
+        "summary": override or written,
         "skills": skills,
         "experience": jobs,
         "education": edu,
         "projects": projects,
-        "certifications": [c.strip() for c in certifications or [] if c.strip()],
+        "certifications": list(dict.fromkeys(c.strip() for c in certifications or [] if c.strip())),
+        "achievements": [a.strip() for a in achievements or [] if a.strip()],
+        "exam_scores": [s.strip() for s in exam_scores or [] if s.strip()],
+        "personal": {k: v for k, v in personal.items() if k in PERSONAL_FIELDS},
+        "declaration_place": declaration_place.strip(),
         "form": {
             "full_name": full_name,
             "email": email,
@@ -383,8 +421,67 @@ def build_ats_resume_data(
             "project_tech": custom_project_tech,
             "project_desc": custom_project_desc,
             "certifications": "\n".join(certifications or []),
+            "template": template,
+            "leetcode_url": leetcode_url,
+            "codeforces_url": codeforces_url,
+            "portfolio_url": portfolio_url,
+            "achievements": "\n".join(achievements or []),
+            "exam_scores": "\n".join(exam_scores or []),
+            # never date_of_birth or address: those live in this resume only
+            **{k: personal[k] for k in SAVED_PERSONAL if k in personal},
+            "declaration_place": declaration_place,
+            "summary": override,
         },
     }
+
+
+# Personal details a Government / PSU resume may show. Date of birth and address go into the
+# current resume and its PDF only: never saved, never put under "form", never logged.
+PERSONAL_FIELDS = ("date_of_birth", "nationality", "languages", "address")
+PRIVATE_FIELDS = ("date_of_birth", "address")
+SAVED_PERSONAL = tuple(k for k in PERSONAL_FIELDS if k not in PRIVATE_FIELDS)
+
+
+def merge_certifications(typed: Sequence[str], uploaded: Sequence[Mapping[str, str]]) -> list[str]:
+    """Uploaded certificates ({title, line}) first, then the typed ones that do not repeat one
+    (by its title or full line, ignoring case)."""
+    known = {u[k].strip().casefold() for u in uploaded for k in ("title", "line")}
+    rest = [t.strip() for t in typed if t.strip() and t.strip().casefold() not in known]
+    return list(dict.fromkeys([*(u["line"] for u in uploaded), *rest]))
+
+
+def apply_tailoring(
+    res: Mapping[str, Any],
+    summary: str,
+    bullets: Mapping[str, Sequence[str]],
+    original: Mapping[str, Sequence[str]],
+) -> dict[str, Any] | None:
+    """The resume with an accepted tailoring (summary, and "experience:0"-style entries'
+    bullets), or None when an entry's bullets are no longer the ones it was made from (the
+    student edited them since: the tailoring no longer fits)."""
+    out = copy.deepcopy(dict(res))
+    for where, new in bullets.items():
+        kind, i = where.split(":")
+        items = out.get(kind) or []
+        if int(i) >= len(items) or sorted(items[int(i)]["bullets"]) != sorted(original[where]):
+            return None
+        items[int(i)]["bullets"] = list(new)
+    out["summary"] = summary
+    out.setdefault("form", {})["summary"] = summary
+    return out
+
+
+def without_private(res: Mapping[str, Any]) -> dict[str, Any]:
+    """A copy of the resume without date of birth or address anywhere: what may be saved."""
+    out = copy.deepcopy(dict(res))
+    out["personal"] = {
+        k: v for k, v in (out.get("personal") or {}).items() if k not in PRIVATE_FIELDS
+    }
+    form = out.get("form")
+    if isinstance(form, dict):
+        for k in PRIVATE_FIELDS:
+            form.pop(k, None)
+    return out
 
 
 def resume_text(res: dict[str, Any]) -> str:
@@ -646,87 +743,9 @@ class ATSDoc(FPDF):
         self.ln(2)
 
 
-def generate_ats_pdf(resume_data: dict[str, Any]) -> bytes:
-    """Generate a clean, single-column, standard-font, ATS-friendly vector PDF."""
-    pdf = ATSDoc(format="A4")
-    pdf.set_auto_page_break(auto=True, margin=14)
-    pdf.set_margins(16, 14, 16)
-    pdf.add_page()
+def generate_ats_pdf(resume_data: Mapping[str, Any], template: str | None = None) -> bytes:
+    """The resume as a single-column, standard-font, ATS-friendly PDF, in its template (or
+    `template`); Standard is the original layout (piq/resume_templates.py)."""
+    from piq import resume_templates  # it builds on this module's helpers
 
-    # Name Header
-    pdf.set_font("Helvetica", "B", 18)
-    pdf.set_text_color(13, 102, 112)  # Primary brand teal
-    pdf.cell(
-        0, 7, resume_data.get("full_name", "").upper(), align="C", new_x="LMARGIN", new_y="NEXT"
-    )
-
-    # Target Role Title
-    pdf.set_font("Helvetica", "B", 10)
-    pdf.set_text_color(60, 70, 75)
-    pdf.cell(
-        0, 5, resume_data.get("target_role", "").upper(), align="C", new_x="LMARGIN", new_y="NEXT"
-    )
-
-    # Contact Info
-    pdf.set_font("Helvetica", "", 8.5)
-    pdf.set_text_color(80, 90, 95)
-    pdf.cell(0, 4.5, resume_data.get("contact_line", ""), align="C", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(3)
-
-    # 1. Professional Summary
-    pdf.section_heading("Professional Summary")
-    pdf.set_font("Helvetica", "", 9)
-    pdf.set_text_color(30, 35, 40)
-    pdf.multi_cell(0, 4.3, resume_data.get("summary", ""), new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(3)
-
-    # 2. Technical & Core Skills
-    pdf.section_heading("Core Competencies & Skills")
-    pdf.set_font("Helvetica", "", 9)
-    skills = resume_data.get("skills", [])
-    # Render skills in 2 categorized lines with clean ASCII separators
-    half = max(1, len(skills) // 2)
-    row1 = ", ".join(skills[:half])
-    row2 = ", ".join(skills[half:])
-    pdf.multi_cell(0, 4.3, f"Core Focus: {row1}", new_x="LMARGIN", new_y="NEXT")
-    if row2:
-        pdf.multi_cell(0, 4.3, f"Tools & Methodologies: {row2}", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(3)
-
-    # 3. Work experience, newest first as entered
-    jobs = experience_entries(resume_data)
-    if jobs:
-        pdf.section_heading("Work Experience")
-        for e in jobs:
-            detail = " | ".join(x for x in (e["type"], e["location"], job_dates(e)) if x)
-            pdf.entry(job_label(e), detail, e["bullets"])
-
-    # 4. Projects
-    projects = resume_data.get("projects", [])
-    if projects:
-        pdf.section_heading("Projects")
-        for proj in projects:
-            tech = f"Technologies: {proj['tech']}" if proj.get("tech") else ""
-            pdf.entry(proj.get("title", ""), tech, proj.get("bullets", []))
-
-    # 5. Education, as entered (usually the highest first)
-    edu = education_entries(resume_data)
-    if edu:
-        pdf.section_heading("Education")
-        for e in edu:
-            score = f"Performance: {e['score']}" if e.get("score") else ""
-            detail = " | ".join(
-                x for x in (e.get("institution", ""), education_dates(e), score) if x
-            )
-            pdf.entry(degrees.entry_label({**e, "status": "Completed"}), detail, [])
-
-    # 6. Certifications
-    certs = resume_data.get("certifications", [])
-    if certs:
-        pdf.section_heading("Certifications & Honors")
-        pdf.set_font("Helvetica", "", 8.5)
-        pdf.set_text_color(30, 35, 40)
-        for c in certs:
-            pdf.cell(0, 4, f"  -  {c}", new_x="LMARGIN", new_y="NEXT")
-
-    return bytes(pdf.output())
+    return resume_templates.render_pdf(resume_data, template)[0]

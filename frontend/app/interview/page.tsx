@@ -2,10 +2,34 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { Award, Check, Clock, Loader2, Mic, Send, ShieldCheck, TrendingDown } from "lucide-react";
-import { get, postStream, type Evaluation, type Track, type TurnResult } from "@/lib/api";
+import { Award, BookOpen, Bot, Check, Clock, Loader2, Mic, Play, Send, ShieldCheck, TrendingDown, UserRound } from "lucide-react";
+import { get, post, postStream, type Evaluation, type Track, type TurnResult } from "@/lib/api";
 import { useCandidate } from "@/lib/candidate";
 import { Badge, ErrorNote, Loading, NeedsCandidate, PageHeader } from "@/components/ui";
+import { useProctor } from "@/lib/proctor/useProctor";
+import { ProctorChoice, ProctorLayer, ProctorSummary } from "@/components/proctor/Proctor";
+import { HandsFreeRunner, HandsFreeSetup, HandsFreeSummary, useHandsFreeSetup } from "@/components/handsfree/HandsFree";
+
+/** Company practice: whether a question was reported by a student, came from the open question
+ * bank (general practice, never the company's), or was written by the AI. */
+function SourceChip({ script, question, type }: { script?: string[]; question: string; type: string }) {
+  if (!script?.length) return null;
+  if (script.includes(question) && type.startsWith("General practice"))
+    return (
+      <span className="chip mb-2 border-ok/40 text-ok">
+        <BookOpen size={12} aria-hidden /> General practice (open question bank)
+      </span>
+    );
+  return script.includes(question) ? (
+    <span className="chip mb-2 border-warn/40 text-warn">
+      <UserRound size={12} aria-hidden /> Reported by a student
+    </span>
+  ) : (
+    <span className="chip mb-2 border-primary/40 text-primary-ink">
+      <Bot size={12} aria-hidden /> AI question, not reported
+    </span>
+  );
+}
 
 const CRITERIA = ["relevance", "depth", "structure", "clarity"] as const;
 const MAX_ANSWER = 3000;
@@ -51,6 +75,23 @@ function ThinkingPulse() {
   );
 }
 
+/** Typing or speaking: chosen before the interview starts. */
+function AnswerMode({ mode, setMode }: { mode: "typed" | "voice"; setMode: (m: "typed" | "voice") => void }) {
+  return (
+    <fieldset>
+      <legend className="label">Answer by</legend>
+      <div className="segmented">
+        <button type="button" className="segment" aria-pressed={mode === "typed"} onClick={() => setMode("typed")}>
+          Typing
+        </button>
+        <button type="button" className="segment" aria-pressed={mode === "voice"} onClick={() => setMode("voice")}>
+          Voice, hands-free
+        </button>
+      </div>
+    </fieldset>
+  );
+}
+
 export default function InterviewPage() {
   const { candidate, loading: candidateLoading } = useCandidate();
   const [tracks, setTracks] = useState<Track[] | null>(null);
@@ -65,6 +106,15 @@ export default function InterviewPage() {
   const bottom = useRef<HTMLDivElement>(null);
   const stream = useRef<AbortController | null>(null);
   const candidateId = candidate?.id;
+  // Opened from Company questions (?company=&round=): reported questions are asked first; with
+  // &open=1, general practice from the open question bank (never claimed as the company's).
+  const [companyPractice, setCompanyPractice] = useState<{ company: string; round: string; open: boolean } | null>(null);
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const company = q.get("company");
+    const round = q.get("round");
+    if (company && round) setCompanyPractice({ company, round, open: q.get("open") === "1" });
+  }, []);
 
   // A live elapsed timer while the interview is in progress, ticking once a second.
   useEffect(() => {
@@ -98,11 +148,48 @@ export default function InterviewPage() {
     };
   }, [candidateId]);
 
-  // Braces: newer browsers return a Promise from scrollIntoView, and React would take a
-  // returned value for the effect's cleanup function.
+  // Debounce smooth-scroll into view only when new steps arrive without fighting user manual scrolling.
   useEffect(() => {
-    bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [result, steps]);
+    const timer = setTimeout(() => {
+      bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [result, steps.length]);
+
+  // A proctored interview: a breach submits the answer typed so far, after any turn in flight.
+  const [breachPending, setBreachPending] = useState(false);
+  const proctor = useProctor({ kind: "interview", signedIn: Boolean(candidate), onBreach: () => setBreachPending(true) });
+  useEffect(() => {
+    if (!breachPending || busy) return;
+    setBreachPending(false);
+    const s = result?.session;
+    if (s?.current) void turn({ session: s, answer: answer.trim() || "[Submitted after 3 proctoring strikes]" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [breachPending, busy]);
+
+  // Hands-free (voice): the AI speaks, the mic opens by itself, the end of an answer is detected.
+  const [mode, setMode] = useState<"typed" | "voice">("typed");
+  const setup = useHandsFreeSetup(mode === "voice");
+  const [voiceRun, setVoiceRun] = useState<string | null>(null);
+  const voiceRef = useRef<string | null>(null);
+
+  /** Start (a track or company practice): through the proctoring check when proctored. */
+  function begin(label: string, body: Record<string, unknown>) {
+    const go = async () => {
+      setStartedAt(Date.now());
+      setNow(Date.now());
+      voiceRef.current = null;
+      setVoiceRun(null);
+      if (mode === "voice") {
+        const run = await post<{ run_id: string }>("/api/handsfree/runs", {}).catch(() => null);
+        voiceRef.current = run?.run_id ?? null;
+        setVoiceRun(voiceRef.current);
+      }
+      await turn(body);
+    };
+    if (proctor.wanted) proctor.open(label, go);
+    else void go();
+  }
 
   async function turn(body: Record<string, unknown>) {
     if (!candidate) return;
@@ -116,13 +203,20 @@ export default function InterviewPage() {
     try {
       await postStream(
         "/api/interview/turn",
-        { candidate_id: candidate.id, ...body },
+        {
+          candidate_id: candidate.id,
+          proctor_attempt_id: proctor.currentAttemptId(),
+          ...(voiceRef.current ? { voice: true, handsfree_run_id: voiceRef.current } : {}),
+          ...body,
+        },
         (event, data) => {
           if (event === "step") setSteps((s) => [...s, String(data)]);
           else if (event === "result") {
             ended = true;
-            setResult(data as TurnResult);
+            const r = data as TurnResult;
+            setResult(r);
             setAnswer("");
+            if (r.proctoring) void proctor.end();
           } else if (event === "error") {
             ended = true;
             setError(String(data?.detail ?? "Something went wrong. Try again."));
@@ -174,8 +268,34 @@ export default function InterviewPage() {
         lead="Five questions on a track from your field. A critic checks every question before you see it; each answer is scored on relevance, depth, structure and clarity."
       />
       <ErrorNote message={error} />
+      <ProctorLayer proctor={proctor} />
 
       {!session && !tracks && !error && <Loading label="Loading interview tracks…" />}
+
+      {!session && companyPractice && (
+        <section className="card mb-4 border-ink/20" aria-label="Company practice">
+          <p className="eyebrow">{companyPractice.open ? "General practice (open question bank)" : "Company practice"}</p>
+          <p className="mt-1 text-sm">
+            {companyPractice.open
+              ? "Common interview questions from the open question bank come first, word for word; the AI interviewer then closes the session. These are general practice, not questions this company is known to ask."
+              : "Questions students reported from this round come first, word for word; the AI interviewer then closes the session in its style. Each question is marked as reported or AI."}
+          </p>
+          <div className="mt-3 space-y-3">
+            <AnswerMode mode={mode} setMode={setMode} />
+            {mode === "voice" && <HandsFreeSetup setup={setup} />}
+            <ProctorChoice proctor={proctor} what="interview" />
+          </div>
+          <button
+            type="button"
+            className="btn-primary mt-3"
+            disabled={busy || (mode === "voice" && !setup.ready)}
+            onClick={() => begin(companyPractice.open ? "General practice" : "Company practice", companyPractice)}
+          >
+            {busy ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <Play size={16} aria-hidden />}{" "}
+            {companyPractice.open ? "Start general practice" : "Start company practice"}
+          </button>
+        </section>
+      )}
 
       {!session && tracks && (
         <section className="card" aria-label="Choose a track">
@@ -212,20 +332,23 @@ export default function InterviewPage() {
             </fieldset>
           ))}
           <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-hair pt-5">
+            <div className="w-full space-y-3">
+              <AnswerMode mode={mode} setMode={setMode} />
+              {mode === "voice" && <HandsFreeSetup setup={setup} />}
+              <ProctorChoice proctor={proctor} what="interview" />
+            </div>
             <button
               type="button"
               className="btn-primary"
-              disabled={!track || busy}
-              onClick={() => {
-                setStartedAt(Date.now());
-                setNow(Date.now());
-                turn({ track });
-              }}
+              disabled={!track || busy || (mode === "voice" && !setup.ready)}
+              onClick={() => begin(track, { track })}
             >
               {busy ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <Mic size={16} aria-hidden />}
               Start mock interview{track ? `: ${track}` : ""}
             </button>
-            <p className="text-xs text-muted">Answer in writing here; spoken answers are in the main app.</p>
+            <p className="text-xs text-muted">
+              {mode === "voice" ? "Hands-free: no clicks needed once it starts." : "Answer in writing, or choose voice for a hands-free interview."}
+            </p>
           </div>
         </section>
       )}
@@ -261,6 +384,7 @@ export default function InterviewPage() {
 
           {session.history.map((h, i) => (
             <article key={i} className="card space-y-4">
+              <SourceChip script={session.script} question={h.question} type={session.interview_type} />
               <p className="font-medium leading-relaxed">
                 <span className="mr-2 font-mono text-xs text-muted">Q{i + 1}</span>
                 {h.question}
@@ -288,11 +412,26 @@ export default function InterviewPage() {
 
           {session.current && !session.done && (
             <article className="card border-ink/30 shadow-[0_12px_40px_-24px_rgb(var(--ink)/0.4)]">
+              <SourceChip script={session.script} question={session.current.question} type={session.interview_type} />
               <p className="eyebrow">
                 Question {session.history.length + 1}
                 {session.current.is_followup && " · a follow-up on your last answer"}
               </p>
               <p className="mt-2 font-display text-xl font-medium leading-snug tracking-tight">{session.current.question}</p>
+              {voiceRun && setup.rules ? (
+                !busy && (
+                  <HandsFreeRunner
+                    key={`${session.session_id}-${session.history.length}`}
+                    setup={setup}
+                    runId={voiceRun}
+                    index={session.history.length}
+                    question={session.current.question}
+                    speech={result?.speech}
+                    onSubmit={(text) => void turn({ session, answer: text })}
+                  />
+                )
+              ) : (
+              <>
               <label className="label mt-5" htmlFor="answer">
                 Your answer
               </label>
@@ -314,6 +453,26 @@ export default function InterviewPage() {
                   {answer.length} of {MAX_ANSWER} characters
                 </span>
               </div>
+              </>
+              )}
+            </article>
+          )}
+
+          {!session.done && result?.proctoring?.breached && (
+            <article className="card">
+              <p className="eyebrow">Interview submitted</p>
+              <ProctorSummary outcome={result.proctoring} />
+              <HandsFreeSummary summary={result.handsfree} />
+              <button
+                type="button"
+                className="btn-primary mt-5"
+                onClick={() => {
+                  setResult(null);
+                  setStartedAt(null);
+                }}
+              >
+                Start a new mock interview
+              </button>
             </article>
           )}
 
@@ -336,6 +495,8 @@ export default function InterviewPage() {
                   </li>
                 ))}
               </ul>
+              <ProctorSummary outcome={result.proctoring} />
+              <HandsFreeSummary summary={result.handsfree} />
               <button
                 type="button"
                 className="btn-primary mt-5"

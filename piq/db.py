@@ -13,7 +13,7 @@ from pathlib import Path
 
 from piq.checks import text_hash
 from piq.config import settings
-from piq.schemas import AnswerEvaluation, QuizSet, StudentProfile, WeeklyPlan
+from piq.schemas import AnswerEvaluation, Question, QuizSet, StudentProfile, WeeklyPlan
 
 SCHEMA = Path(__file__).with_name("schema.sql")
 FAILED = "failed: "  # reject_reason prefix of an agent_logs row whose call or check failed
@@ -49,6 +49,10 @@ STUDENT_ADDED = (
     ("phone", "TEXT"),
     ("batch_year", "TEXT"),
     ("email_verified", "INTEGER NOT NULL DEFAULT 0"),
+    (
+        "account_kind",
+        "TEXT NOT NULL DEFAULT 'student' CHECK (account_kind IN ('student', 'contributor'))",
+    ),
 )
 # Device columns sessions gained (the student's list of signed-in devices).
 SESSION_ADDED = (
@@ -57,6 +61,16 @@ SESSION_ADDED = (
     ("ip", "TEXT NOT NULL DEFAULT ''"),
     ("location", "TEXT NOT NULL DEFAULT ''"),
     ("last_seen", "REAL NOT NULL DEFAULT 0"),
+)
+# Columns certificates gained (Google Drive: the copy in the student's Drive).
+CERTIFICATE_ADDED = (("drive_file_id", "TEXT"),)
+# Columns organizations gained (proctoring: off / required / required + Safe Exam Browser).
+ORG_ADDED = (
+    (
+        "proctoring",
+        "TEXT NOT NULL DEFAULT 'off' CHECK (proctoring IN ('off', 'required', 'seb'))",
+    ),
+    ("seb_config_keys", "TEXT NOT NULL DEFAULT ''"),
 )
 
 
@@ -81,13 +95,50 @@ def _migrate(c: sqlite3.Connection) -> None:
         for name, ddl in SESSION_ADDED:
             if name not in session_cols:
                 c.execute(f"ALTER TABLE sessions ADD COLUMN {name} {ddl}")  # fixed identifiers
+    certificate_cols = {r["name"] for r in c.execute("PRAGMA table_info(certificates)")}
+    if certificate_cols:
+        for name, ddl in CERTIFICATE_ADDED:
+            if name not in certificate_cols:
+                c.execute(f"ALTER TABLE certificates ADD COLUMN {name} {ddl}")  # fixed identifiers
+    org_cols = {r["name"] for r in c.execute("PRAGMA table_info(organizations)")}
+    if org_cols:
+        for name, ddl in ORG_ADDED:
+            if name not in org_cols:
+                c.execute(f"ALTER TABLE organizations ADD COLUMN {name} {ddl}")  # fixed identifiers
+
+
+# Tables whose CHECK constraint widened since an older schema: (table, text the new CHECK has).
+# SQLite cannot alter a CHECK, so an older table is set aside, recreated from schema.sql and
+# copied back (same columns), data kept.
+CHECK_WIDENED = (("company_practice", "'open'"),)
+
+
+def _set_aside_narrow_checks(c: sqlite3.Connection) -> None:
+    for table, marker in CHECK_WIDENED:
+        row = c.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)
+        ).fetchone()
+        if row and marker not in row["sql"]:
+            c.execute(f"ALTER TABLE {table} RENAME TO {table}_old")  # fixed identifiers
+            for (index,) in c.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = ? "
+                "AND sql IS NOT NULL",
+                (f"{table}_old",),
+            ).fetchall():
+                c.execute(f"DROP INDEX {index}")  # recreated with the new table
 
 
 def init_db() -> None:
     with tx() as c:
         c.execute("PRAGMA journal_mode = WAL")  # persistent: readers never block the writer
         _migrate(c)
+        _set_aside_narrow_checks(c)
         c.executescript(SCHEMA.read_text(encoding="utf-8"))
+        for table, _ in CHECK_WIDENED:  # also finishes a copy an earlier start left halfway
+            old = f"{table}_old"
+            if c.execute("SELECT 1 FROM sqlite_master WHERE name = ?", (old,)).fetchone():
+                c.execute(f"INSERT INTO {table} SELECT * FROM {old}")  # fixed identifiers
+                c.execute(f"DROP TABLE {old}")
 
 
 # --- students & profiles -------------------------------------------------------
@@ -100,15 +151,18 @@ def create_student(
     email: str | None = None,
     password_hash: str | None = None,
     at: str | None = None,
+    kind: str = "student",
 ) -> str:
     """A new account (and its password, when it has one); returns its id. The caller has
-    validated and lower-cased username and email; a duplicate raises sqlite3.IntegrityError."""
+    validated and lower-cased username and email; a duplicate raises sqlite3.IntegrityError.
+    `kind`: "student", or "contributor" (questions only: no role, resume or score)."""
     sid = uuid.uuid4().hex
     with tx() as c:
         c.execute(
-            """INSERT INTO students (id, name, username, email, target_role, created_at)
-               VALUES (?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))""",
-            (sid, name, username, email, target_role, at),
+            """INSERT INTO students (id, name, username, email, target_role, created_at,
+                                     account_kind)
+               VALUES (?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?)""",
+            (sid, name, username, email, target_role, at, kind),
         )
         if password_hash:
             c.execute(
@@ -138,7 +192,8 @@ def save_profile(student_id: str, profile: StudentProfile, at: str | None = None
 _STUDENT = (
     "SELECT s.id, s.name, s.username, s.email, s.target_role, s.readiness_score, s.org_id, "
     "s.main_domain, s.subdomain, s.account_status, s.must_change_password, s.phone, "
-    "s.batch_year, s.created_at, s.email_verified, o.org_code, o.name AS org_name "
+    "s.batch_year, s.created_at, s.email_verified, s.account_kind, o.org_code, "
+    "o.name AS org_name "
     "FROM students s LEFT JOIN organizations o ON o.id = s.org_id "
 )
 
@@ -178,8 +233,11 @@ def student(student_id: str) -> sqlite3.Row | None:
 
 
 def list_students() -> list[sqlite3.Row]:
+    """Student accounts (contributor accounts are not students)."""
     with tx() as c:
-        return c.execute(_STUDENT + "ORDER BY s.username").fetchall()
+        return c.execute(
+            _STUDENT + "WHERE s.account_kind = 'student' ORDER BY s.username"
+        ).fetchall()
 
 
 # --- sign-in state (piq/accounts.py; never synced) -------------------------------
@@ -342,8 +400,11 @@ def set_email_verified(student_id: str) -> None:
 
 
 def student_count() -> int:
+    """Student accounts (contributors are not students: local mode's one student is not one)."""
     with tx() as c:
-        return c.execute("SELECT COUNT(*) FROM students").fetchone()[0]
+        return c.execute("SELECT COUNT(*) FROM students WHERE account_kind = 'student'").fetchone()[
+            0
+        ]
 
 
 def prefs(student_id: str) -> str | None:
@@ -1364,3 +1425,947 @@ def delete_certificate(student_id: str, cert_id: int) -> sqlite3.Row | None:
         if row is not None:
             c.execute("DELETE FROM certificates WHERE id = ?", (cert_id,))
         return row
+
+
+# --- a student's own local model --------------------------------------------------
+
+
+def local_ai(student_id: str) -> sqlite3.Row | None:
+    with tx() as c:
+        return c.execute(
+            "SELECT provider, base_url, model, preferred FROM student_local_ai "
+            "WHERE student_id = ?",
+            (student_id,),
+        ).fetchone()
+
+
+def save_local_ai(
+    student_id: str, provider: str, base_url: str, model: str, preferred: bool
+) -> None:
+    """Set the student's local model (the caller has validated it)."""
+    with tx() as c:
+        c.execute(
+            """INSERT INTO student_local_ai (student_id, provider, base_url, model, preferred)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT (student_id) DO UPDATE SET provider = excluded.provider,
+                 base_url = excluded.base_url, model = excluded.model,
+                 preferred = excluded.preferred, updated_at = CURRENT_TIMESTAMP""",
+            (student_id, provider, base_url, model, int(preferred)),
+        )
+
+
+def delete_local_ai(student_id: str) -> None:
+    with tx() as c:
+        c.execute("DELETE FROM student_local_ai WHERE student_id = ?", (student_id,))
+
+
+def last_model_used(student_id: str) -> str | None:
+    """agent_logs.model_used of the student's latest AI call that produced an answer."""
+    with tx() as c:
+        row = c.execute(
+            """SELECT model_used FROM agent_logs
+               WHERE student_id = ? AND (reject_reason IS NULL OR reject_reason NOT LIKE ?)
+               ORDER BY id DESC LIMIT 1""",
+            (student_id, f"{FAILED}%"),
+        ).fetchone()
+        return row["model_used"] if row else None
+
+
+# --- adaptive quizzes: levels, AI-written questions, the review queue ---------------
+
+
+def topic_levels(student_id: str) -> dict[str, str]:
+    with tx() as c:
+        rows = c.execute(
+            "SELECT topic, level FROM topic_levels WHERE student_id = ?", (student_id,)
+        ).fetchall()
+    return {r["topic"]: r["level"] for r in rows}
+
+
+def set_topic_levels(student_id: str, levels: Mapping[str, str]) -> None:
+    with tx() as c:
+        c.executemany(
+            """INSERT INTO topic_levels (student_id, topic, level) VALUES (?, ?, ?)
+               ON CONFLICT (student_id, topic) DO UPDATE SET level = excluded.level,
+                 updated_at = CURRENT_TIMESTAMP""",
+            [(student_id, t, lvl) for t, lvl in levels.items()],
+        )
+
+
+def save_generated(topic: str, difficulty: str, questions: Sequence[Question], source: str) -> None:
+    """Keep AI-written questions (by their text hash); one already kept is left as it is."""
+    with tx() as c:
+        c.executemany(
+            """INSERT OR IGNORE INTO generated_questions
+               (qid, topic, difficulty, question_json, source) VALUES (?, ?, ?, ?, ?)""",
+            [
+                (text_hash(q.text), topic, difficulty, q.model_dump_json(), source)
+                for q in questions
+            ],
+        )
+
+
+def generated(qid: str) -> tuple[str, str, Question] | None:
+    """(topic, difficulty, question) of a kept AI-written question, or None."""
+    with tx() as c:
+        row = c.execute(
+            "SELECT topic, difficulty, question_json FROM generated_questions WHERE qid = ?",
+            (qid,),
+        ).fetchone()
+    if row is None:
+        return None
+    return row["topic"], row["difficulty"], Question.model_validate_json(row["question_json"])
+
+
+def due_reviews(student_id: str, topic: str, k: int) -> list[sqlite3.Row]:
+    """Up to `k` missed questions on the topic still to bring back, oldest miss first."""
+    if k <= 0:
+        return []
+    with tx() as c:
+        return c.execute(
+            """SELECT qid, difficulty, question_json FROM review_queue
+               WHERE student_id = ? AND topic = ? AND status != 'done'
+               ORDER BY missed_at, rowid LIMIT ?""",
+            (student_id, topic, k),
+        ).fetchall()
+
+
+def mark_review_served(student_id: str, qid: str, served_qid: str) -> None:
+    with tx() as c:
+        c.execute(
+            "UPDATE review_queue SET status = 'served', served_qid = ? "
+            "WHERE student_id = ? AND qid = ?",
+            (served_qid, student_id, qid),
+        )
+
+
+def record_reviews(
+    student_id: str,
+    answered: Sequence[tuple[str, str, Question, bool]],
+    max_misses: int,
+) -> None:
+    """After a quiz: (topic, difficulty, question, right?) for each answer. A question that
+    stood in for a queued one (or was one) settles it: right -> done, wrong -> one more miss
+    (done after `max_misses`). Any other wrong answer joins the queue."""
+    with tx() as c:
+        for topic, difficulty, q, right in answered:
+            h = text_hash(q.text)
+            pending = c.execute(
+                """SELECT qid, misses FROM review_queue WHERE student_id = ? AND status != 'done'
+                     AND (served_qid = ? OR (qid = ? AND served_qid IS NOT NULL))""",
+                (student_id, h, h),
+            ).fetchall()
+            for row in pending:
+                misses = row["misses"] + (0 if right else 1)
+                status = "done" if right or misses >= max_misses else "queued"
+                c.execute(
+                    """UPDATE review_queue SET misses = ?, status = ?, served_qid = NULL,
+                         missed_at = CASE WHEN ? THEN missed_at ELSE CURRENT_TIMESTAMP END
+                       WHERE student_id = ? AND qid = ?""",
+                    (misses, status, right, student_id, row["qid"]),
+                )
+            if not right and not pending:
+                c.execute(
+                    """INSERT INTO review_queue
+                       (student_id, qid, topic, difficulty, question_json) VALUES (?, ?, ?, ?, ?)
+                       ON CONFLICT (student_id, qid) DO UPDATE SET status = 'queued',
+                         misses = review_queue.misses + 1, missed_at = CURRENT_TIMESTAMP""",
+                    (student_id, h, topic, difficulty, q.model_dump_json()),
+                )
+
+
+# --- company interview experiences ---------------------------------------------------
+
+EXPERIENCE_FIELDS = (
+    "student_id",
+    "org_id",
+    "org_short",
+    "batch_year",
+    "show_college",
+    "company_slug",
+    "company_name",
+    "role",
+    "round",
+    "interview_month",
+    "tip",
+    "flags",
+    "content_hash",
+)
+
+
+def add_experience(
+    fields: Mapping[str, object],
+    questions: Sequence[Mapping[str, object]],
+    process: Mapping[str, object] | None = None,
+) -> int:
+    """A cleaned, pending post, its questions and its interview process, in one transaction."""
+    with tx() as c:
+        cur = c.execute(
+            f"INSERT INTO interview_experiences ({', '.join(EXPERIENCE_FIELDS)}) "
+            f"VALUES ({', '.join('?' * len(EXPERIENCE_FIELDS))})",
+            [fields[k] for k in EXPERIENCE_FIELDS],
+        )
+        c.executemany(
+            """INSERT INTO experience_questions
+               (experience_id, position, kind, text, options_json, correct_index, explanation)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            [
+                (
+                    cur.lastrowid,
+                    i,
+                    q["kind"],
+                    q["text"],
+                    json.dumps(q.get("options") or []),
+                    q.get("correct_index"),
+                    q.get("explanation", ""),
+                )
+                for i, q in enumerate(questions)
+            ],
+        )
+        if process is not None:
+            c.execute(
+                "INSERT INTO experience_processes (experience_id, rounds_json, result, summary) "
+                "VALUES (?, ?, ?, ?)",
+                (
+                    cur.lastrowid,
+                    json.dumps(process["rounds"]),
+                    process["result"],
+                    process.get("summary", ""),
+                ),
+            )
+        return cur.lastrowid
+
+
+def experience_processes(experience_ids: Sequence[int]) -> dict[int, sqlite3.Row]:
+    """Each post's interview process, for the posts that report one."""
+    if not experience_ids:
+        return {}
+    marks = ", ".join("?" * len(experience_ids))
+    with tx() as c:
+        rows = c.execute(
+            f"SELECT * FROM experience_processes WHERE experience_id IN ({marks})",
+            list(experience_ids),
+        ).fetchall()
+    return {r["experience_id"]: r for r in rows}
+
+
+def approved_processes(company_slug: str) -> list[sqlite3.Row]:
+    """A company's approved posts that report an interview process, newest interview first,
+    with the post's fields (for its label) and the process."""
+    with tx() as c:
+        return c.execute(
+            """SELECT e.*, p.rounds_json, p.result, p.summary
+               FROM interview_experiences e
+               JOIN experience_processes p ON p.experience_id = e.id
+               WHERE e.status = 'approved' AND e.company_slug = ?
+               ORDER BY e.interview_month DESC, e.id DESC""",
+            (company_slug,),
+        ).fetchall()
+
+
+def experience_posts_since(student_id: str, since: str) -> int:
+    with tx() as c:
+        return c.execute(
+            "SELECT COUNT(*) FROM interview_experiences WHERE student_id = ? AND created_at >= ?",
+            (student_id, since),
+        ).fetchone()[0]
+
+
+def experience_pending_count(student_id: str) -> int:
+    with tx() as c:
+        return c.execute(
+            "SELECT COUNT(*) FROM interview_experiences "
+            "WHERE student_id = ? AND status = 'pending'",
+            (student_id,),
+        ).fetchone()[0]
+
+
+def experience_hash_taken(content_hash: str) -> bool:
+    """A pending, approved or hidden post with the same questions already exists."""
+    with tx() as c:
+        return (
+            c.execute(
+                "SELECT 1 FROM interview_experiences "
+                "WHERE content_hash = ? AND status != 'rejected'",
+                (content_hash,),
+            ).fetchone()
+            is not None
+        )
+
+
+def experience(experience_id: int) -> sqlite3.Row | None:
+    with tx() as c:
+        return c.execute(
+            "SELECT * FROM interview_experiences WHERE id = ?", (experience_id,)
+        ).fetchone()
+
+
+def experience_questions(experience_ids: Sequence[int]) -> dict[int, list[sqlite3.Row]]:
+    """Each post's questions, in order."""
+    if not experience_ids:
+        return {}
+    marks = ", ".join("?" * len(experience_ids))
+    with tx() as c:
+        rows = c.execute(
+            f"SELECT * FROM experience_questions WHERE experience_id IN ({marks}) "
+            "ORDER BY experience_id, position",
+            list(experience_ids),
+        ).fetchall()
+    out: dict[int, list[sqlite3.Row]] = {i: [] for i in experience_ids}
+    for r in rows:
+        out[r["experience_id"]].append(r)
+    return out
+
+
+def experiences_of(student_id: str) -> list[sqlite3.Row]:
+    with tx() as c:
+        return c.execute(
+            "SELECT * FROM interview_experiences WHERE student_id = ? ORDER BY id DESC",
+            (student_id,),
+        ).fetchall()
+
+
+def experiences_to_review(org_id: int | None) -> list[sqlite3.Row]:
+    """Pending or hidden posts for one moderator: an organization's own students' posts, or
+    (None) individual learners' posts, oldest first."""
+    clause = "org_id = ?" if org_id is not None else "org_id IS NULL"
+    params = (org_id,) if org_id is not None else ()
+    with tx() as c:
+        return c.execute(
+            f"SELECT * FROM interview_experiences WHERE {clause} "
+            "AND status IN ('pending', 'hidden') ORDER BY id",
+            params,
+        ).fetchall()
+
+
+def review_experience(
+    experience_id: int,
+    status: str,
+    reviewed_by: str,
+    reason: str = "",
+    company: tuple[str, str] | None = None,
+) -> None:
+    with tx() as c:
+        c.execute(
+            """UPDATE interview_experiences SET status = ?, reviewed_by = ?, reject_reason = ?,
+                 reviewed_at = CURRENT_TIMESTAMP,
+                 company_slug = COALESCE(?, company_slug), company_name = COALESCE(?, company_name)
+               WHERE id = ?""",
+            (status, reviewed_by, reason, *(company or (None, None)), experience_id),
+        )
+        if status == "approved":  # a fresh approval starts its report count again
+            c.execute("DELETE FROM experience_reports WHERE experience_id = ?", (experience_id,))
+
+
+def report_experience(experience_id: int, student_id: str, hide_at: int) -> int:
+    """Record one student's report; at `hide_at` reports the post is hidden. Returns reports."""
+    with tx() as c:
+        c.execute(
+            "INSERT OR IGNORE INTO experience_reports (experience_id, student_id) VALUES (?, ?)",
+            (experience_id, student_id),
+        )
+        n = c.execute(
+            "SELECT COUNT(*) FROM experience_reports WHERE experience_id = ?", (experience_id,)
+        ).fetchone()[0]
+        if n >= hide_at:
+            c.execute(
+                "UPDATE interview_experiences SET status = 'hidden' "
+                "WHERE id = ? AND status = 'approved'",
+                (experience_id,),
+            )
+        return n
+
+
+def approved_experience_counts() -> list[sqlite3.Row]:
+    """Per company and round: approved posts with questions, and their questions (a post that
+    reports only its interview process counts under the process, not a round)."""
+    with tx() as c:
+        return c.execute(
+            """SELECT e.company_slug, e.company_name, e.round, COUNT(DISTINCT e.id) AS posts,
+                      COUNT(q.id) AS questions
+               FROM interview_experiences e
+               JOIN experience_questions q ON q.experience_id = e.id
+               WHERE e.status = 'approved'
+               GROUP BY e.company_slug, e.company_name, e.round"""
+        ).fetchall()
+
+
+def approved_process_counts() -> dict[str, int]:
+    """Company slug -> approved posts that report an interview process."""
+    with tx() as c:
+        rows = c.execute(
+            """SELECT e.company_slug, COUNT(*) AS n FROM interview_experiences e
+               JOIN experience_processes p ON p.experience_id = e.id
+               WHERE e.status = 'approved' GROUP BY e.company_slug"""
+        ).fetchall()
+    return {r["company_slug"]: r["n"] for r in rows}
+
+
+def approved_experiences(company_slug: str, round_: str | None = None) -> list[sqlite3.Row]:
+    with tx() as c:
+        return c.execute(
+            "SELECT * FROM interview_experiences WHERE status = 'approved' AND company_slug = ? "
+            "AND (? IS NULL OR round = ?) ORDER BY interview_month DESC, id DESC",
+            (company_slug, round_, round_),
+        ).fetchall()
+
+
+def approved_posters_by_batch() -> dict[tuple[int, str], int]:
+    """(org id, batch year) -> distinct students with an approved post who let their college be
+    shown: how many could stand behind a "<college> student, <year>" label. Posters who hid
+    their college are not counted, since they never appear under the college's name."""
+    with tx() as c:
+        rows = c.execute(
+            """SELECT org_id, batch_year, COUNT(DISTINCT student_id) AS n
+               FROM interview_experiences
+               WHERE status = 'approved' AND org_id IS NOT NULL AND show_college = 1
+               GROUP BY org_id, batch_year"""
+        ).fetchall()
+    return {(r["org_id"], r["batch_year"]): r["n"] for r in rows}
+
+
+def approved_company_questions(company_slug: str, round_: str, kind: str) -> list[sqlite3.Row]:
+    with tx() as c:
+        return c.execute(
+            """SELECT q.* FROM experience_questions q
+               JOIN interview_experiences e ON e.id = q.experience_id
+               WHERE e.status = 'approved' AND e.company_slug = ? AND e.round = ? AND q.kind = ?
+               ORDER BY e.id DESC, q.position""",
+            (company_slug, round_, kind),
+        ).fetchall()
+
+
+def save_company_practice(
+    student_id: str, company_slug: str, round_: str, source: str, correct: int, total: int
+) -> None:
+    with tx() as c:
+        c.execute(
+            """INSERT INTO company_practice
+               (student_id, company_slug, round, source, correct, total)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (student_id, company_slug, round_, source, correct, total),
+        )
+
+
+# --- Google Drive ------------------------------------------------------------------------
+
+
+def drive_account(student_id: str) -> sqlite3.Row | None:
+    with tx() as c:
+        return c.execute(
+            "SELECT * FROM drive_accounts WHERE student_id = ?", (student_id,)
+        ).fetchone()
+
+
+def save_drive_account(student_id: str, refresh_token_enc: str, scope: str) -> None:
+    """Connect (or reconnect) a student's Drive; folder ids are kept on a reconnect."""
+    with tx() as c:
+        c.execute(
+            """INSERT INTO drive_accounts (student_id, refresh_token_enc, scope) VALUES (?, ?, ?)
+               ON CONFLICT (student_id) DO UPDATE SET
+                 refresh_token_enc = excluded.refresh_token_enc,
+                 scope = excluded.scope, connected_at = CURRENT_TIMESTAMP""",
+            (student_id, refresh_token_enc, scope),
+        )
+
+
+def set_drive_folders(student_id: str, root_id: str, certs_id: str, resumes_id: str) -> None:
+    with tx() as c:
+        c.execute(
+            "UPDATE drive_accounts SET root_id = ?, certs_id = ?, resumes_id = ? "
+            "WHERE student_id = ?",
+            (root_id, certs_id, resumes_id, student_id),
+        )
+
+
+def delete_drive_account(student_id: str) -> None:
+    with tx() as c:
+        c.execute("DELETE FROM drive_accounts WHERE student_id = ?", (student_id,))
+        c.execute("DELETE FROM drive_oauth_states WHERE student_id = ?", (student_id,))
+
+
+def save_drive_state(
+    state_hash: str,
+    student_id: str,
+    verifier_enc: str,
+    redirect_uri: str,
+    return_to: str,
+    expires_at: float,
+) -> None:
+    with tx() as c:
+        c.execute("DELETE FROM drive_oauth_states WHERE expires_at < ?", (expires_at - 3600,))
+        c.execute(
+            """INSERT INTO drive_oauth_states
+               (state_hash, student_id, verifier_enc, redirect_uri, return_to, expires_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (state_hash, student_id, verifier_enc, redirect_uri, return_to, expires_at),
+        )
+
+
+def take_drive_state(state_hash: str) -> sqlite3.Row | None:
+    """The sign-in in progress for this state, removed as it is read (single use)."""
+    with tx() as c:
+        row = c.execute(
+            "SELECT * FROM drive_oauth_states WHERE state_hash = ?", (state_hash,)
+        ).fetchone()
+        c.execute("DELETE FROM drive_oauth_states WHERE state_hash = ?", (state_hash,))
+        return row
+
+
+def set_certificate_drive_id(student_id: str, cert_id: int, file_id: str | None) -> None:
+    with tx() as c:
+        c.execute(
+            "UPDATE certificates SET drive_file_id = ? WHERE id = ? AND student_id = ?",
+            (file_id, cert_id, student_id),
+        )
+
+
+# --- proctoring (core/proctoring.py, piq/proctoring.py) -------------------------------------
+
+
+def organization_proctoring(org_id: int | None) -> tuple[str, str]:
+    """(mode, seb_config_keys) of the organization; ("off", "") without one."""
+    if org_id is None:
+        return "off", ""
+    with tx() as c:
+        row = c.execute(
+            "SELECT proctoring, seb_config_keys FROM organizations WHERE id = ?", (org_id,)
+        ).fetchone()
+    return (row["proctoring"], row["seb_config_keys"]) if row else ("off", "")
+
+
+def set_organization_proctoring(org_id: int, mode: str, seb_config_keys: str) -> None:
+    with tx() as c:
+        c.execute(
+            "UPDATE organizations SET proctoring = ?, seb_config_keys = ? WHERE id = ?",
+            (mode, seb_config_keys, org_id),
+        )
+
+
+def create_proctor_attempt(
+    attempt_id: str,
+    student_id: str,
+    kind: str,
+    label: str,
+    mode: str,
+    camera: str,
+    camera_note: str,
+    now: float,
+) -> None:
+    with tx() as c:
+        c.execute(
+            "INSERT INTO proctor_attempts (id, student_id, kind, label, mode, camera, "
+            "camera_note, consent_at, started_at, last_seen) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (attempt_id, student_id, kind, label, mode, camera, camera_note, now, now, now),
+        )
+
+
+def proctor_attempt(attempt_id: str) -> sqlite3.Row | None:
+    with tx() as c:
+        return c.execute("SELECT * FROM proctor_attempts WHERE id = ?", (attempt_id,)).fetchone()
+
+
+def proctor_event_count(attempt_id: str) -> int:
+    with tx() as c:
+        return c.execute(
+            "SELECT COUNT(*) FROM proctor_events WHERE attempt_id = ?", (attempt_id,)
+        ).fetchone()[0]
+
+
+def record_proctor_events(
+    attempt_id: str,
+    events: Sequence[tuple[str, str, bool, float, float | None]],
+    *,
+    strikes: int,
+    last_clear_at: float | None,
+    breached: bool,
+    now: float,
+) -> None:
+    """Store (kind, severity, strike, at_s, duration_s) rows and the attempt's new totals in one
+    transaction (an empty batch is a heartbeat)."""
+    with tx() as c:
+        c.executemany(
+            "INSERT INTO proctor_events (attempt_id, kind, severity, strike, at_s, duration_s) "
+            "VALUES (?,?,?,?,?,?)",
+            [(attempt_id, k, sev, int(st), at, d) for k, sev, st, at, d in events],
+        )
+        c.execute(
+            "UPDATE proctor_attempts SET strikes = ?, last_clear_at = ?, breached = ?, "
+            "last_seen = ? WHERE id = ?",
+            (strikes, last_clear_at, int(breached), now, attempt_id),
+        )
+
+
+def finish_proctor_attempt(
+    attempt_id: str,
+    now: float,
+    *,
+    quiz_run_id: int | None = None,
+    interview_session_id: str | None = None,
+) -> None:
+    """End the attempt (once) and link what it proctored."""
+    with tx() as c:
+        c.execute(
+            "UPDATE proctor_attempts SET ended_at = COALESCE(ended_at, ?), "
+            "quiz_run_id = COALESCE(?, quiz_run_id), "
+            "interview_session_id = COALESCE(?, interview_session_id) WHERE id = ?",
+            (now, quiz_run_id, interview_session_id, attempt_id),
+        )
+
+
+def proctor_attempts(student_id: str, limit: int = 50) -> list[sqlite3.Row]:
+    """The student's attempts, newest first."""
+    with tx() as c:
+        return c.execute(
+            "SELECT * FROM proctor_attempts WHERE student_id = ? ORDER BY started_at DESC LIMIT ?",
+            (student_id, limit),
+        ).fetchall()
+
+
+def proctor_events(attempt_id: str) -> list[sqlite3.Row]:
+    with tx() as c:
+        return c.execute(
+            "SELECT kind, severity, strike, at_s, duration_s FROM proctor_events "
+            "WHERE attempt_id = ? ORDER BY at_s, id",
+            (attempt_id,),
+        ).fetchall()
+
+
+# --- hands-free voice interviews (piq/handsfree.py) -------------------------------------------
+
+
+def create_handsfree_run(run_id: str, student_id: str, rules_json: str, now: float) -> None:
+    with tx() as c:
+        c.execute(
+            "INSERT INTO handsfree_runs (id, student_id, rules_json, started_at) VALUES (?,?,?,?)",
+            (run_id, student_id, rules_json, now),
+        )
+
+
+def handsfree_run(run_id: str) -> sqlite3.Row | None:
+    with tx() as c:
+        return c.execute("SELECT * FROM handsfree_runs WHERE id = ?", (run_id,)).fetchone()
+
+
+def link_handsfree_run(run_id: str, session_id: str) -> None:
+    with tx() as c:
+        c.execute(
+            "UPDATE handsfree_runs SET interview_session_id = COALESCE(interview_session_id, ?) "
+            "WHERE id = ?",
+            (session_id, run_id),
+        )
+
+
+def end_handsfree_run(run_id: str, now: float) -> None:
+    with tx() as c:
+        c.execute(
+            "UPDATE handsfree_runs SET ended_at = COALESCE(ended_at, ?) WHERE id = ?",
+            (now, run_id),
+        )
+
+
+def add_handsfree_answer(
+    run_id: str,
+    question_index: int,
+    attempt_no: int,
+    input_mode: str,
+    fallback_reason: str,
+    duration_s: float | None,
+    transcript_source: str,
+    now: float,
+) -> None:
+    with tx() as c:
+        c.execute(
+            "INSERT INTO handsfree_answers (run_id, question_index, attempt_no, input, "
+            "fallback_reason, duration_s, transcript_source, at) VALUES (?,?,?,?,?,?,?,?)",
+            (
+                run_id,
+                question_index,
+                attempt_no,
+                input_mode,
+                fallback_reason,
+                duration_s,
+                transcript_source,
+                now,
+            ),
+        )
+
+
+def handsfree_answers(run_id: str) -> list[sqlite3.Row]:
+    with tx() as c:
+        return c.execute(
+            "SELECT * FROM handsfree_answers WHERE run_id = ? ORDER BY question_index, id",
+            (run_id,),
+        ).fetchall()
+
+
+# --- contributors and contributed questions (piq/contributions.py) ------------------------------
+
+CONTRIBUTION_FIELDS = (
+    "author_id",
+    "org_id",
+    "kind",
+    "round",
+    "topic",
+    "difficulty",
+    "text",
+    "options_json",
+    "correct_index",
+    "explanation",
+    "model_answer",
+    "licence_accepted_at",
+    "flags",
+    "content_hash",
+)
+
+
+def set_batch_year(student_id: str, year: str) -> None:
+    with tx() as c:
+        c.execute("UPDATE students SET batch_year = ? WHERE id = ?", (year, student_id))
+
+
+def ensure_contributor(student_id: str, company_joined: str = "") -> None:
+    with tx() as c:
+        c.execute(
+            "INSERT INTO contributors (student_id, company_joined) VALUES (?, ?) "
+            "ON CONFLICT (student_id) DO NOTHING",
+            (student_id, company_joined),
+        )
+
+
+def contributor(student_id: str) -> sqlite3.Row | None:
+    with tx() as c:
+        return c.execute(
+            "SELECT * FROM contributors WHERE student_id = ?", (student_id,)
+        ).fetchone()
+
+
+def set_contributor_credit(student_id: str, opt_in: bool, display_name: str) -> None:
+    ensure_contributor(student_id)
+    with tx() as c:
+        c.execute(
+            "UPDATE contributors SET credit_opt_in = ?, display_name = ? WHERE student_id = ?",
+            (int(opt_in), display_name, student_id),
+        )
+
+
+def add_contribution(fields: Mapping[str, object]) -> int:
+    with tx() as c:
+        cur = c.execute(
+            f"INSERT INTO contributed_questions ({', '.join(CONTRIBUTION_FIELDS)}) "
+            f"VALUES ({', '.join('?' * len(CONTRIBUTION_FIELDS))})",
+            [fields[k] for k in CONTRIBUTION_FIELDS],
+        )
+        return cur.lastrowid
+
+
+def contribution(contribution_id: int) -> sqlite3.Row | None:
+    with tx() as c:
+        return c.execute(
+            "SELECT * FROM contributed_questions WHERE id = ?", (contribution_id,)
+        ).fetchone()
+
+
+def contribution_hash_taken(content_hash: str) -> bool:
+    with tx() as c:
+        return (
+            c.execute(
+                "SELECT 1 FROM contributed_questions WHERE content_hash = ?", (content_hash,)
+            ).fetchone()
+            is not None
+        )
+
+
+def contributions_since(student_id: str, since: str) -> int:
+    with tx() as c:
+        return c.execute(
+            "SELECT COUNT(*) FROM contributed_questions WHERE author_id = ? AND created_at >= ?",
+            (student_id, since),
+        ).fetchone()[0]
+
+
+def contributions_pending(student_id: str) -> int:
+    with tx() as c:
+        return c.execute(
+            "SELECT COUNT(*) FROM contributed_questions WHERE author_id = ? AND status = 'pending'",
+            (student_id,),
+        ).fetchone()[0]
+
+
+def contributions_of(student_id: str) -> list[sqlite3.Row]:
+    with tx() as c:
+        return c.execute(
+            "SELECT * FROM contributed_questions WHERE author_id = ? ORDER BY id DESC",
+            (student_id,),
+        ).fetchall()
+
+
+def contributions_to_review(org_id: int | None) -> list[sqlite3.Row]:
+    """Pending (and reported-hidden) contributions for one organization, or (None) for the
+    operations view: contributors and individual learners."""
+    with tx() as c:
+        return c.execute(
+            "SELECT * FROM contributed_questions WHERE status IN ('pending', 'hidden') "
+            "AND ((? IS NULL AND org_id IS NULL) OR org_id = ?) ORDER BY id",
+            (org_id, org_id),
+        ).fetchall()
+
+
+def review_contribution(contribution_id: int, status: str, by: str, reason: str) -> None:
+    with tx() as c:
+        c.execute(
+            "UPDATE contributed_questions SET status = ?, reviewed_by = ?, reject_reason = ?, "
+            "reviewed_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (status, by, reason, contribution_id),
+        )
+
+
+def approved_contributions(kind: str | None = None) -> list[sqlite3.Row]:
+    """Approved contributions with their author's credit choice (anonymous unless opted in)."""
+    with tx() as c:
+        return c.execute(
+            """SELECT q.*, COALESCE(k.credit_opt_in, 0) AS credit_opt_in,
+                      COALESCE(k.display_name, '') AS display_name
+               FROM contributed_questions q
+               LEFT JOIN contributors k ON k.student_id = q.author_id
+               WHERE q.status = 'approved' AND (? IS NULL OR q.kind = ?)
+               ORDER BY q.id""",
+            (kind, kind),
+        ).fetchall()
+
+
+def contributions_version() -> tuple[int, int, str]:
+    """Changes whenever the approved set or a credit choice does: what the bank caches on."""
+    with tx() as c:
+        row = c.execute(
+            """SELECT COUNT(*), COALESCE(MAX(q.id), 0),
+                      COALESCE(MAX(q.reviewed_at), '') ||
+                      COALESCE((SELECT group_concat(student_id || credit_opt_in || display_name)
+                                FROM contributors), '')
+               FROM contributed_questions q WHERE q.status = 'approved'"""
+        ).fetchone()
+    return row[0], row[1], row[2]
+
+
+def approved_contribution_count(student_id: str) -> int:
+    with tx() as c:
+        return c.execute(
+            "SELECT COUNT(*) FROM contributed_questions WHERE author_id = ? "
+            "AND status = 'approved'",
+            (student_id,),
+        ).fetchone()[0]
+
+
+def top_contributors(since: str, limit: int = 10) -> list[sqlite3.Row]:
+    """Opted-in contributors by questions approved since `since`: display name and count only."""
+    with tx() as c:
+        return c.execute(
+            """SELECT k.display_name, COUNT(*) AS approved
+               FROM contributed_questions q JOIN contributors k ON k.student_id = q.author_id
+               WHERE q.status = 'approved' AND q.reviewed_at >= ?
+                 AND k.credit_opt_in = 1 AND k.display_name != ''
+               GROUP BY q.author_id, k.display_name
+               ORDER BY approved DESC, k.display_name LIMIT ?""",
+            (since, limit),
+        ).fetchall()
+
+
+# --- project inspiration (core/github_search.py) and ideas (piq/project_ideas.py) ---------------
+
+
+def kv_get(key: str) -> str | None:
+    with tx() as c:
+        row = c.execute("SELECT value FROM app_kv WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def kv_set(key: str, value: str) -> None:
+    with tx() as c:
+        c.execute(
+            "INSERT INTO app_kv (key, value) VALUES (?, ?) "
+            "ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
+
+
+def github_cache_get(query_key: str) -> sqlite3.Row | None:
+    with tx() as c:
+        return c.execute("SELECT * FROM github_cache WHERE query_key = ?", (query_key,)).fetchone()
+
+
+def github_cache_put(query_key: str, payload_json: str, fetched_at: float) -> None:
+    with tx() as c:
+        c.execute(
+            "INSERT INTO github_cache (query_key, fetched_at, payload_json) VALUES (?, ?, ?) "
+            "ON CONFLICT (query_key) DO UPDATE SET fetched_at = excluded.fetched_at, "
+            "payload_json = excluded.payload_json",
+            (query_key, fetched_at, payload_json),
+        )
+
+
+def add_idea_set(
+    student_id: str, topics_json: str, repos_json: str, ideas_json: str, source: str, based_on: str
+) -> int:
+    with tx() as c:
+        cur = c.execute(
+            "INSERT INTO project_idea_sets "
+            "(student_id, topics_json, repos_json, ideas_json, source, based_on) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (student_id, topics_json, repos_json, ideas_json, source, based_on),
+        )
+        return cur.lastrowid
+
+
+def idea_set(student_id: str, set_id: int) -> sqlite3.Row | None:
+    with tx() as c:
+        return c.execute(
+            "SELECT * FROM project_idea_sets WHERE id = ? AND student_id = ?",
+            (set_id, student_id),
+        ).fetchone()
+
+
+def latest_idea_set(student_id: str) -> sqlite3.Row | None:
+    with tx() as c:
+        return c.execute(
+            "SELECT * FROM project_idea_sets WHERE student_id = ? ORDER BY id DESC LIMIT 1",
+            (student_id,),
+        ).fetchone()
+
+
+def idea_sets_since(student_id: str, since: str) -> int:
+    with tx() as c:
+        return c.execute(
+            "SELECT COUNT(*) FROM project_idea_sets WHERE student_id = ? AND created_at >= ?",
+            (student_id, since),
+        ).fetchone()[0]
+
+
+# --- quiz sessions (piq/quiz_sessions.py) ------------------------------------------------------
+
+
+def add_quiz_session(
+    session_id: str, student_id: str, topic: str, orders_json: str, now: float, expires: float
+) -> None:
+    with tx() as c:
+        c.execute("DELETE FROM quiz_sessions WHERE expires_at < ?", (now - 86400,))  # tidy
+        c.execute(
+            "INSERT INTO quiz_sessions (id, student_id, topic, orders_json, created_at, expires_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (session_id, student_id, topic, orders_json, now, expires),
+        )
+
+
+def quiz_session(session_id: str) -> sqlite3.Row | None:
+    with tx() as c:
+        return c.execute("SELECT * FROM quiz_sessions WHERE id = ?", (session_id,)).fetchone()
+
+
+def claim_quiz_session(session_id: str, student_id: str, now: float) -> bool:
+    """Mark a session used, once: False when it was already used, expired or not theirs."""
+    with tx() as c:
+        cur = c.execute(
+            "UPDATE quiz_sessions SET used_at = ? WHERE id = ? AND student_id = ? "
+            "AND used_at IS NULL AND expires_at >= ?",
+            (now, session_id, student_id, now),
+        )
+        return cur.rowcount == 1

@@ -217,6 +217,7 @@ def _heuristic_extraction(
 def extract_github_intelligence(
     readme_text: str,
     role_keywords: list[str] | None = None,
+    student_id: str | None = None,
 ) -> GitHubIntelligence:
     """Parse the README with the AI router and return structured project intelligence.
 
@@ -278,6 +279,7 @@ def extract_github_intelligence(
             context={"title": title_hint, "readme_chars": len(readme_text)},
             size="large",
             temperature=0.3,
+            student_id=student_id,  # their own local model, when they set one
         )
         return GitHubIntelligence(
             project_title=result.project_title,

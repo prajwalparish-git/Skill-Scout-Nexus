@@ -1,5 +1,7 @@
 """Settings loaded once from the environment / .env file."""
 
+import base64
+import binascii
 import os
 import re
 from dataclasses import dataclass, field
@@ -101,6 +103,14 @@ OLLAMA_KEEP_ALIVE = -1  # keep the model loaded in RAM/VRAM between requests
 OLLAMA_TEMPERATURE = 0.2  # small local models keep to valid JSON far better when cool
 OLLAMA_NUM_CTX = 2048  # defaults; OLLAMA_NUM_CTX / OLLAMA_NUM_PREDICT in .env override
 OLLAMA_NUM_PREDICT = 512
+# A student's own local model (core/local_ai.py): Ollama or LM Studio on the same computer.
+LOCAL_AI_PROVIDERS = {"ollama": "Ollama", "lmstudio": "LM Studio"}
+LOCAL_AI_DEFAULT_URLS = {"ollama": "http://127.0.0.1:11434", "lmstudio": "http://127.0.0.1:1234"}
+LOCAL_AI_HOSTS = ("localhost", "127.0.0.1", "::1")  # the only hosts a student's URL may name
+LOCAL_AI_CONNECT_TIMEOUT_S = 2.0  # a model that is not running fails fast: pages never hang
+LOCAL_AI_LIST_TIMEOUT_S = 3.0  # Test connection: the model list
+LOCAL_AI_MAX_LIST_BYTES = 512 * 1024
+LOCAL_AI_MODEL_MAX = 200  # characters in a model name
 # Prompt cache (core/ai_cache.py): only answers that should not vary for the same input.
 # Quizzes and interview questions are left out: a student regenerating one wants new ones.
 AI_CACHE_AGENTS = frozenset({"planner", "critic", "evaluator"})
@@ -135,6 +145,18 @@ ELEVENLABS_DEFAULT_VOICE = "21m00Tcm4TlvDq8ikWAM"  # a premade voice; ELEVENLABS
 BROWSER_VOICE_LANG = "en-IN"  # the Web Speech API voice the browser fallback asks for
 VOICE_RUBRIC_MAX = 15  # a voice interview's rubric score runs 0 to 15
 VOICE_CRITERION_MAX = 5  # verbal clarity and relevance each run 0 to 5
+# Hands-free voice interview (piq/handsfree.py): the same rules for every student, shown before
+# starting and frozen onto each run when it starts.
+HANDSFREE_THINK_S = 5  # after the question is spoken, before the microphone opens
+HANDSFREE_MAX_ANSWER_S = 120  # a spoken answer stops here (what was said is kept)
+HANDSFREE_SILENCE_S = 2.5  # this much silence after speech ends the answer
+HANDSFREE_RETRIES = 1  # extra spoken attempts per question ("Answer again")
+HANDSFREE_REVIEW_S = 5  # the transcript is shown this long, then submitted
+HANDSFREE_TYPED_MAX_S = 300  # a typed answer, when the voice path is unavailable
+HANDSFREE_NO_SPEECH_S = 20  # no speech by then: push-to-talk and typing are offered
+# Answers are 16 kHz mono 16-bit WAV (what Silero VAD works at): 120 s is about 3.8 MB.
+HANDSFREE_SAMPLE_RATE = 16_000
+HANDSFREE_MAX_AUDIO_BYTES = 5 * 1024 * 1024
 MAX_DOMAIN_TOPICS = 10  # one topic colour each; tests/test_syllabus.py enforces it
 DIFFICULTIES = ("easy", "medium", "hard")
 INTERVIEW_TYPES = ("HR", "Technical", "Project")  # generic types; the frozen evaluation uses them
@@ -187,6 +209,42 @@ WEAK_THRESHOLD = 0.5  # weakness above this marks a topic as weak
 WEAK_MIN_SHARE = 0.5  # weak topics must get at least this share of weekly minutes
 DIFFICULTY_UP_AT = 80  # a quiz score (%) at or above this suggests the next difficulty up
 DIFFICULTY_DOWN_BELOW = 50  # a score below this suggests the next difficulty down
+# Adaptive quizzes: a topic's level moves by the rule above, but only on questions asked at the
+# level, and only when at least this many were (a one- or two-question part proves little).
+LEVEL_MIN_QUESTIONS = 4
+REVIEW_PER_QUIZ = 2  # at most this many missed questions come back in one quiz on a topic
+REVIEW_MAX_MISSES = 3  # a question missed this many times leaves the review queue
+# Company interview experiences (piq/experiences.py): reported by students, approved by a human.
+EXPERIENCE_ROUNDS = {
+    "aptitude": "Aptitude",
+    "technical": "Technical",
+    "coding": "Coding",
+    "hr": "HR",
+    "group_discussion": "Group discussion",
+}
+EXPERIENCE_DAILY_MAX = 5  # posts one student may send in a day
+EXPERIENCE_PENDING_MAX = 20  # posts one student may have waiting at once
+EXPERIENCE_MAX_QUESTIONS = 20
+EXPERIENCE_QUESTION_MIN, EXPERIENCE_QUESTION_MAX = 15, 1000  # characters per question
+EXPERIENCE_TIP_MAX = 600
+EXPERIENCE_TEXT_MAX = 120  # company and role
+# The interview process a post may report, with or instead of questions: its rounds in order.
+PROCESS_ROUND_TYPES = {
+    "online_test": "Online test",
+    "aptitude": "Aptitude",
+    "coding": "Coding",
+    "technical": "Technical",
+    "managerial": "Managerial",
+    "hr": "HR",
+    "group_discussion": "Group discussion",
+}
+PROCESS_TO_ROUND = {"online_test": "aptitude", "managerial": "technical"}  # the post's round
+PROCESS_RESULTS = {"selected": "Selected", "not_selected": "Not selected", "waiting": "Waiting"}
+PROCESS_MAX_ROUNDS = 8
+PROCESS_MINUTES = (5, 480)  # a round's duration, when given
+PROCESS_SUMMARY_MAX = 600
+REPORTS_TO_HIDE = 2  # reports that hide an approved post until its moderator looks again
+LABEL_MIN_POSTERS = 5  # a college is named only once this many of a batch have approved posts
 TREND_STEP = 10  # points the latest quiz must beat (or miss) the ones before by to count as a trend
 RESUME_MAX_PDF_PAGES = 30  # pages read from a PDF resume; the rest is ignored
 RESUME_MAX_DOCX_UNZIPPED = 25 * 1024 * 1024  # bytes a DOCX may unpack to (zip-bomb guard)
@@ -336,11 +394,28 @@ class Settings:
     # One student, password only, no emails: a laptop with no SMTP and no cloud database
     # (LOCAL_MODE=auto), or forced with LOCAL_MODE=true / false.
     local_mode: bool = False
+    # A student may point the app at their own local model (core/local_ai.py): LOCAL_AI.
+    local_ai: bool = False
     # Signing in with this as the password (any username or email) opens the operations view.
     dev_secret: str = field(default="", repr=False)
     # app.py shows a friendly message for a crashed page; tests set PIQ_RAISE_ERRORS=1 so
     # AppTest sees the exception instead.
     raise_page_errors: bool = False
+    # Google Drive (core/drive.py): a student keeps certificates and resumes in their own Drive.
+    # Off unless the OAuth client and DRIVE_TOKEN_KEY (which encrypts refresh tokens) are set.
+    google_client_id: str = ""
+    google_client_secret: str = field(default="", repr=False)
+    google_redirect_uri: str = ""  # the web app's callback (through the /api proxy)
+    google_streamlit_redirect_uri: str = "http://localhost:8501/"
+    drive_token_key: bytes = field(default=b"", repr=False)  # 32 bytes, decoded
+    # GitHub's official REST Search API (core/github_search.py), for project inspiration. A token
+    # only raises the rate limit; without one it works at the lower limit. The URL is for checks.
+    github_token: str = field(default="", repr=False)
+    github_api_url: str = "https://api.github.com"
+
+    @property
+    def drive_enabled(self) -> bool:
+        return bool(self.google_client_id and self.google_client_secret and self.drive_token_key)
 
 
 def _local_mode() -> bool:
@@ -356,6 +431,37 @@ def _local_mode() -> bool:
         os.getenv("DATABASE_URL", "").strip() or os.getenv("SUPABASE_DB_URL", "").strip()
     )
     return not has_mail and not has_cloud
+
+
+def _local_ai(local_mode: bool) -> bool:
+    """LOCAL_AI: auto (default) follows LOCAL_MODE; true / false force it. Never on Render,
+    whose RENDER variable marks a public server: there a student's URL would make the server
+    call its own localhost."""
+    if os.getenv("RENDER", "").strip():
+        return False
+    forced = os.getenv("LOCAL_AI", "auto").strip().lower()
+    if forced in {"1", "true", "yes"}:
+        return True
+    if forced in {"0", "false", "no"}:
+        return False
+    return local_mode
+
+
+def _drive_key(raw: str) -> bytes:
+    """DRIVE_TOKEN_KEY: 32 random bytes as URL-safe base64. Blank leaves Google Drive off; a
+    malformed key is a configuration error (a token must never be stored weakly encrypted).
+    Make one with: python -c "import secrets, base64; print(base64.urlsafe_b64encode(
+    secrets.token_bytes(32)).decode())"."""
+    raw = raw.strip()
+    if not raw:
+        return b""
+    try:
+        key = base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4))
+    except (ValueError, binascii.Error) as e:
+        raise ConfigError("DRIVE_TOKEN_KEY must be URL-safe base64") from e
+    if len(key) != 32:
+        raise ConfigError("DRIVE_TOKEN_KEY must decode to 32 bytes")
+    return key
 
 
 def _flag(name: str, default: str) -> bool:
@@ -396,6 +502,7 @@ def settings() -> Settings:
     load_dotenv(os.getenv("PIQ_DOTENV", ROOT / ".env"))
     # GROQ_API_KEY_1/_2 are the earlier two-key names; they still join the pool.
     pool = key_pool("GROQ_API_KEYS", "GROQ_API_KEY_1", "GROQ_API_KEY_2", "GROQ_API_KEY")
+    local_mode = _local_mode()
     gemini = key_pool("GEMINI_API_KEYS", "GEMINI_API_KEY")
     s = Settings(
         groq_api_key=pool[0] if pool else "",
@@ -444,9 +551,25 @@ def settings() -> Settings:
         app_url=(os.getenv("APP_URL", "").strip() or "http://localhost:3000").rstrip("/"),
         support_email=os.getenv("SUPPORT_EMAIL", "").strip(),
         auth_pepper=os.getenv("AUTH_PEPPER", ""),
-        local_mode=_local_mode(),
+        local_mode=local_mode,
+        local_ai=_local_ai(local_mode),
         dev_secret=os.getenv("DEV_SECRET", "").strip(),
         raise_page_errors=_flag("PIQ_RAISE_ERRORS", "false"),
+        github_token=os.getenv("GITHUB_TOKEN", "").strip(),
+        github_api_url=(os.getenv("GITHUB_API_URL", "").strip() or "https://api.github.com").rstrip(
+            "/"
+        ),
+        google_client_id=os.getenv("GOOGLE_CLIENT_ID", "").strip(),
+        google_client_secret=os.getenv("GOOGLE_CLIENT_SECRET", "").strip(),
+        google_redirect_uri=(
+            os.getenv("GOOGLE_REDIRECT_URI", "").strip()
+            or (os.getenv("APP_URL", "").strip() or "http://localhost:3000").rstrip("/")
+            + "/api/drive/callback"
+        ),
+        google_streamlit_redirect_uri=(
+            os.getenv("GOOGLE_STREAMLIT_REDIRECT_URI", "").strip() or "http://localhost:8501/"
+        ),
+        drive_token_key=_drive_key(os.getenv("DRIVE_TOKEN_KEY", "")),
     )
     if not s.mock_mode:
         # A provider with no key (or URL) is simply skipped by the router; one that is half set
