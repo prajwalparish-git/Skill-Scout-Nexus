@@ -12,6 +12,7 @@ export function ContributionQueue() {
   const [items, setItems] = useState<Contribution[] | null>(null);
   const [reasons, setReasons] = useState<Record<number, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [processingId, setProcessingId] = useState<number | null>(null);
 
   const load = useCallback(() => {
     get<{ contributions: Contribution[] }>("/api/ops/contributions").then(
@@ -22,12 +23,16 @@ export function ContributionQueue() {
   useEffect(load, [load]);
 
   async function review(c: Contribution, approve: boolean) {
+    if (processingId !== null) return;
+    setProcessingId(c.id);
     setError(null);
     try {
       const r = await post<{ contributions: Contribution[] }>(`/api/ops/contributions/${c.id}/review`, { approve, reason: reasons[c.id] ?? "" });
       setItems(r.contributions);
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setProcessingId(null);
     }
   }
 
@@ -70,10 +75,10 @@ export function ContributionQueue() {
               onChange={(e) => setReasons({ ...reasons, [c.id]: e.target.value })}
             />
             <div className="mt-2 flex gap-2">
-              <button type="button" className="btn-primary min-h-0 px-3 py-1.5 text-xs" onClick={() => review(c, true)}>
+              <button type="button" className="btn-primary min-h-0 px-3 py-1.5 text-xs" disabled={processingId !== null} onClick={() => review(c, true)}>
                 <Check size={14} aria-hidden /> Approve
               </button>
-              <button type="button" className="btn-ghost min-h-0 px-3 py-1.5 text-xs" onClick={() => review(c, false)}>
+              <button type="button" className="btn-ghost min-h-0 px-3 py-1.5 text-xs" disabled={processingId !== null} onClick={() => review(c, false)}>
                 <X size={14} aria-hidden /> Reject
               </button>
             </div>

@@ -102,6 +102,7 @@ export default function ProjectsPage() {
   const [data, setData] = useState<ProjectIdeasPayload | null>(null);
   const [projects, setProjects] = useState<MyProject[]>([]);
   const [busy, setBusy] = useState(false);
+  const [startingIndex, setStartingIndex] = useState<number | null>(null);
   const [started, setStarted] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -133,6 +134,8 @@ export default function ProjectsPage() {
   }
 
   async function start(set: IdeaSet, index: number) {
+    if (startingIndex !== null || busy) return;
+    setStartingIndex(index);
     setError(null);
     try {
       await post(`/api/project-ideas/${set.id}/${index}/start`, {});
@@ -140,6 +143,8 @@ export default function ProjectsPage() {
       loadProjects();
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setStartingIndex(null);
     }
   }
 
@@ -186,7 +191,7 @@ export default function ProjectsPage() {
               <IdeaCard
                 key={`${set.id}-${i}`}
                 idea={idea}
-                busy={busy}
+                busy={busy || startingIndex !== null}
                 started={started.includes(idea.title)}
                 onStart={() => start(set, i)}
                 onMore={() => run(() => post<{ set: IdeaSet }>(`/api/project-ideas/${set.id}/${i}/more`, {}))}

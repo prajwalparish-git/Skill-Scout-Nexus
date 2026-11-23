@@ -17,11 +17,13 @@ const TREND: Record<string, "ok" | "warn" | "todo" | "info"> = {
   new: "todo",
 };
 
-const day = (ts: string) =>
-  new Date(ts.replace(" ", "T") + (ts.endsWith("Z") ? "" : "Z")).toLocaleDateString(undefined, {
+const day = (ts: string | null | undefined) => {
+  if (!ts) return "–";
+  return new Date(ts.replace(" ", "T") + (ts.endsWith("Z") ? "" : "Z")).toLocaleDateString(undefined, {
     day: "numeric",
     month: "short",
   });
+};
 
 function readinessHeadline(scores: number[]): string {
   if (!scores.length) return "Readiness";
@@ -155,7 +157,12 @@ export default function DashboardPage() {
               value={`${d.streak.current} day${d.streak.current === 1 ? "" : "s"}`}
               hint={`Longest: ${d.streak.longest} day${d.streak.longest === 1 ? "" : "s"}`}
             />
-            <Stat icon={MessagesSquare} label="Mock interviews" value={d.sessions.length} hint={d.sessions[0] ? `Last: ${d.sessions[0].avg_overall?.toFixed(1)}/5` : undefined} />
+            <Stat
+              icon={MessagesSquare}
+              label="Mock interviews"
+              value={d.sessions.length}
+              hint={d.sessions[0] ? (d.sessions[0].avg_overall != null ? `Last: ${d.sessions[0].avg_overall.toFixed(1)}/5` : "–") : undefined}
+            />
           </section>
 
           <div className="mt-6 grid gap-6 lg:grid-cols-2">
@@ -275,7 +282,9 @@ export default function DashboardPage() {
                         <span className="block truncate font-medium">{s.interview_type}</span>
                         <span className="block text-xs text-muted">{day(s.started)}</span>
                       </span>
-                      <span className="font-mono text-sm font-semibold tabular-nums">{s.avg_overall?.toFixed(1)}/5</span>
+                      <span className="font-mono text-sm font-semibold tabular-nums">
+                        {s.avg_overall != null ? `${s.avg_overall.toFixed(1)}/5` : "–"}
+                      </span>
                     </li>
                   ))}
                 </ul>

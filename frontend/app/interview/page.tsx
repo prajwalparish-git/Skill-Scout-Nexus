@@ -148,11 +148,13 @@ export default function InterviewPage() {
     };
   }, [candidateId]);
 
-  // Braces: newer browsers return a Promise from scrollIntoView, and React would take a
-  // returned value for the effect's cleanup function.
+  // Debounce smooth-scroll into view only when new steps arrive without fighting user manual scrolling.
   useEffect(() => {
-    bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [result, steps]);
+    const timer = setTimeout(() => {
+      bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [result, steps.length]);
 
   // A proctored interview: a breach submits the answer typed so far, after any turn in flight.
   const [breachPending, setBreachPending] = useState(false);

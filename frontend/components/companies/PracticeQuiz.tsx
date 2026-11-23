@@ -36,6 +36,7 @@ export function PracticeQuiz({ slug, quiz, onClose }: { slug: string; quiz: Quiz
   const [error, setError] = useState<string | null>(null);
 
   async function submit() {
+    if (busy || result) return;
     setBusy(true);
     setError(null);
     try {

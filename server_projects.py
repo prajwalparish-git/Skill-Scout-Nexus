@@ -44,7 +44,7 @@ def latest(sid: str = Depends(require_student)) -> dict:
     """The newest ideas (or null), and what the next suggestion would search for."""
 
     def work() -> dict:
-        profile = project_ideas._profile(sid)
+        profile = project_ideas.student_profile(sid)
         return {
             "set": project_ideas.latest(sid),
             "topics": project_ideas.topics(profile),

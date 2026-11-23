@@ -99,9 +99,23 @@ export function ContributorSignUp() {
         <p className="text-sm text-muted">We sent a 9-digit code to {step.sent_to}. Type it to finish signing up.</p>
         <input className="input font-mono tracking-widest" inputMode="numeric" autoComplete="one-time-code" maxLength={11} value={code} onChange={(e) => setCode(e.target.value)} aria-label="Code" />
         <ErrorNote message={error} />
-        <button type="submit" className="btn-primary" disabled={busy}>
-          {busy && <Loader2 size={16} className="animate-spin" aria-hidden />} Confirm
-        </button>
+        <div className="flex items-center gap-2">
+          <button type="submit" className="btn-primary" disabled={busy}>
+            {busy && <Loader2 size={16} className="animate-spin" aria-hidden />} Confirm
+          </button>
+          <button
+            type="button"
+            className="btn-ghost"
+            disabled={busy}
+            onClick={() => {
+              setStep(null);
+              setError(null);
+              setCode("");
+            }}
+          >
+            Back
+          </button>
+        </div>
       </form>
     );
 

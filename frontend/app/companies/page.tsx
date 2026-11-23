@@ -41,6 +41,7 @@ function Company({ slug, onBack, inOrg, onShared }: { slug: string; onBack: () =
   useEffect(() => {
     let live = true;
     setDetail(null);
+    setError(null);
     get<CompanyDetail>(`/api/companies/${slug}${round ? `?round=${round}` : ""}`).then(
       (d) => live && setDetail(d),
       (e: Error) => live && setError(e.message),

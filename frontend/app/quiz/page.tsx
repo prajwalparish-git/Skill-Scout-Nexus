@@ -110,7 +110,7 @@ export default function QuizPage() {
   }
 
   async function submit() {
-    if (!quiz) return;
+    if (!quiz || busy) return;
     setBusy(true);
     setError(null);
     try {

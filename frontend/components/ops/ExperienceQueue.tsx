@@ -13,6 +13,7 @@ export function ExperienceQueue() {
   const [reasons, setReasons] = useState<Record<number, string>>({});
   const [companies, setCompanies] = useState<Record<number, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [processingId, setProcessingId] = useState<number | null>(null);
 
   const load = useCallback(() => {
     get<{ posts: ModerationPost[] }>("/api/ops/experiences").then(
@@ -23,6 +24,8 @@ export function ExperienceQueue() {
   useEffect(load, [load]);
 
   async function review(p: ModerationPost, approve: boolean) {
+    if (processingId !== null) return;
+    setProcessingId(p.id);
     setError(null);
     try {
       const company = companies[p.id];
@@ -34,6 +37,8 @@ export function ExperienceQueue() {
       setPosts(r.posts);
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setProcessingId(null);
     }
   }
 
@@ -100,10 +105,10 @@ export function ExperienceQueue() {
               />
             </div>
             <div className="mt-2 flex gap-2">
-              <button type="button" className="btn-ink min-h-0 px-3 py-1 text-xs" onClick={() => review(p, true)}>
+              <button type="button" className="btn-ink min-h-0 px-3 py-1 text-xs" disabled={processingId !== null} onClick={() => review(p, true)}>
                 <Check size={14} aria-hidden /> Approve
               </button>
-              <button type="button" className="btn-ghost min-h-0 px-3 py-1 text-xs" onClick={() => review(p, false)}>
+              <button type="button" className="btn-ghost min-h-0 px-3 py-1 text-xs" disabled={processingId !== null} onClick={() => review(p, false)}>
                 <X size={14} aria-hidden /> Reject
               </button>
             </div>

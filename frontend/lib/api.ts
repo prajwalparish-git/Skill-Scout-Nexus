@@ -157,7 +157,7 @@ export async function postStream(
       const { value, done } = await reader.read();
       if (done) break;
       resetIdle();
-      buffer += decoder.decode(value, { stream: true });
+      buffer = (buffer + decoder.decode(value, { stream: true })).replace(/\r\n/g, "\n");
       let cut: number;
       while ((cut = buffer.indexOf("\n\n")) >= 0) {
         const block = buffer.slice(0, cut);
@@ -168,7 +168,13 @@ export async function postStream(
           if (line.startsWith("event: ")) event = line.slice(7);
           else if (line.startsWith("data: ")) data += line.slice(6);
         }
-        if (data) onEvent(event, JSON.parse(data));
+        if (data) {
+          try {
+            onEvent(event, JSON.parse(data));
+          } catch {
+            // Safely ignore non-JSON or HTML proxy error chunks
+          }
+        }
       }
     }
   } catch (e) {
@@ -181,6 +187,8 @@ export async function postStream(
     cleanup();
   }
 }
+
+export const streamEvents = postStream;
 
 // --- shapes returned by server.py ----------------------------------------------------------
 

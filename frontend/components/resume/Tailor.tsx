@@ -28,6 +28,7 @@ export function TailorPanel({
   async function tailor() {
     setBusy(true);
     setError(null);
+    setDraft(null);
     try {
       setDraft(await post<Tailoring>("/api/resume/tailor", { ...body, job_description: jd }));
     } catch (e) {

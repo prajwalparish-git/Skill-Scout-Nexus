@@ -93,6 +93,8 @@ export class Capture {
     this.source = this.ctx.createMediaStreamSource(stream);
     this.node = this.ctx.createScriptProcessor(4096, 1, 1);
     this.node.onaudioprocess = (e) => {
+      const out = e.outputBuffer.getChannelData(0);
+      out.fill(0);
       const buf = e.inputBuffer.getChannelData(0);
       let sum = 0;
       for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];

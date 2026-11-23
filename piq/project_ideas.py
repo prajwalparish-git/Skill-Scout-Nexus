@@ -57,13 +57,16 @@ def hackathon_links(keyword: str) -> list[dict]:
 # --- who, and which topics ----------------------------------------------------------------------
 
 
-def _profile(student_id: str) -> StudentProfile:
+def student_profile(student_id: str) -> StudentProfile:
     profile = services.current_profile(student_id)
     if profile is None:
         raise ServiceError("Scan your resume or choose your role first.")
     if not services.has_project_space(profile):
         raise ServiceError(NOT_COMPUTING)
     return profile
+
+
+_profile = student_profile
 
 
 def gaps(profile: StudentProfile) -> list[str]:
