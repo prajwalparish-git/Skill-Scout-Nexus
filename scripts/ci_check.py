@@ -775,6 +775,24 @@ def process_checks(c: "TestClient", sid: str) -> None:
         "Process: a pending process is not shown",
     )
 
+    spam = c.post(
+        "/api/experiences",
+        json={**base, "round": "technical", "questions": [{"kind": "open", "text":
+              "Buy cheap followers and join my telegram for all the interview answers"}]},
+    )  # fmt: skip
+    spam_id = spam.json().get("id") if spam.status_code == 200 else None
+    mod = db.experience(spam_id)["org_id"] if spam_id else None
+    queued = next(
+        (p for p in experiences.review_queue(mod or experiences.OPS) if p["id"] == spam_id), {}
+    )
+    check(
+        spam_id is not None
+        and db.experience(spam_id)["status"] == "pending"
+        and any("promotion: reads like promotion" in f for f in queued.get("flags", []))
+        and any("Telegram" in f for f in queued.get("flags", [])),
+        f"Promotion spam is flagged for the moderator, not refused{_why(spam)}",
+    )
+    server_companies._posts.clear()
     both = c.post(
         "/api/experiences",
         json={**base, "round": "technical",

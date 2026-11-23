@@ -200,6 +200,50 @@ def copy_signals(text: str) -> list[str]:
     return out
 
 
+# Promotion spam: flagged for the moderator, never refused (an "offer letter" is not spam).
+_PROMO_STRONG = re.compile(
+    r"\b(buy|buying|sell|selling|cheap|followers|discount|giveaway|promo ?code|coupon|"
+    r"subscribers|likes for)\b",
+    re.I,
+)
+_PROMO_WEAK = re.compile(r"\b(offer|deal|price|paid|payment|earn|income|dm me)\b", re.I)
+_INVITE = re.compile(
+    r"\b(whats ?app|telegram|t\.me|discord|discord\.gg|chat\.whatsapp)\b|"
+    r"\bjoin (my|our|the) (group|channel|server|community)\b",
+    re.I,
+)
+_HIDDEN_LINK = re.compile(
+    r"\b[a-z0-9-]+\s*[\[(]?\s*dot\s*[\])]?\s*(com|in|net|org|io|co|xyz|me|app)\b|"
+    r"\[\.\]|\(\.\)|\bhxxps?\b",
+    re.I,
+)
+_LEFTOVER_PHONE = re.compile(r"(?:\d[\s.\-/()]*){8,}")  # digits the phone pattern missed
+_PAID_REFERRAL = re.compile(
+    r"\brefer(?:ral|rals|red)?\b.{0,40}\b(fee|fees|pay|paid|charge|charges|rs\.?|inr|rupees|"
+    r"money|cost|₹)|\b(pay|paid|charge|fee)\b.{0,40}\breferr?al",
+    re.I,
+)
+
+
+def promo_signals(text: str) -> list[str]:
+    """Signs a post is promotion rather than an interview (checked after cleaning): selling
+    words, chat-group invites, disguised links, phone numbers that slipped through, paid
+    referrals. Flags for the moderator: nothing is refused for these."""
+    out = []
+    weak = {m.lower() for m in _PROMO_WEAK.findall(text)}
+    if _PROMO_STRONG.search(text) or len(weak) >= 2:
+        out.append("reads like promotion (buying, selling, followers or offers)")
+    if _INVITE.search(text):
+        out.append("invites readers to a WhatsApp, Telegram or Discord group")
+    if _HIDDEN_LINK.search(text):
+        out.append('contains a disguised link ("dot com", "[.]")')
+    if _LEFTOVER_PHONE.search(text):
+        out.append("contains a long number that may be a phone number")
+    if _PAID_REFERRAL.search(text):
+        out.append("offers a referral for money")
+    return out
+
+
 def _shouting(text: str) -> bool:
     letters = [c for c in text if c.isalpha()]
     return len(letters) > 30 and sum(c.isupper() for c in letters) / len(letters) > 0.7
@@ -354,6 +398,15 @@ def clean_submission(form: Mapping, own: Sequence[str], today: date | None = Non
         if _shouting(text):
             flags.append(f"question {n}: mostly capitals")
         questions.append(item)
+    whole = " ".join(
+        [
+            role,
+            tip,
+            (process or {}).get("summary", ""),
+            *(f"{q['text']} {' '.join(q['options'])} {q['explanation']}" for q in questions),
+        ]
+    )
+    flags += [f"promotion: {s}" for s in promo_signals(whole)]
     if found:
         flags.append(f"personal data removed automatically: {', '.join(sorted(found))}")
     return Cleaned(
