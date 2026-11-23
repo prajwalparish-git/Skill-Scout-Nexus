@@ -408,6 +408,10 @@ class Settings:
     google_redirect_uri: str = ""  # the web app's callback (through the /api proxy)
     google_streamlit_redirect_uri: str = "http://localhost:8501/"
     drive_token_key: bytes = field(default=b"", repr=False)  # 32 bytes, decoded
+    # GitHub's official REST Search API (core/github_search.py), for project inspiration. A token
+    # only raises the rate limit; without one it works at the lower limit. The URL is for checks.
+    github_token: str = field(default="", repr=False)
+    github_api_url: str = "https://api.github.com"
 
     @property
     def drive_enabled(self) -> bool:
@@ -551,6 +555,10 @@ def settings() -> Settings:
         local_ai=_local_ai(local_mode),
         dev_secret=os.getenv("DEV_SECRET", "").strip(),
         raise_page_errors=_flag("PIQ_RAISE_ERRORS", "false"),
+        github_token=os.getenv("GITHUB_TOKEN", "").strip(),
+        github_api_url=(os.getenv("GITHUB_API_URL", "").strip() or "https://api.github.com").rstrip(
+            "/"
+        ),
         google_client_id=os.getenv("GOOGLE_CLIENT_ID", "").strip(),
         google_client_secret=os.getenv("GOOGLE_CLIENT_SECRET", "").strip(),
         google_redirect_uri=(

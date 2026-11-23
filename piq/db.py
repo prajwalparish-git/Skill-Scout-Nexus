@@ -2268,3 +2268,73 @@ def top_contributors(since: str, limit: int = 10) -> list[sqlite3.Row]:
                ORDER BY approved DESC, k.display_name LIMIT ?""",
             (since, limit),
         ).fetchall()
+
+
+# --- project inspiration (core/github_search.py) and ideas (piq/project_ideas.py) ---------------
+
+
+def kv_get(key: str) -> str | None:
+    with tx() as c:
+        row = c.execute("SELECT value FROM app_kv WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def kv_set(key: str, value: str) -> None:
+    with tx() as c:
+        c.execute(
+            "INSERT INTO app_kv (key, value) VALUES (?, ?) "
+            "ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
+
+
+def github_cache_get(query_key: str) -> sqlite3.Row | None:
+    with tx() as c:
+        return c.execute("SELECT * FROM github_cache WHERE query_key = ?", (query_key,)).fetchone()
+
+
+def github_cache_put(query_key: str, payload_json: str, fetched_at: float) -> None:
+    with tx() as c:
+        c.execute(
+            "INSERT INTO github_cache (query_key, fetched_at, payload_json) VALUES (?, ?, ?) "
+            "ON CONFLICT (query_key) DO UPDATE SET fetched_at = excluded.fetched_at, "
+            "payload_json = excluded.payload_json",
+            (query_key, fetched_at, payload_json),
+        )
+
+
+def add_idea_set(
+    student_id: str, topics_json: str, repos_json: str, ideas_json: str, source: str, based_on: str
+) -> int:
+    with tx() as c:
+        cur = c.execute(
+            "INSERT INTO project_idea_sets "
+            "(student_id, topics_json, repos_json, ideas_json, source, based_on) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (student_id, topics_json, repos_json, ideas_json, source, based_on),
+        )
+        return cur.lastrowid
+
+
+def idea_set(student_id: str, set_id: int) -> sqlite3.Row | None:
+    with tx() as c:
+        return c.execute(
+            "SELECT * FROM project_idea_sets WHERE id = ? AND student_id = ?",
+            (set_id, student_id),
+        ).fetchone()
+
+
+def latest_idea_set(student_id: str) -> sqlite3.Row | None:
+    with tx() as c:
+        return c.execute(
+            "SELECT * FROM project_idea_sets WHERE student_id = ? ORDER BY id DESC LIMIT 1",
+            (student_id,),
+        ).fetchone()
+
+
+def idea_sets_since(student_id: str, since: str) -> int:
+    with tx() as c:
+        return c.execute(
+            "SELECT COUNT(*) FROM project_idea_sets WHERE student_id = ? AND created_at >= ?",
+            (student_id, since),
+        ).fetchone()[0]

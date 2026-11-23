@@ -557,3 +557,32 @@ CREATE TABLE IF NOT EXISTS contributed_questions (
 );
 CREATE INDEX IF NOT EXISTS idx_contributed_status ON contributed_questions (status, round);
 CREATE INDEX IF NOT EXISTS idx_contributed_author ON contributed_questions (author_id, created_at);
+
+-- GitHub's official Search API answers (core/github_search.py), per query, metadata only (never a
+-- README or code), shared by every student and fresh for 24 hours.
+CREATE TABLE IF NOT EXISTS github_cache (
+    query_key    TEXT PRIMARY KEY,
+    fetched_at   REAL NOT NULL,
+    payload_json TEXT NOT NULL
+);
+
+-- Small app-wide values (e.g. github_blocked_until: GitHub asked us to wait until then).
+CREATE TABLE IF NOT EXISTS app_kv (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+-- Project ideas written for a student (piq/project_ideas.py): the topics from their skill gaps,
+-- the repos fetched for them (metadata only), and the ideas derived from those repos. Kept as
+-- history; the newest is shown. Deleted with the account.
+CREATE TABLE IF NOT EXISTS project_idea_sets (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id  TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    topics_json TEXT NOT NULL,
+    repos_json  TEXT NOT NULL,
+    ideas_json  TEXT NOT NULL,
+    source      TEXT NOT NULL,
+    based_on    TEXT NOT NULL DEFAULT '',
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_project_idea_sets ON project_idea_sets (student_id, id);
