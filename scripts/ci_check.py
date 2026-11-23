@@ -42,7 +42,7 @@ import json
 import os
 import sys
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -673,6 +673,7 @@ def open_questions_checks(c: "TestClient", sid: str) -> None:
     graded = c.post("/api/quiz/submit", json={
         "candidate_id": sid, "topic": "Aptitude", "difficulty": "easy",
         "answers": [{"id": x["id"], "choice": 0} for x in q.get("questions", [])],
+        "quiz_session": q.get("quiz_session"),
     }).json()  # fmt: skip
     credits = [r.get("credit", "") for r in graded.get("review", [])]
     check(
@@ -1231,6 +1232,89 @@ def project_ideas_checks(c: "TestClient", sid: str) -> None:
     )  # fmt: skip
 
 
+def quiz_sessions_checks(c: "TestClient", sid: str, shown_right: Callable[[dict], int]) -> None:
+    """A signed-in student's quiz is graded only as served (piq/quiz_sessions.py): unserved
+    question ids, a reused, expired or another student's session are refused; options are
+    shuffled per session and graded through that order, so the public CSV's answer letters do
+    not give the answers; guests keep the unsessioned quiz."""
+    from piq import db, question_bank, quiz_sessions, services
+
+    def serve(n: int = 5) -> dict:
+        params = {"topic": "CN", "difficulty": "medium", "count": n, "candidate_id": sid}
+        return c.get("/api/quiz", params=params).json()
+
+    def send(q: dict, answers: list[dict], session: object = "same") -> "Response":
+        return c.post("/api/quiz/submit", json={
+            "candidate_id": sid, "topic": q["topic"], "difficulty": q["difficulty"],
+            "answers": answers,
+            "quiz_session": q.get("quiz_session") if session == "same" else session,
+        })  # fmt: skip
+
+    q = serve()
+    served = {x["id"] for x in q["questions"]}
+    other = next(
+        question_bank.qid(x)
+        for x in question_bank.draw("CN", "medium", 50, [], "ci-unserved")
+        if question_bank.qid(x) not in served
+    )
+    first = q["questions"][0]
+    unserved = send(q, [{"id": other, "choice": 0}])
+    no_session = send(q, [{"id": first["id"], "choice": 0}], session=None)
+    right = [{"id": x["id"], "choice": shown_right(x)} for x in q["questions"]]
+    graded = send(q, right)
+    reused = send(q, right)
+    review = graded.json().get("review", []) if graded.status_code == 200 else []
+    check(
+        q.get("quiz_session")
+        and unserved.status_code == 400
+        and no_session.status_code == 400
+        and graded.status_code == 200
+        and graded.json().get("score_pct") == 100
+        and all(r["chosen"] == r["correct_index"] for r in review)
+        and reused.status_code == 400,
+        "Quiz sessions: unserved ids and a missing session refused; the served quiz graded "
+        f"once through its shuffled order, a resubmit refused{_why(unserved)}",
+    )
+
+    q2 = serve()
+    banks = {x["id"]: services._find_question(x["id"])[2] for x in q2["questions"]}
+    moved = [x for x in q2["questions"] if x["options"] != banks[x["id"]].options]
+    by_letter = [{"id": x["id"], "choice": banks[x["id"]].correct_index} for x in q2["questions"]]
+    letters = send(q2, by_letter).json()
+    check(
+        moved and letters.get("score_pct", 100) < 100,
+        f"Quiz sessions: options are shuffled per session ({len(moved)} of "
+        f"{len(q2['questions'])} moved), so the CSV's answer letters do not map to them",
+    )
+
+    q3 = serve(3)
+    stranger = db.create_student("Ci Stranger", "cistranger", "Software Engineer")
+    refused = []
+    for who, session in ((stranger, q3["quiz_session"]), (sid, "not-a-session")):
+        try:
+            quiz_sessions.resolve(who, session, "CN", [(q3["questions"][0]["id"], 0)])
+        except services.ServiceError:
+            refused.append(who)
+    with db.tx() as conn:
+        conn.execute("UPDATE quiz_sessions SET expires_at = 0 WHERE id = ?", (q3["quiz_session"],))
+    expired = send(q3, [{"id": q3["questions"][0]["id"], "choice": 0}])
+    guest = c.get("/api/quiz", params={"topic": "CN", "difficulty": "easy", "count": 3}).json()
+    gq = guest.get("questions", [])
+    guest_graded = c.post("/api/quiz/submit", json={
+        "topic": "CN", "difficulty": "easy",
+        "answers": [{"id": x["id"], "choice": 0} for x in gq],
+    })  # fmt: skip
+    check(
+        len(refused) == 2
+        and expired.status_code == 400
+        and guest.get("quiz_session") is None
+        and all(x["options"] == services._find_question(x["id"])[2].options for x in gq)
+        and guest_graded.status_code == 200,
+        "Quiz sessions: another student's, unknown and expired sessions refused; guests keep "
+        "the unsessioned quiz",
+    )
+
+
 def proctoring_checks(c: "TestClient", sid: str) -> None:
     """Proctoring without a camera: practice stays unproctored; an organization's requirement
     is enforced; the server decides severity (one strike per incident, 3 breach, review events
@@ -1253,13 +1337,15 @@ def proctoring_checks(c: "TestClient", sid: str) -> None:
     )
 
     def submit(attempt: str | None = None) -> "Response":
-        q = c.get("/api/quiz", params={"topic": topic, "difficulty": level, "count": 3}).json()
+        params = {"topic": topic, "difficulty": level, "count": 3, "candidate_id": sid}
+        q = c.get("/api/quiz", params=params).json()
         body = {
             "candidate_id": sid,
             "topic": q["topic"],
             "difficulty": q["difficulty"],
             "answers": [{"id": x["id"], "choice": 0} for x in q["questions"]],
             "proctor_attempt_id": attempt,
+            "quiz_session": q.get("quiz_session"),
         }
         return c.post("/api/quiz/submit", json=body)
 
@@ -1896,7 +1982,7 @@ def adaptive_quiz(c: "TestClient", sid: str) -> None:
         quiz = c.get("/api/quiz", params=params).json()
         answers = []
         for i, q in enumerate(quiz.get("questions", [])):
-            right = services._find_question(q["id"])[2].correct_index
+            right = shown_right(q)  # options are shuffled per session: find it by its text
             answers.append({"id": q["id"], "choice": (right + 1) % 4 if i < wrong else right})
         graded = c.post(
             "/api/quiz/submit",
@@ -1905,9 +1991,14 @@ def adaptive_quiz(c: "TestClient", sid: str) -> None:
                 "topic": topic,
                 "difficulty": quiz.get("difficulty", "medium"),
                 "answers": answers,
+                "quiz_session": quiz.get("quiz_session"),
             },
         ).json()
         return quiz, graded
+
+    def shown_right(q: dict) -> int:
+        bank = services._find_question(q["id"])[2]
+        return q["options"].index(bank.options[bank.correct_index])
 
     quiz, graded = take("DBMS")
     check(
@@ -1947,6 +2038,7 @@ def adaptive_quiz(c: "TestClient", sid: str) -> None:
             )
             check("score_pct" in graded, "a mixed-difficulty quiz is graded")
 
+    quiz_sessions_checks(c, sid, shown_right)
     manual = c.get("/api/quiz", params={"topic": "OS", "difficulty": "easy", "candidate_id": sid})
     check(
         manual.status_code == 200

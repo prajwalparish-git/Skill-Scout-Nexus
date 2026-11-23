@@ -2338,3 +2338,34 @@ def idea_sets_since(student_id: str, since: str) -> int:
             "SELECT COUNT(*) FROM project_idea_sets WHERE student_id = ? AND created_at >= ?",
             (student_id, since),
         ).fetchone()[0]
+
+
+# --- quiz sessions (piq/quiz_sessions.py) ------------------------------------------------------
+
+
+def add_quiz_session(
+    session_id: str, student_id: str, topic: str, orders_json: str, now: float, expires: float
+) -> None:
+    with tx() as c:
+        c.execute("DELETE FROM quiz_sessions WHERE expires_at < ?", (now - 86400,))  # tidy
+        c.execute(
+            "INSERT INTO quiz_sessions (id, student_id, topic, orders_json, created_at, expires_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (session_id, student_id, topic, orders_json, now, expires),
+        )
+
+
+def quiz_session(session_id: str) -> sqlite3.Row | None:
+    with tx() as c:
+        return c.execute("SELECT * FROM quiz_sessions WHERE id = ?", (session_id,)).fetchone()
+
+
+def claim_quiz_session(session_id: str, student_id: str, now: float) -> bool:
+    """Mark a session used, once: False when it was already used, expired or not theirs."""
+    with tx() as c:
+        cur = c.execute(
+            "UPDATE quiz_sessions SET used_at = ? WHERE id = ? AND student_id = ? "
+            "AND used_at IS NULL AND expires_at >= ?",
+            (now, session_id, student_id, now),
+        )
+        return cur.rowcount == 1

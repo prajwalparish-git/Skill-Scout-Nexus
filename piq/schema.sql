@@ -586,3 +586,16 @@ CREATE TABLE IF NOT EXISTS project_idea_sets (
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_project_idea_sets ON project_idea_sets (student_id, id);
+
+-- Quiz sessions (piq/quiz_sessions.py): what a signed-in student was served, with each question's
+-- shuffled option order, so a submit is graded only as served, once, before it expires.
+CREATE TABLE IF NOT EXISTS quiz_sessions (
+    id          TEXT PRIMARY KEY,
+    student_id  TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    topic       TEXT NOT NULL,
+    orders_json TEXT NOT NULL,
+    created_at  REAL NOT NULL,
+    expires_at  REAL NOT NULL,
+    used_at     REAL
+);
+CREATE INDEX IF NOT EXISTS idx_quiz_sessions_student ON quiz_sessions (student_id, created_at);

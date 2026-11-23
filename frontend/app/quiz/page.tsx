@@ -121,6 +121,7 @@ export default function QuizPage() {
           difficulty: quiz.difficulty,
           answers: quiz.questions.map((q, i) => ({ id: q.id, choice: answers[i] })),
           proctor_attempt_id: proctor.currentAttemptId(),
+          quiz_session: quiz.quiz_session ?? null,
         }),
       );
       if (proctor.phase === "running") await proctor.end();

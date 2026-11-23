@@ -271,6 +271,8 @@ export type Quiz = {
   level?: string | null;
   /** Asked at the student's level (no difficulty was chosen). */
   adaptive?: boolean;
+  /** A signed-in student's quiz session: options are shuffled for it, and the submit names it. */
+  quiz_session?: string | null;
 };
 export type Graded = {
   score_pct: number;

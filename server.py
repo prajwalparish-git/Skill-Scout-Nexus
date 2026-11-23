@@ -40,6 +40,7 @@ from piq import (
     llm,
     proctoring,
     question_bank,
+    quiz_sessions,
     resume_builder,
     resume_templates,
     services,
@@ -239,41 +240,40 @@ def quiz(
     """Questions without their answers: the submit route grades them. A guest names no
     student; naming one needs that student's session. A student who names no difficulty gets
     their level on the topic (adaptive: missed questions come back, flagged `review`); naming
-    one keeps it exactly as asked, from the bank."""
+    one keeps it exactly as asked, from the bank. A student's quiz is recorded as a quiz
+    session (piq/quiz_sessions.py) with its options shuffled for that session: the submit must
+    name `quiz_session` and is graded only as served."""
     authorize(request, candidate_id)
     if candidate_id and difficulty is None:
         a = services.adaptive_quiz(candidate_id, topic, count)
-        return {
-            "topic": a.topic,
-            "difficulty": a.level,
-            "level": a.level,
-            "adaptive": True,
-            "questions": [
-                {
-                    "id": question_bank.qid(p.question),
-                    "text": p.question.text,
-                    "options": p.question.options,
-                    "difficulty": p.difficulty,
-                    "review": p.review,
-                }
-                for p in a.items
-            ],
-        }
-    q = services.instant_quiz(topic, difficulty or "medium", count, candidate_id or None)
+        items = [(p.question, p.difficulty, p.review) for p in a.items]
+        head = {"topic": a.topic, "difficulty": a.level, "level": a.level, "adaptive": True}
+    else:
+        q = services.instant_quiz(topic, difficulty or "medium", count, candidate_id or None)
+        items = [(x, q.difficulty, False) for x in q.questions]
+        level = services.suggested_difficulty(candidate_id, topic) if candidate_id else None
+        head = {"topic": q.topic, "difficulty": q.difficulty, "level": level, "adaptive": False}
+    served = (
+        quiz_sessions.serve(candidate_id, head["topic"], [x for x, _, _ in items])
+        if candidate_id
+        else None
+    )
     return {
-        "topic": q.topic,
-        "difficulty": q.difficulty,
-        "level": services.suggested_difficulty(candidate_id, topic) if candidate_id else None,
-        "adaptive": False,
+        **head,
+        "quiz_session": served.session_id if served else None,
         "questions": [
             {
                 "id": question_bank.qid(x),
                 "text": x.text,
-                "options": x.options,
-                "difficulty": q.difficulty,
-                "review": False,
+                "options": (
+                    quiz_sessions.shown(x, served.orders[question_bank.qid(x)])
+                    if served
+                    else x.options
+                ),
+                "difficulty": d,
+                "review": review,
             }
-            for x in q.questions
+            for x, d, review in items
         ],
     }
 
@@ -296,6 +296,7 @@ class QuizSubmission(BaseModel):
     difficulty: str
     answers: list[Answer] = Field(min_length=1, max_length=QUIZ_MAX_PER_TOPIC)
     proctor_attempt_id: str | None = Field(None, max_length=64)
+    quiz_session: str | None = Field(None, max_length=64)  # a student's quiz: as served
 
 
 @app.post("/api/quiz/submit")
@@ -303,17 +304,21 @@ def quiz_submit(body: QuizSubmission, request: Request) -> dict:
     authorize(request, body.candidate_id)
     cid = body.candidate_id or None
     watched = proctor_call(lambda: proctoring.require(cid, body.proctor_attempt_id, "quiz"))
-    result = services.grade_instant_quiz(
-        body.candidate_id or None,
-        body.topic,
-        body.difficulty,
-        [(a.id, a.choice) for a in body.answers],
-    )
+    answers = [(a.id, a.choice) for a in body.answers]
+    orders: dict[str, list[int]] = {}
+    if cid:  # graded only as served: the session's questions, once, in its option order
+        answers, orders = quiz_sessions.resolve(cid, body.quiz_session, body.topic, answers)
+    result = services.grade_instant_quiz(cid, body.topic, body.difficulty, answers)
+
+    def seen(q: Any, index: int | None) -> int | None:  # a bank index as the student saw it
+        order = orders.get(question_bank.qid(q))
+        return index if order is None or index is None else order.index(index)
+
     review = [
         {
             "id": question_bank.qid(q),
-            "chosen": c,
-            "correct_index": q.correct_index,
+            "chosen": seen(q, c),
+            "correct_index": seen(q, q.correct_index),
             "is_correct": c == q.correct_index,
             "explanation": q.explanation,
             "credit": question_bank.credit(question_bank.qid(q)),  # open-bank source, if any
