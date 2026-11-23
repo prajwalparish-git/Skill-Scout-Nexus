@@ -25,7 +25,9 @@ repository proves the product itself works.
    import that keeps the seed), interview process reports (validated, cleaned, summarised
    under anonymous labels, gone with the account), contributed questions (a contributor
    account kept out of the student tools, CC BY 4.0 recorded, limited, moderated, credited
-   only when opted in), and the refusals (signed out, another student, the operations
+   only when opted in), project ideas against a fake GitHub (metadata only, the company
+   filter, backoff, the cache, ideas built from at least two fetched repos, Start this project),
+   and the refusals (signed out, another student, the operations
    view, an invalid body).
 4. The app starts: every page renders headless (Streamlit AppTest) in mock mode, with no
    student and with the demo student, on throwaway databases. No network, no secrets.
@@ -83,6 +85,7 @@ def compile_all() -> None:
         "server_proctor.py",
         "server_handsfree.py",
         "server_contribute.py",
+        "server_projects.py",
         "bootstrap.py",
     ):
         check(bool(compileall.compile_file(ROOT / name, quiet=1)), f"{name} compiles")
@@ -214,6 +217,7 @@ def api() -> None:
             open_questions_checks(c, sid)
             process_checks(c, sid)
             contribute_checks(c)
+            project_ideas_checks(c, sid)
             drive(c, sid)
             proctoring_checks(c, sid)
             handsfree_checks(c, sid)
@@ -992,6 +996,217 @@ def contribute_checks(c: "TestClient") -> None:
         left == 0 and question_bank.get(qid) is None,
         "Contribution: a contributor's questions go with their account",
     )
+
+
+def project_ideas_checks(c: "TestClient", sid: str) -> None:
+    """Project ideas against a fake GitHub (scripts/fake_github.py), no network: only the
+    whitelisted metadata is kept (no README or code, nothing but the search endpoint called),
+    the company filter, rate-limit backoff, the 24-hour cache, ideas built from at least two
+    repos fetched in that request (none invented, each saying what it takes and how it differs),
+    More like this searching around an idea, Start this project making a Project space entry
+    with status Idea, offline from the seed, and the refusals."""
+    import dataclasses
+    import time as _time
+
+    from core import github_search as gh
+    from piq import checks, db, project_ideas, services
+    from piq.config import settings
+    from piq.schemas import ProjectIdeas, StudentProfile
+    from scripts.fake_github import README_MARK, FakeGitHub, item
+
+    profile = services.current_profile(sid)
+    topics = [t["topic"] for t in project_ideas.topics(profile)]
+    fake = FakeGitHub()
+    for t in topics + ["ci-more"]:
+        fake.add(
+            t,
+            item(f"microsoft/{t}-kit", topics=(t, "ci-more")),
+            item(f"google/{t}-lab", topics=(t, "tooling"), stars=900),
+            item(f"acme-labs/{t}-app", topics=(t,), stars=700),  # an org not on the list
+            item(f"netflix-fan/{t}-clone", owner_type="User", topics=(t,)),  # a namesake user
+            item(f"student-one/{t}-hack", owner_type="User", topics=(t, "hackathon"), licence=None),
+            item(f"nolicence/{t}-thing", topics=(t,), licence=None),
+        )
+    fake.install()
+    live = dataclasses.replace(settings(), mock_mode=False)
+    real_settings = gh.settings
+    gh.settings = lambda: live  # GitHub is "online" (the fake); the AI stays in mock mode
+    db.kv_set("github_blocked_until", "0")
+    try:
+        t0 = topics[0]
+        found = gh.find(t0, "popular")
+        stored = db.github_cache_get(gh.queries(t0, "popular")[0])
+        rows = json.loads(stored["payload_json"]) if stored else []
+        check(
+            found.source == "live"
+            and rows
+            and all(set(r) == set(gh.FIELDS) for r in rows)
+            and README_MARK not in stored["payload_json"]
+            and "@example.com" not in stored["payload_json"]
+            and ".git" not in stored["payload_json"]
+            and set(fake.paths) == {"/search/repositories"},
+            "Project ideas: only whitelisted GitHub metadata is stored, never a README or code",
+        )
+        company = {r.full_name for r in gh.find(t0, "company").repos}
+        check(
+            company == {f"microsoft/{t0}-kit", f"google/{t0}-lab"}
+            and f"netflix-fan/{t0}-clone" not in company,
+            f"Project ideas: built by a company = a listed organization only ({sorted(company)})",
+        )
+        calls = len(fake.calls)
+        gh.find(t0, "popular")
+        cached = len(fake.calls) == calls
+        q = gh.queries(t0, "popular")[0]
+        db.github_cache_put(q, stored["payload_json"], _time.time() - gh.CACHE_TTL_S - 60)
+        gh.find(t0, "popular")
+        check(
+            cached and len(fake.calls) == calls + 1,
+            "Project ideas: GitHub answers are cached for 24 hours, then fetched again",
+        )
+
+        fake.rate_limit = "403"
+        db.github_cache_put(q, stored["payload_json"], _time.time() - gh.CACHE_TTL_S - 60)
+        stale = gh.find(t0, "popular")
+        blocked_403 = gh.blocked_for()
+        calls = len(fake.calls)
+        quiet = gh.find("ci-more", "popular")  # blocked: no call at all
+        no_call = len(fake.calls) == calls
+        db.kv_set("github_blocked_until", "0")
+        fake.rate_limit = "429"
+        gh.find("ci-more", "hackathon")
+        blocked_429 = gh.blocked_for()
+        check(
+            stale.source == "cache"
+            and blocked_403 > 60
+            and no_call
+            and quiet.source in ("seed", "cache")
+            and 100 < blocked_429 <= 120,
+            f"Project ideas: a 403 with no requests left or a 429 backs off (no calls until the "
+            f"reset), stale cache or the seed answering "
+            f"({int(blocked_403)} s, {int(blocked_429)} s)",
+        )
+        db.kv_set("github_blocked_until", "0")
+
+        made = c.post("/api/project-ideas")
+        s = (made.json() or {}).get("set") or {}
+        row = db.idea_set(sid, s["id"]) if s else None
+        fetched = {r["full_name"] for r in json.loads(row["repos_json"])} if row else set()
+        ideas = s.get("ideas", [])
+        check(
+            made.status_code == 200
+            and 3 <= len(ideas) <= 5
+            and all(
+                len({d["repo"] for d in i["derived_from"]} & fetched) >= 2
+                and {d["repo"] for d in i["derived_from"]} <= fetched
+                and all(d["takes"].strip() and d["differs"].strip() for d in i["derived_from"])
+                and i["derivation"] in checks.DERIVATIONS
+                for i in ideas
+            ),
+            f"Project ideas: every idea cites at least two repos fetched for it, saying what it "
+            f"takes and how it differs{_why(made)}",
+        )
+        inp = {
+            "repos": json.loads(row["repos_json"]) if row else [],
+            "gaps": project_ideas.gaps(profile),
+            "skills": profile.skills,
+        }
+        good = ProjectIdeas.model_validate({"ideas": json.loads(row["ideas_json"])["ideas"]})
+        first = good.ideas[0]
+
+        def doctored(**change: object) -> list[str]:
+            idea = first.model_copy(update=change)
+            return checks.check_project_ideas(
+                inp, good.model_copy(update={"ideas": [idea, *good.ideas[1:]]})
+            )
+
+        own = first.derived_from[0]
+        desc = next(r["description"] for r in inp["repos"] if r["full_name"] == own.repo)
+        check(
+            not checks.check_project_ideas(inp, good)
+            and doctored(derived_from=[own.model_copy(update={"repo": "invented/repo"}),
+                                       *first.derived_from[1:]])
+            and doctored(derived_from=[own])
+            and doctored(derived_from=[own.model_copy(update={"takes": ""}),
+                                       *first.derived_from[1:]])
+            and doctored(derived_from=[own.model_copy(update={"takes": desc, "differs": desc}),
+                                       *first.derived_from[1:]]),
+            "Project ideas: an invented repo, a single repo, or empty or copied 'derived how' "
+            "text is refused by the critic",
+        )  # fmt: skip
+
+        calls = len(fake.calls)
+        more = c.post(f"/api/project-ideas/{s['id']}/0/more")
+        m = (more.json() or {}).get("set") or {}
+        new_row = db.idea_set(sid, m["id"]) if m else None
+        new_fetched = (
+            {r["full_name"] for r in json.loads(new_row["repos_json"])} if new_row else set()
+        )
+        idea_topics = {
+            t for d in ideas[0]["derived_from"] for t in (d["meta"] or {}).get("topics", [])
+        }
+        searched = " ".join(fake.calls[calls:])
+        check(
+            more.status_code == 200
+            and m.get("id") != s["id"]
+            and m.get("based_on", "").startswith(ideas[0]["title"])
+            and any(f"topic:{t}" in searched for t in idea_topics)
+            and all({d["repo"] for d in i["derived_from"]} <= new_fetched for i in m["ideas"]),
+            f"Project ideas: More like this searches around the idea's repos and builds from the "
+            f"new results{_why(more)}",
+        )
+
+        started = c.post(f"/api/project-ideas/{m['id']}/0/start")
+        c.post(f"/api/project-ideas/{m['id']}/0/start")  # again: a second, renamed project
+        listed = {p["name"]: p for p in c.get("/api/projects").json().get("projects", [])}
+        title = m["ideas"][0]["title"]
+        space = {p["name"]: p for p in services.project_space(sid).projects}
+        check(
+            started.status_code == 200
+            and listed.get(title, {}).get("status") == "Idea"
+            and f"{title} (2)" in listed
+            and space[title]["status"] == "Idea"
+            and "Inspired by" in space[title]["readme"]
+            and README_MARK not in space[title]["readme"],
+            "Project ideas: Start this project adds it to the Project space as an Idea",
+        )
+    finally:
+        gh.settings = real_settings
+        FakeGitHub.uninstall()
+        db.kv_set("github_blocked_until", "0")
+
+    offline = c.post("/api/project-ideas")  # mock mode: the seed, no network at all
+    o = (offline.json() or {}).get("set") or {}
+    check(
+        offline.status_code == 200 and o.get("source") == "seed" and len(o.get("ideas", [])) >= 3,
+        f"Project ideas: offline, ideas come from the built-in seed{_why(offline)}",
+    )
+    lawyer = db.create_student("Ci Law", "cilaw", "Corporate Legal Counsel")
+    db.save_profile(lawyer, StudentProfile(
+        name="Ci Law", education="LLB", skills=["Drafting"], projects=[], internships=[],
+        matched_skills=[], resume_feedback=["ok"], target_role="Corporate Legal Counsel",
+        missing_skills=["Negotiation"], readiness_score=40,
+    ))  # fmt: skip
+    other = db.create_student("Ci Coder", "cicoder", profile.target_role)
+    db.save_profile(other, profile.model_copy(update={"name": "Ci Coder"}))
+    refused = []
+    for work in (lambda: project_ideas.latest(lawyer),
+                 lambda: project_ideas.start(other, o["id"], 0)):  # fmt: skip
+        try:
+            work()
+        except services.ServiceError as e:
+            refused.append(str(e))
+    check(
+        len(refused) == 2 and "computing" in refused[0] and "not yours" in refused[1],
+        "Project ideas: other domains get a note; another student's ideas are refused",
+    )
+    seed_rows = [r for kinds in gh.seed().values() for rows in kinds.values() for r in rows]
+    check(
+        len(gh.seed()) >= 20
+        and all(set(r) == set(gh.FIELDS) and r["url"].startswith("https://github.com/")
+                for r in seed_rows),
+        f"Project ideas: the seed holds metadata only ({len(seed_rows)} repos, "
+        f"{len(gh.seed())} topics)",
+    )  # fmt: skip
 
 
 def proctoring_checks(c: "TestClient", sid: str) -> None:
