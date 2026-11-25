@@ -80,3 +80,14 @@ desktop.ini
 frontend/public/mediapipe/
 # Voice detection for the hands-free interview, copied by frontend/scripts/copy-vad.mjs
 frontend/public/vad/
+
+# --- Retired Streamlit app: no longer tracked; keep any local copy out of the repository ------------
+.streamlit/
+/app.py
+/views/
+/piq/ui.py
+/piq/charts.py
+/core/proctor_guard.py
+/core/proctor_assets/
+/scripts/pages.py
+/scripts/perf.py
