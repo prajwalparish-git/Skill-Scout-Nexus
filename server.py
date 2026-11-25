@@ -10,17 +10,20 @@ Errors always come back as JSON `{"detail": "<a sentence safe to show>"}`: a Ser
 an invalid request 422, a rate limit 429, an AI failure 502, and anything unexpected 500 (logged
 here, never shown).
 
-Run: uvicorn server:app --port 8000   (the Next.js server proxies /api/* here: API_ORIGIN)
+Run: uvicorn server:app --port 8000   (also serves the exported web app from frontend/out; with
+`npm run dev` the Next.js dev server proxies /api/* here: API_ORIGIN)
 """
 
 import json
 import logging
+import mimetypes
 import os
 import queue
 import threading
 from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager
 from dataclasses import asdict
+from pathlib import Path
 from typing import Annotated, Any
 
 from dotenv import dotenv_values
@@ -37,6 +40,7 @@ from piq import (
     formatter,
     graph,
     handsfree,
+    journey,
     llm,
     proctoring,
     question_bank,
@@ -66,12 +70,18 @@ from server_drive import require_drive
 from server_drive import router as drive_router
 from server_handsfree import router as handsfree_router
 from server_handsfree import speech_for
+from server_journey import router as journey_router
 from server_ops import router as ops_router
+from server_orgs import router as orgs_router
 from server_proctor import call as proctor_call
 from server_proctor import router as proctor_router
 from server_projects import router as projects_router
 
 log = logging.getLogger("server")
+
+# Ensure correct MIME types for WebAssembly and ES modules (especially on Windows)
+mimetypes.add_type("application/wasm", ".wasm")
+mimetypes.add_type("text/javascript", ".mjs")
 
 
 @asynccontextmanager
@@ -81,10 +91,13 @@ async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
     db.init_db()
     syllabus.catalog()
     question_bank.size()
+    journey.start_sync()
     yield
 
 
-DEFAULT_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000"
+DEFAULT_ORIGINS = (
+    "http://localhost:8000,http://127.0.0.1:8000,http://localhost:3000,http://127.0.0.1:3000"
+)
 
 
 def cors_origins() -> list[str]:
@@ -106,6 +119,8 @@ def cors_origins() -> list[str]:
 app = FastAPI(title="Skill Scout Nexus API", version="1.0", lifespan=_lifespan)
 app.include_router(auth_router)
 app.include_router(ops_router)
+app.include_router(orgs_router)
+app.include_router(journey_router)
 app.include_router(companies_router)
 app.include_router(companies_ops_router)
 app.include_router(drive_router)
@@ -118,7 +133,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins(),
     allow_credentials=True,  # the session cookie, when the app calls the API from another origin
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type"],
     expose_headers=["Content-Disposition"],  # the PDF's file name, read by the browser
 )
@@ -802,3 +817,73 @@ class BulletRequest(BaseModel):
 def enhance_bullet(body: BulletRequest, sid: str = Depends(require_student)) -> dict:
     """One bullet in XYZ form (interactive lane: Groq key 1); numbers are never invented."""
     return {"bullet": services.enhance_bullet(body.text, body.role, student_id=sid)}
+
+
+# --- Next.js Static Export Serving (Single Port: http://localhost:8000) -------------------------
+
+FRONTEND_OUT = ROOT / "frontend" / "out"
+
+
+def _send_frontend_file(candidate: Path) -> FileResponse:
+    headers: dict[str, str] = {}
+    parts = candidate.parts
+    if "_next" in parts and "static" in parts:
+        headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    elif candidate.suffix == ".html":
+        headers["Cache-Control"] = "no-cache"
+    return FileResponse(candidate, headers=headers)
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+def serve_frontend(full_path: str = "") -> Response:
+    """Serve exported Next.js static files and HTML routes on the unified single port.
+
+    Follows the strict pre-flight resolution rules:
+    1. Rejects any path starting with 'api' or 'api/' with JSON 404 (protects API namespace).
+    2. Verifies frontend/out exists (returns 503 hint if build missing).
+    3. Prevents path traversal outside frontend/out.
+    4. Resolves full_path against frontend/out:
+       exact file -> candidate/index.html -> candidate.html -> 404.html.
+    """
+    clean_path = full_path.strip("/")
+    if clean_path == "api" or clean_path.startswith("api/"):
+        raise HTTPException(404, "Not found")
+
+    if not FRONTEND_OUT.is_dir():
+        raise HTTPException(
+            503,
+            "Frontend build not found at frontend/out. Run: cd frontend && npm ci && npm run build",
+        )
+
+    out_root = FRONTEND_OUT.resolve()
+    if not clean_path:
+        idx = out_root / "index.html"
+        if idx.is_file():
+            return _send_frontend_file(idx)
+        raise HTTPException(404, "Not found")
+
+    try:
+        candidate = (FRONTEND_OUT / clean_path).resolve()
+        candidate.relative_to(out_root)
+    except (ValueError, OSError) as e:  # outside the build, or an unusable path (e.g. %00)
+        raise HTTPException(404, "Not found") from e
+
+    # 1. Exact file match (JS, CSS, images, WASM, VAD models, etc.)
+    if candidate.is_file():
+        return _send_frontend_file(candidate)
+
+    # 2. Directory index.html (Next.js trailingSlash: true convention)
+    cand_index = candidate / "index.html"
+    if cand_index.is_file():
+        return _send_frontend_file(cand_index)
+
+    # 3. .html file match
+    cand_html = candidate.with_suffix(".html")
+    if cand_html.is_file():
+        return _send_frontend_file(cand_html)
+
+    # 4. Fallback to 404.html
+    err_404 = out_root / "404.html"
+    if err_404.is_file():
+        return FileResponse(err_404, status_code=404)
+    raise HTTPException(404, "Not found.")

@@ -2,7 +2,7 @@
 requires, starting an attempt after consent (in Safe Exam Browser when required), recording the
 page's events, finishing, and the record the student and their admin can read.
 
-Used by server_proctor.py, the quiz and interview routes, and the Streamlit pages alike.
+Used by server_proctor.py, the quiz and interview routes, and frontend assessments alike.
 """
 
 import secrets
@@ -161,9 +161,7 @@ def record(
     check_gap: bool = True,
 ) -> Progress:
     """Store a batch of the page's events (an empty batch is a heartbeat) and return the
-    strikes so far. The server decides severity and strikes; review events never strike.
-    `check_gap=False` for the Streamlit app, whose live websocket already shows the page is
-    there (it sends no heartbeat, so a quiet stretch is not a reporting gap)."""
+    strikes so far. The server decides severity and strikes; review events never strike."""
     row = _own(student_id, attempt_id)
     if row["mode"] == "seb":
         _check_seb(student_id, seb)

@@ -1,6 +1,5 @@
-# Render Blueprint for the FastAPI backend (server.py). Deploy: dashboard.render.com ->
-# New -> Blueprint -> this repo. The Next.js frontend is not deployed from this file — it goes
-# to Vercel (see README.md > Deployment).
+# Render Blueprint for the unified Next.js + FastAPI application (server.py). Deploy: dashboard.render.com ->
+# New -> Blueprint -> this repo. The Dockerfile builds the Next.js static frontend and serves it on port 8000.
 #
 # This is a free-tier demo setup. The SQLite databases (accounts, sessions, plans, quizzes and
 # the telemetry's local copy) use their default paths under /app/data inside the container,
@@ -9,7 +8,7 @@
 # `disk:` block at the bottom (Render refuses a disk on the free plan).
 services:
   - type: web
-    name: skill-scout-nexus-api
+    name: skill-scout-nexus
     runtime: docker
     dockerfilePath: ./Dockerfile
     dockerContext: .
@@ -21,11 +20,11 @@ services:
         value: "false"
       - key: LOCAL_MODE
         value: "false"
-      # Vercel forwards /api/* here, so no CORS list is needed. Only for a browser that calls this
-      # API directly from another origin (comma-separated, no trailing slash).
+      # The web app and the API share this origin, so no CORS list is needed. Only for a browser
+      # that calls the API from another origin (comma-separated, no trailing slash).
       - key: FRONTEND_ORIGINS
         sync: false
-      # The Vercel site's URL: the buttons and Terms / Privacy links in emails point at it.
+      # This service's public URL: the buttons and Terms / Privacy links in emails point at it.
       - key: APP_URL
         sync: false
       # Keep it secret and unchanged across deploys: it is mixed into every password hash and

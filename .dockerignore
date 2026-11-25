@@ -1,6 +1,7 @@
-# Keep the backend image lean, and never bake a developer's local state into it: the Next.js
-# app deploys separately (Vercel), and none of this is needed to run server.py.
-frontend/
+# Keep the backend image lean, and never bake a developer's local state into it.
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local
 .venv/
 venv/
 .tools/

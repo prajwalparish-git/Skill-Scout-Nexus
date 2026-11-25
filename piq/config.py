@@ -387,7 +387,7 @@ class Settings:
     mail_outbox_path: Path = DATA_DIR / ".mail_outbox.log"
     # Uploaded certificate PDFs, one folder per student (git-ignored).
     certificates_dir: Path = DATA_DIR / "certificates"
-    app_url: str = "http://localhost:3000"  # the links in every email (core/mailer.py)
+    app_url: str = "http://localhost:8000"  # the links in every email (core/mailer.py)
     support_email: str = ""  # shown in the email footer when set
     # core/auth.py: an optional secret mixed into every password hash (never stored in the DB).
     auth_pepper: str = field(default="", repr=False)
@@ -406,7 +406,6 @@ class Settings:
     google_client_id: str = ""
     google_client_secret: str = field(default="", repr=False)
     google_redirect_uri: str = ""  # the web app's callback (through the /api proxy)
-    google_streamlit_redirect_uri: str = "http://localhost:8501/"
     drive_token_key: bytes = field(default=b"", repr=False)  # 32 bytes, decoded
     # GitHub's official REST Search API (core/github_search.py), for project inspiration. A token
     # only raises the rate limit; without one it works at the lower limit. The URL is for checks.
@@ -548,7 +547,7 @@ def settings() -> Settings:
         smtp_port=_number("SMTP_PORT", SMTP_PORT),
         mail_outbox_path=Path(os.getenv("MAIL_OUTBOX_PATH", str(DATA_DIR / ".mail_outbox.log"))),
         certificates_dir=Path(os.getenv("CERTIFICATES_DIR", str(DATA_DIR / "certificates"))),
-        app_url=(os.getenv("APP_URL", "").strip() or "http://localhost:3000").rstrip("/"),
+        app_url=(os.getenv("APP_URL", "").strip() or "http://localhost:8000").rstrip("/"),
         support_email=os.getenv("SUPPORT_EMAIL", "").strip(),
         auth_pepper=os.getenv("AUTH_PEPPER", ""),
         local_mode=local_mode,
@@ -563,11 +562,8 @@ def settings() -> Settings:
         google_client_secret=os.getenv("GOOGLE_CLIENT_SECRET", "").strip(),
         google_redirect_uri=(
             os.getenv("GOOGLE_REDIRECT_URI", "").strip()
-            or (os.getenv("APP_URL", "").strip() or "http://localhost:3000").rstrip("/")
+            or (os.getenv("APP_URL", "").strip() or "http://localhost:8000").rstrip("/")
             + "/api/drive/callback"
-        ),
-        google_streamlit_redirect_uri=(
-            os.getenv("GOOGLE_STREAMLIT_REDIRECT_URI", "").strip() or "http://localhost:8501/"
         ),
         drive_token_key=_drive_key(os.getenv("DRIVE_TOKEN_KEY", "")),
     )

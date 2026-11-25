@@ -29,6 +29,10 @@ LAYERS = {
     "test_llm": ("Unit", "LLM gateway (fake Groq client) and the offline tier"),
     "test_ai_router": ("Unit", "Layer 3 AI router: breakers, failover, Gemini and Ollama"),
     "test_speech_router": ("Unit", "Layer 3 speech router: ElevenLabs and browser voice"),
+    "test_transcribe_router": (
+        "Unit",
+        "Speech-to-text router: Groq Whisper, local Whisper, fallbacks",
+    ),
     "test_offline_voice": ("Unit", "Gemini TTS, offline voice and transcription tiers"),
     "test_voice_cascade": ("Unit", "Voice cascade: ElevenLabs, Gemini TTS, local and browser"),
     "test_proctoring": ("Unit", "Proctoring: strikes, per-session state, breach records"),

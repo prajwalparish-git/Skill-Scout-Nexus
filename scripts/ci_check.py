@@ -29,8 +29,7 @@ repository proves the product itself works.
    filter, backoff, the cache, ideas built from at least two fetched repos, Start this project),
    and the refusals (signed out, another student, the operations
    view, an invalid body).
-4. The app starts: every page renders headless (Streamlit AppTest) in mock mode, with no
-   student and with the demo student, on throwaway databases. No network, no secrets.
+4. The frontend routes and exported pages resolve correctly on the unified port.
 
 Exit code 0 when everything passes, 1 otherwise (each failure is printed).
 """
@@ -51,7 +50,7 @@ if TYPE_CHECKING:  # the API check imports them lazily, after the environment is
     from httpx import Response
 
 ROOT = Path(__file__).resolve().parent.parent
-CODE = ("agents", "core", "database", "piq", "views", "scripts", "evaluation")
+CODE = ("agents", "core", "database", "piq", "scripts", "evaluation")
 BANK_COLUMNS = {
     "topic",
     "difficulty",
@@ -76,10 +75,11 @@ def compile_all() -> None:
     for name in CODE:
         check(bool(compileall.compile_dir(ROOT / name, quiet=1)), f"{name}/ compiles")
     for name in (
-        "app.py",
         "server.py",
         "server_auth.py",
         "server_ops.py",
+        "server_orgs.py",
+        "server_journey.py",
         "server_companies.py",
         "server_drive.py",
         "server_proctor.py",
@@ -1748,13 +1748,14 @@ def handsfree_checks(c: "TestClient", sid: str) -> None:
 
     spoken = speech_for(sid, text)
     got = c.get(spoken["url"]) if spoken.get("url") else None
+    unsynthesised = speech_for(sid, "a line nobody synthesised, no keys here")
     check(
         got is not None
         and got.status_code == 200
         and got.content == b"ID3ci-clip"
         and c.get("/api/handsfree/clip/not-a-token").status_code == 404
         and c.get(spoken["url"].replace(spoken["url"][-6:], "AAAAAA")).status_code == 404
-        and speech_for(sid, "a line nobody synthesised, no keys here").get("browser") is True,
+        and (unsynthesised.get("browser") is True or unsynthesised.get("source") == "pyttsx3"),
         "Hands-free: question audio is served only from the server's cache, by token",
     )
 
@@ -2486,42 +2487,70 @@ def company_questions(c: "TestClient", sid: str) -> None:
     check(db.experience(ids[0])["status"] == "hidden", "two reports hide a post for review")
 
 
-def pages() -> None:
-    print("Pages (headless, mock mode)")
-    from streamlit.testing.v1 import AppTest
+def frontend_routes() -> None:
+    print("Frontend routes & API parity")
+    from fastapi.testclient import TestClient
 
-    from piq import db, services
-    from scripts import seed, seed_cohort
-    from scripts.pages import PAGES, STUDENT_ONLY
+    from server import app
 
-    db.init_db()
-    seed.main()
-    demo = next(s["id"] for s in services.list_students() if s["username"] == seed.USERNAME)
-    for student in (None, demo):
-        for page in PAGES:
-            if student is None and page.slug in STUDENT_ONLY:
-                continue
-            at = AppTest.from_file(str(ROOT / "app.py"), default_timeout=90)
-            if student:
-                at.session_state["student_id"] = student
-            at.switch_page(page.path)
-            at.run()
-            errors = [str(e.value)[:200] for e in at.exception]
-            label = f"{page.title} ({'demo student' if student else 'no student'})"
-            check(not errors, label + (f": {errors[0]}" if errors else ""))
+    c = TestClient(app)
 
-    # The organization admin portal, signed in to the fictional demo organization.
-    org_id = seed_cohort.ensure_org()
-    for path in ("views/org_admin.py", "views/faculty.py"):  # the old address redirects
-        at = AppTest.from_file(str(ROOT / "app.py"), default_timeout=90)
-        at.session_state["admin_org_id"] = org_id
-        at.switch_page(path)
-        at.run()
-        errors = [str(e.value)[:200] for e in at.exception]
-        labels = [t.label for t in at.tabs]
-        ok = not errors and any("Overview" in t for t in labels)
-        ok = ok and any("Interview posts" in t for t in labels)
-        check(ok, f"{path} (demo organization admin)" + (f": {errors[0]}" if errors else ""))
+    # Org endpoints
+    r = c.get("/api/org/me")
+    check(r.status_code == 200 and r.json() == {"admin": None}, "GET /api/org/me signed out")
+    r = c.get("/api/org/overview")
+    check(r.status_code == 401, "GET /api/org/overview unauthorized without cookie")
+    r = c.get("/api/org/provisioning/template.csv")
+    check(r.status_code == 401, "GET /api/org/provisioning/template.csv unauthorized")
+
+    # Journey endpoints
+    r = c.get("/api/journey/status")
+    check(r.status_code == 200 and r.json().get("ready"), "GET /api/journey/status ready")
+    r = c.get("/api/journey/streams")
+    check(r.status_code == 200 and "streams" in r.json(), "GET /api/journey/streams")
+    r = c.get("/api/journey/samples")
+    check(
+        r.status_code == 200 and isinstance(r.json().get("samples"), list),
+        "GET /api/journey/samples",
+    )
+    r = c.get("/api/journey/critic-quiz/skills")
+    check(r.status_code == 200 and "topics" in r.json(), "GET /api/journey/critic-quiz/skills")
+    r = c.get("/api/journey/evaluation-results")
+    check(r.status_code == 200 and "metrics" in r.json(), "GET /api/journey/evaluation-results")
+
+    # Frontend serving / Static export checks
+    out = ROOT / "frontend" / "out"
+    if (out / "index.html").exists():
+        r = c.get("/")
+        check(
+            r.status_code == 200 and "text/html" in r.headers.get("content-type", ""),
+            "GET / serves index.html",
+        )
+        check("no-cache" in r.headers.get("cache-control", ""), "GET / cache-control no-cache")
+        routes = (
+            "/scanner",
+            "/roadmap",
+            "/critic-quiz",
+            "/voice-interview",
+            "/results",
+            "/org-admin",
+        )
+        for route in routes:
+            r = c.get(route)
+            check(
+                r.status_code == 200 and "text/html" in r.headers.get("content-type", ""),
+                f"GET {route} serves HTML",
+            )
+    else:
+        r = c.get("/")
+        check(r.status_code == 503, "GET / returns 503 build hint when frontend/out missing")
+
+    # API 404 must NEVER return frontend HTML
+    r = c.get("/api/nonexistent-endpoint-xyz")
+    check(
+        r.status_code == 404 and r.json().get("detail") in ("Not found", "Not Found", "Not found."),
+        "Unknown /api route returns 404 JSON, not HTML",
+    )
 
 
 def main() -> int:
@@ -2544,6 +2573,11 @@ def main() -> int:
         "SUPABASE_DB_URL",
         "GROQ_API_KEY",
         "GROQ_API_KEYS",
+        "GEMINI_API_KEY",
+        "GEMINI_API_KEYS",
+        "GEMINI_TTS_MODEL",
+        "GEMINI_TTS_FALLBACK_MODEL",
+        "ELEVENLABS_API_KEY",
         "SMTP_EMAIL",
         "SMTP_APP_PASSWORD",
         "DEV_SECRET",
@@ -2558,7 +2592,7 @@ def main() -> int:
     compile_all()
     datasets()
     api()
-    pages()
+    frontend_routes()
     print(f"\n{'All checks passed.' if not failures else f'{len(failures)} check(s) failed.'}")
     return 1 if failures else 0
 

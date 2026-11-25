@@ -1,5 +1,6 @@
-// Typed client for server.py. Calls go to this site's own /api/*, which next.config.mjs proxies to
-// the API (API_ORIGIN): the session cookie is then first-party, with no CORS, here and when deployed.
+// Typed client for server.py. Calls go to this site's own /api/*: in production server.py serves the
+// exported web app itself, and `npm run dev` proxies /api/* to it (next.config.mjs, API_ORIGIN), so the
+// session cookie is first-party with no CORS.
 
 export const API = "";
 
@@ -93,6 +94,10 @@ export async function download(path: string, fallback: string): Promise<void> {
 export const get = <T>(path: string) => request<T>(path);
 export const post = <T>(path: string, body: unknown) =>
   request<T>(path, { method: "POST", body: JSON.stringify(body) });
+export const patch = <T>(path: string, body: unknown) =>
+  request<T>(path, { method: "PATCH", body: JSON.stringify(body) });
+export const del = <T>(path: string) =>
+  request<T>(path, { method: "DELETE" });
 /** POST a multipart form (a file upload). */
 export const upload = <T>(path: string, form: FormData) => request<T>(path, { method: "POST", body: form });
 

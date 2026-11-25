@@ -201,7 +201,7 @@ export default function QuizPage() {
       <ProctorLayer proctor={proctor} />
       {catalog && topics.length === 0 && (
         <p className="mb-6 text-sm text-muted">
-          No question bank is installed for this domain (data/questions/mcq_bank.csv). The Streamlit quiz still works:
+          No question bank is installed for this domain (data/questions/mcq_bank.csv). Try the Critic-Checked Quiz at /critic-quiz:
           it generates questions.
         </p>
       )}

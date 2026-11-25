@@ -8,7 +8,7 @@ import { GitHubIcon } from "@/components/site/Brand";
 import { Reveal } from "./Reveal";
 
 const CLONE = `git clone ${GITHUB_URL}.git`;
-const STACK = ["Next.js", "FastAPI", "LangGraph", "Streamlit", "SQLite"];
+const STACK = ["Next.js", "FastAPI", "LangGraph", "SQLite"];
 
 export function OpenSource() {
   const [copied, setCopied] = useState(false);

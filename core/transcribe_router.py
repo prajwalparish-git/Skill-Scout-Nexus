@@ -78,7 +78,7 @@ def _groq(audio: bytes, filename: str, api_key: str | None) -> str:
         raise RuntimeError("GROQ_API_KEYS is not set")
     from groq import Groq
 
-    pool = key_pool("groq", s.groq_api_keys)
+    pool = key_pool("groq", tuple(keys))
     last: Exception | None = None
     for key in keys:
         t0 = time.monotonic()

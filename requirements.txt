@@ -1,18 +1,16 @@
 # Runtime — pinned to the versions verified on Python 3.13.
-streamlit==1.66.0      # UI + built-in charts (bundles altair and pandas)
 langgraph==1.2.16      # generate -> verify -> retry graph
 groq==1.7.0            # LLM SDK; built-in retry/backoff on HTTP 429
 pydantic==2.14.1       # structured-output validation
 pypdf==6.21.1          # PDF resume text
 python-docx==1.2.0     # DOCX resume text
 python-dotenv==1.2.4   # .env loading
-pandas==3.0.6          # imported directly for chart frames; already a streamlit dependency
-altair==6.3.0          # imported directly by piq/charts.py; already a streamlit dependency
+pandas==3.0.6          # imported directly for frames and formatting
 fpdf2==2.8.2           # pure-python high-speed ATS resume PDF generation
 fastapi==0.162.0       # server.py: HTTP API for the Next.js frontend (frontend/)
 httpx==0.28.1          # core/: Gemini, Ollama and ElevenLabs over REST; already a groq dependency
-uvicorn==0.54.0        # runs server.py; already installed as a streamlit dependency
-python-multipart==0.0.34 # server.py: certificate uploads (form data); already a streamlit dependency
+uvicorn==0.54.0        # runs server.py on single port :8000
+python-multipart==0.0.34 # server.py: certificate uploads (form data)
 cryptography==50.0.2   # core/secretbox.py: AES-GCM for Google Drive refresh tokens (brings cffi)
 sqlalchemy==2.1.6      # database/: one schema and one CRUD for PostgreSQL and the SQLite fallback
 psycopg[binary]==3.3.6 # database/: the PostgreSQL driver; [binary] bundles libpq (no system install)

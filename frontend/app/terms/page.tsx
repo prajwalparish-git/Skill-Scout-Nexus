@@ -11,7 +11,7 @@ const CREDITS: [string, string, string][] = [
   ["Lucide icons (lucide-react)", "ISC", "Interface icons"],
   ["GitHub mark", "GitHub logo guidelines", "Used only to link to the repository"],
   ["Next.js, React, Motion, Lenis, Tailwind CSS, clsx, tailwind-merge", "MIT", "Web front end"],
-  ["Streamlit, Groq SDK", "Apache-2.0", "Main app, AI client"],
+  ["Groq SDK", "Apache-2.0", "AI client"],
   ["FastAPI, LangGraph, Pydantic, SQLAlchemy, python-docx", "MIT", "API, agents, data"],
   ["pandas, Altair, pypdf, python-dotenv, httpx, Uvicorn", "BSD-3-Clause", "Charts, files, server"],
   ["fpdf2", "LGPL-3.0-or-later", "Resume PDFs (used as an unmodified library)"],

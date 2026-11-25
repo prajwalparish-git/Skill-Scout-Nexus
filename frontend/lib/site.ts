@@ -2,8 +2,8 @@
 
 export const GITHUB_URL = "https://github.com/prajwalparish-git/Skill-Scout-Nexus";
 
-/** The Streamlit app: the organization admin portal (students sign in on this site). */
-export const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:8501";
+/** The organization admin portal path on the unified origin. */
+export const ORG_ADMIN_PATH = "/org-admin";
 
 /** Sections of the home page, linked from the top bar and the footer. */
 export const SECTIONS = [
@@ -23,6 +23,11 @@ export const TOOLS = [
   { href: "/interview", label: "Mock interview", guest: false },
   { href: "/plan", label: "Study plan", guest: false },
   { href: "/dashboard", label: "Dashboard", guest: false },
+  { href: "/scanner", label: "Resume scanner", guest: false },
+  { href: "/roadmap", label: "7-day roadmap", guest: false },
+  { href: "/critic-quiz", label: "Critic-checked quiz", guest: false },
+  { href: "/voice-interview", label: "Voice assessment", guest: false },
+  { href: "/results", label: "Evaluation results", guest: true },
 ] as const;
 
 export const LEGAL = [

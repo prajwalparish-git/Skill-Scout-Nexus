@@ -5,9 +5,12 @@ import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { motion } from "motion/react";
 import {
+  Award,
   Building2,
   CalendarDays,
+  CheckCheck,
   Cpu,
+  FileSearch,
   FileText,
   FolderGit2,
   Gauge,
@@ -15,6 +18,8 @@ import {
   Home,
   ListChecks,
   MessagesSquare,
+  Mic,
+  Route,
   Settings,
   LogIn,
   LogOut,
@@ -32,12 +37,17 @@ import { SmoothScroll } from "./site/SmoothScroll";
 
 const NAV: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/dashboard", label: "Dashboard", icon: Gauge },
+  { href: "/scanner", label: "Resume scanner", icon: FileSearch },
+  { href: "/roadmap", label: "7-day roadmap", icon: Route },
+  { href: "/critic-quiz", label: "Critic-checked quiz", icon: CheckCheck },
+  { href: "/voice-interview", label: "Voice assessment", icon: Mic },
   { href: "/resume-builder", label: "Resume builder", icon: FileText },
-  { href: "/quiz", label: "Quiz", icon: ListChecks },
+  { href: "/quiz", label: "Practice quiz", icon: ListChecks },
   { href: "/interview", label: "Mock interview", icon: MessagesSquare },
   { href: "/companies", label: "Company questions", icon: Building2 },
   { href: "/plan", label: "Study plan", icon: CalendarDays },
   { href: "/projects", label: "Project ideas", icon: FolderGit2 },
+  { href: "/results", label: "Evaluation results", icon: Award },
   { href: "/contribute", label: "Contribute a question", icon: HandHeart },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
@@ -160,7 +170,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const { candidate } = useCandidate();
   const nav = candidate?.account_kind === "contributor" ? NAV.filter((n) => CONTRIBUTOR_NAV.has(n.href)) : NAV;
 
-  if (path.startsWith("/ops")) return <>{children}</>; // a page of its own, without the app's chrome
+  if (path.startsWith("/ops") || path.startsWith("/org-admin") || path.startsWith("/faculty")) return <>{children}</>;
 
   if (PUBLIC.has(path))
     return (

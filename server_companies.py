@@ -3,7 +3,7 @@ practise; and the operations view's moderation of individual learners' posts.
 
 Students' posts are their own words, never copied from another site, and appear only once a
 person approves them. Browsing never returns a poster's name: only a label. Organization admins
-moderate their own students' posts in the Streamlit admin portal (it has no web API).
+moderate their own students' posts in the Organization admin portal (/api/org).
 """
 
 import threading

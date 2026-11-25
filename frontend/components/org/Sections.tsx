@@ -3,6 +3,7 @@
 // The "For organizations" page: the admin portal of the main app, for a university, an
 // autonomous institute, a law or commerce college, or a corporate L&D team. Every claim here
 // describes what the portal does today (see the README's Organizations section).
+import Link from "next/link";
 import { motion, type Variants } from "motion/react";
 import {
   ArrowRight,
@@ -22,7 +23,7 @@ import {
   Users,
   type LucideIcon,
 } from "lucide-react";
-import { APP_URL, SPRING } from "@/lib/site";
+import { ORG_ADMIN_PATH, SPRING } from "@/lib/site";
 import { trackSpotlight } from "@/components/site/Brand";
 import { Reveal, SectionHead } from "@/components/home/Reveal";
 
@@ -33,10 +34,9 @@ const LINES = [
 
 function ExternalCta({ className, children }: { className: string; children: React.ReactNode }) {
   return (
-    <a href={APP_URL} target="_blank" rel="noopener noreferrer" className={className}>
+    <Link href={ORG_ADMIN_PATH} className={className}>
       {children}
-      <span className="sr-only"> (opens the main app in a new tab)</span>
-    </a>
+    </Link>
   );
 }
 

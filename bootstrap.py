@@ -296,7 +296,7 @@ if [ ! -f .env ]; then
   echo "No .env found: running in mock mode. Copy .env.example to .env to configure." >&2
 fi
 case "${1:-app}" in
-  app)   shift 2>/dev/null || true; exec "$PY" -m streamlit run app.py "$@" ;;
+  app)   exec "$PY" -m uvicorn server:app --port 8000 ;;
   api)   exec "$PY" -m uvicorn server:app --port 8000 ;;
   test)  exec "$PY" -m pytest -q ;;
   check) exec "$PY" -m scripts.check_models ;;
@@ -320,7 +320,7 @@ if (-not (Test-Path -LiteralPath ".env")) {
     Write-Host $Note -ForegroundColor Yellow
 }
 switch ($Command) {
-    "app"   { & $Py -m streamlit run app.py }
+    "app"   { & $Py -m uvicorn server:app --port 8000 }
     "api"   { & $Py -m uvicorn server:app --port 8000 }
     "test"  { & $Py -m pytest -q }
     "check" { & $Py -m scripts.check_models }
@@ -405,7 +405,7 @@ def summary(system: str, made_env: bool, root: Path = ROOT) -> str:
         "",
         f"  {S.bold('2. Start the app')}",
         "",
-        f"     {S.green(cmd)}" + S.dim("      then open http://localhost:8501"),
+        f"     {S.green(cmd)}" + S.dim("      then open http://localhost:8000"),
         "",
         f"  {S.dim('More: ' + cmd + ' api | test | check')}",
     ]
@@ -475,11 +475,12 @@ def main(argv: list[str] | None = None) -> int:
     info(S.green("Installed.") + S.dim(f" ({requirements})"))
 
     n = 4
-    if args.frontend:
+    if args.frontend or not (ROOT / "frontend" / "out" / "index.html").exists():
         step(n, total, "Next.js front end (frontend/)")
         npm = shutil.which("npm")
         if npm:
             run([npm, "install", "--prefix", str(ROOT / "frontend")])
+            run([npm, "run", "build", "--prefix", str(ROOT / "frontend")])
         else:
             info(S.yellow("npm not found: install Node.js 20+ from nodejs.org, then run again."))
         n += 1

@@ -10,7 +10,8 @@
 <p>
   <a href="https://github.com/prajwalparish-git/Skill-Scout-Nexus/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/prajwalparish-git/Skill-Scout-Nexus/actions/workflows/ci.yml/badge.svg?branch=main"></a>
   <img alt="Python 3.13" src="https://img.shields.io/badge/python-3.13-278C93?logo=python&logoColor=white">
-  <img alt="Streamlit 1.66" src="https://img.shields.io/badge/streamlit-1.66-278C93?logo=streamlit&logoColor=white">
+  <img alt="Next.js 16" src="https://img.shields.io/badge/next.js-16-000000?logo=nextdotjs&logoColor=white">
+  <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-0.162-009688?logo=fastapi&logoColor=white">
   <img alt="LangGraph" src="https://img.shields.io/badge/agents-LangGraph-278C93">
   <img alt="Works offline" src="https://img.shields.io/badge/works-offline-1B6F36">
 </p>
@@ -126,12 +127,12 @@ writes a launcher (`run.ps1` on Windows, `run.sh` on macOS and Linux). Then star
 |---|---|
 | `.\run.ps1` | `./run.sh` |
 
-Open http://localhost:8501, sign up and follow the journey. With no keys it runs in mock mode, so every page can be tried offline.
+Open **http://localhost:8000**, sign up and follow the journey. With no keys it runs in mock mode, so every page can be tried offline.
 
 <details>
 <summary>Manual setup instead</summary>
 
-You need **Python 3.13**.
+You need **Python 3.13** and **Node.js 20+**.
 
 ```bash
 python -m venv .venv
@@ -149,8 +150,16 @@ pip install -r requirements.txt
 |---|---|
 | `copy .env.example .env` | `cp .env.example .env` |
 
+Build the frontend static export:
+
 ```bash
-streamlit run app.py
+cd frontend && npm install && npm run build && cd ..
+```
+
+Start the unified server on port 8000:
+
+```bash
+uvicorn server:app --port 8000
 ```
 
 </details>
@@ -186,45 +195,44 @@ every option is explained in that file. Never commit `.env`.
 
 ## Running locally
 
-There are two front ends over the same services and the same `.env`: the Streamlit app (full
-product, including organization admin) and a Next.js web app (the animated marketing site, a
-redesigned dashboard, quiz, mock interview, study plan and resume builder).
+Skill Scout Nexus serves both the Next.js frontend (marketing site, dashboard, quiz, critic quiz,
+voice interview, roadmap, resume scanner, and organization admin portal) and the FastAPI backend
+on **ONE single port: http://localhost:8000**.
 
-### Streamlit app
+### Unified Production Mode (Recommended)
 
+1. Build the frontend:
+   ```bash
+   cd frontend
+   npm install        # first run only
+   npm run build
+   cd ..
+   ```
+
+2. Run the FastAPI server:
+   | Windows (PowerShell) | macOS / Linux |
+   |---|---|
+   | `.venv\Scripts\python -m uvicorn server:app --port 8000` | `.venv/bin/python -m uvicorn server:app --port 8000` |
+
+Then open **http://localhost:8000**.
+
+### Development Mode (with Next.js Fast Refresh)
+
+When actively developing UI components, run the API on port 8000 and the Next.js dev server on port 3000:
+
+**1. Start the API (port 8000):**
 ```bash
-streamlit run app.py
+uvicorn server:app --port 8000
 ```
 
-Then open **http://localhost:8501**.
-
-Create an account (a 9-digit code confirms your email). For organizations, create one under
-**Organization admin access**.
-
-### Next.js web app
-
-The API (step 1) and the Next.js dev server (step 2) each run in their own terminal, both from
-the repo root created by [Quick start](#quick-start):
-
-**1. Start the API**, reading the same `.env` as the Streamlit app:
-
-| Windows (PowerShell) | macOS / Linux |
-|---|---|
-| `.venv\Scripts\python -m uvicorn server:app --port 8000` | `.venv/bin/python -m uvicorn server:app --port 8000` |
-
-**2. Start the front end** (first run only: `npm install` once inside `frontend/`):
-
+**2. Start Next.js dev server (port 3000):**
 ```bash
 cd frontend
-npm install        # first run only
 npm run dev
 ```
 
-Open **http://localhost:3000** and create an account (a password, then a 9-digit code emailed to
-you). The same accounts work in the Streamlit app at `:8501`, which also has the organization
-admin portal. The browser only calls the site's own `/api/*`; the Next.js server forwards it to the
-API, so the session cookie is first-party. If the API runs elsewhere, set `API_ORIGIN` in
-`frontend/.env.local`.
+Open **http://localhost:3000**. The browser calls Next.js `/api/*`, which proxies requests directly to `http://localhost:8000/api/*`.
+Cookie sessions and CSRF protection are preserved seamlessly.
 
 The API only returns a student's records to that student's own signed-in session, and sign-in
 requests are rate-limited per address.
@@ -273,11 +281,14 @@ Set `OLLAMA_MODEL` and `LOCAL_STT_MODEL` in `.env` to the models you pulled.
 
 ```mermaid
 flowchart LR
-    subgraph UI["Streamlit app"]
-        V["views/<br/>one file per page"]
+    subgraph UI["Unified Next.js 16 UI"]
+        V["frontend/out/<br/>Static Export on :8000"]
+    end
+    subgraph API["FastAPI (server.py)"]
+        RT["Routers<br/>auth · orgs · journey · ops · drive · proctor"]
     end
     subgraph Core["Application core (piq/)"]
-        S["services · journey"]
+        S["services · journey · cohort"]
         G["critic loop<br/>generate → verify → retry"]
         L["llm<br/>validation · repair"]
     end
@@ -293,7 +304,8 @@ flowchart LR
         DB[("SQLite<br/>app data")]
         T[("SQLite + Supabase<br/>telemetry")]
     end
-    V --> S
+    V --> RT
+    RT --> S
     S --> A
     S --> PL --> A
     S --> G --> L --> R
@@ -305,7 +317,8 @@ flowchart LR
 
 | Layer | Built with |
 |---|---|
-| Interface | Streamlit 1.66 with Altair charts; Next.js 16 (React 18, Tailwind) over FastAPI |
+| Interface | Next.js 16 (React 18, Tailwind CSS, Motion) served by FastAPI on port 8000 |
+| Backend | FastAPI synchronous routes with thread pooling and HttpOnly cookie sessions |
 | Agents | LangGraph generate → verify → retry loop; every AI answer is a validated Pydantic model |
 | AI | Groq and Google Gemini (round-robin key pools), local Ollama, built-in answers |
 | Voice | ElevenLabs, Gemini TTS, the PC's own voice or the browser's Web Speech API; Whisper on Groq, Gemini or faster-whisper (offline) for transcription. `python -m scripts.offline_setup` checks the no-internet setup |
@@ -314,20 +327,24 @@ flowchart LR
 ## For developers
 
 ```
-app.py              Streamlit entry point: settings check, session gate, navigation
-server.py           FastAPI over the same services, for the Next.js front end (JSON errors)
-server_auth.py      Its sign-in: sessions in HttpOnly cookies, codes, devices, rate limits
-server_ops.py       The operations view (read-only), opened only with DEV_SECRET
-views/              One file per page; thin, no business logic
-piq/                Application core: services, journey, accounts, organizations, LLM gateway,
-                    prompts, checks, formatting and charts (only piq/ui.py imports Streamlit)
+server.py           FastAPI main application: mounts routers and serves frontend static export
+server_auth.py      Authentication: sessions in HttpOnly cookies, 9-digit codes, devices, rate limits
+server_orgs.py      Organization admin portal API: sessions, bulk provisioning, analytics, candidate 360
+server_journey.py   Journey API: resume scanner, 7-day study roadmap, critic quiz, voice interview
+server_ops.py       Operations view (read-only), opened only with DEV_SECRET
+server_companies.py Company interview experiences, reviews, and community reports
+server_drive.py     Google Drive integration: OAuth PKCE, certificates backup, resume PDFs
+server_proctor.py   Proctoring API: Safe Exam Browser verification, client event ingestion
+server_handsfree.py Hands-free voice interview: audio clips and audio transcription
+server_projects.py  Project inspiration from curated repositories
+piq/                Application core: services, journey, accounts, organizations, LLM gateway, prompts
 agents/             The journey's agents: resume parser, planner, critic quiz, voice, rubric
 core/               Self-healing routers: AI, speech, transcription, preloader, mail, auth
 database/           Telemetry: local SQLite with a background copy to PostgreSQL
 data/               Catalog, role skills, degrees, interview tracks, question bank, samples
 scripts/            Seeding, model checks, offline setup, CI checks and dev tools
 evaluation/         The frozen baseline-vs-agents evaluation and its report
-frontend/           Next.js 16 web app (the student front door)
+frontend/           Next.js 16 web application (App Router, Tailwind CSS, TypeScript)
 ```
 
 Before opening a pull request, run what CI runs:
@@ -339,16 +356,16 @@ python -m scripts.ci_check         # modules compile, datasets agree, the API an
 cd frontend && npm run typecheck && npm run build   # if you changed the front end
 ```
 
-Conventions: views call `piq` (never `agents`, `core` or `database` directly), all SQL lives in
+Conventions: API routes call `piq` (never `agents`, `core` or `database` directly), all SQL lives in
 `piq/db.py`, constants in `piq/config.py`, prompts in `piq/prompts.py`, every AI answer is a
 validated Pydantic model, and a new dependency needs a pinned version and a one-line reason in
 `requirements.txt`. Commits follow Conventional Commits (`feat(scope): ...`, `fix(scope): ...`).
 
 ## Proctoring
 
-Quizzes and mock interviews can be proctored, in the web app and in the Streamlit app. An
-organization chooses in its admin portal (Settings > Proctoring): **off** (students may proctor a
-practice test themselves), **required**, or **required in Safe Exam Browser**.
+Quizzes and mock interviews can be proctored in the web app. An organization chooses in its admin
+portal (Settings > Proctoring): **off** (students may proctor a practice test themselves),
+**required**, or **required in Safe Exam Browser**.
 
 - **What a web page can do:** detect, not prevent. Switching tab or window, leaving fullscreen,
   copying and pasting are noticed; copy, paste and the context menu are blocked during the test.
@@ -363,14 +380,12 @@ practice test themselves), **required**, or **required in Safe Exam Browser**.
   away to think. No camera (or a denied one) never blocks a test; the attempt is marked for review.
 - **What is stored:** events and times only (e.g. "looked away 14s at 03:42"), in
   `proctor_attempts` / `proctor_events`, deleted with the account. The student sees their own
-  record (web: Settings; Streamlit: Dashboard), the organization's admin the same record per
-  student.
+  record (in Settings), the organization's admin the same record per student in the Candidate 360 profile.
 - **Safe Exam Browser (official tests):** SEB locks the computer for the test. Make a `.seb`
-  file in SEB Config Tool whose start URL is your site's `/quiz` or `/interview` page, copy its
-  **Config Key** into the admin portal, and give students the file. Every proctoring request must
+  file in SEB Config Tool whose start URL is your site's `/quiz`, `/critic-quiz`, or `/voice-interview` page,
+  copy its **Config Key** into the admin portal, and give students the file. Every proctoring request must
   carry SEB's `X-SafeExamBrowser-ConfigKeyHash`, checked against `APP_URL` + the requested path,
   so `APP_URL` must be the public address students open (the Next.js proxy forwards the header).
-  SEB mode applies to the web app; the Streamlit app points students there.
 
 ## Privacy and legal
 
@@ -378,8 +393,7 @@ Skill Scout Nexus is a free, non-commercial, open-source academic college mini-p
 as is for educational and career-readiness purposes. Whoever runs a copy holds its data. The web
 front end has a Privacy Policy, Terms of use and Cookies Policy (`/privacy`, `/terms`, `/cookies`),
 asks for consent before optional browser storage, and loads no third-party scripts, fonts or embeds.
-A student deletes their account and all of its history from the Onboard page (**Delete my
-account**).
+A student deletes their account and all of its history from their profile settings.
 
 ## Open Source Credits & Asset Licenses
 
@@ -388,14 +402,14 @@ Only original project artwork, open-licensed fonts and icons, and open-source li
 | Asset or library | Licence |
 |---|---|
 | Brand mark, wordmark (`static/brand/`) and README illustrations (`.github/assets/`) | Original artwork made for this project |
-| Bricolage Grotesque, Atkinson Hyperlegible Next, JetBrains Mono (`static/fonts/`, `frontend/app/fonts/`) | SIL Open Font License 1.1, `OFL.txt` beside each font |
+| Bricolage Grotesque, Atkinson Hyperlegible Next, JetBrains Mono (`frontend/app/fonts/`) | SIL Open Font License 1.1, `OFL.txt` beside each font |
 | Lucide icons (`lucide-react`) | ISC |
 | GitHub mark | Used only to link to the repository, per GitHub's logo guidelines |
 | Next.js, React, Motion, Lenis, Tailwind CSS, clsx, tailwind-merge | MIT |
-| Streamlit, Groq SDK | Apache-2.0 |
+| Groq SDK | Apache-2.0 |
 | MediaPipe Tasks Vision and its face landmarker and EfficientDet-Lite0 models (fetched, not committed) | Apache-2.0 |
 | FastAPI, LangGraph, Pydantic, SQLAlchemy, python-docx | MIT |
-| pandas, Altair, pypdf, python-dotenv, httpx, Uvicorn | BSD-3-Clause |
+| pandas, pypdf, python-dotenv, httpx, Uvicorn | BSD-3-Clause |
 | fpdf2 | LGPL-3.0-or-later (used as an unmodified library) |
 | psycopg (optional PostgreSQL driver) | LGPL-3.0 (used as an unmodified library) |
 
@@ -404,10 +418,10 @@ nothing from them is copied into the app.
 
 ## Deployment
 
-The Next.js front end and the FastAPI backend deploy separately. Copy `.env.production.example`
-and fill it in; it documents every variable below.
+The unified application packages both the Next.js frontend build (`frontend/out`) and the FastAPI backend
+into one container image served on port 8000. Copy `.env.production.example` and fill it in.
 
-**Backend (`server.py`) → [Render](https://render.com):**
+**Unified Single-Port Deployment (`server.py`) → [Render](https://render.com):**
 
 1. Push this repo to GitHub, then in Render: **New → Blueprint**, pick the repo. `render.yaml`
    at the root defines a free-tier demo service (Docker, a health check on `/api/health`).
@@ -420,21 +434,12 @@ and fill it in; it documents every variable below.
    on every deploy, restart and idle spin-down, so a free demo starts empty each time. To keep
    accounts, switch to a paid instance type and uncomment the `disk:` block and the two `/data`
    paths in `render.yaml` (Render refuses a disk on the free plan).
-3. Note the deployed URL (`https://<service>.onrender.com`).
+3. The unified web app and API are served directly at `https://<service>.onrender.com`.
 
-**Frontend (`frontend/`) → [Vercel](https://vercel.com):**
-
-1. **New Project**, pick this repo, set **Root Directory** to `frontend`.
-2. Add the environment variable `API_ORIGIN` = the Render URL from above (no trailing slash) in
-   **Settings → Environment Variables**, then deploy. Vercel forwards `/api/*` to it, so there is
-   no CORS setup.
-3. Back on Render, set `APP_URL` to the resulting `https://<project>.vercel.app` URL (the
-   buttons in emails point there).
-
-Local Docker build, to sanity-check the image before pushing: `docker build -t ssn-api . &&
-docker run -p 8000:8000 --env-file .env ssn-api`.
+Local Docker build, to sanity-check the image before pushing: `docker build -t ssn-app . &&
+docker run -p 8000:8000 --env-file .env ssn-app`.
 
 <div align="center">
 <br>
-<sub>Built with Streamlit, LangGraph and Pydantic · runs offline in mock mode · <a href="https://github.com/prajwalparish-git/Skill-Scout-Nexus">github.com/prajwalparish-git/Skill-Scout-Nexus</a></sub>
+<sub>Built with Next.js 16, FastAPI, LangGraph and Pydantic · runs offline in mock mode · <a href="https://github.com/prajwalparish-git/Skill-Scout-Nexus">github.com/prajwalparish-git/Skill-Scout-Nexus</a></sub>
 </div>

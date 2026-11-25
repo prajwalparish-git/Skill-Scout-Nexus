@@ -1,4 +1,4 @@
-"""Proctoring rules, shared by the API (server_proctor.py) and the Streamlit pages: which events
+"""Proctoring rules for the API (server_proctor.py) and frontend assessments: which events
 exist, which count as strikes, how strikes add up, and how an event reads for a person.
 
 Fairness: only clear-cut events are strikes (switching tab or window, leaving fullscreen, a
@@ -7,7 +7,7 @@ camera) are kept "for review" and never strike or fail anyone: they misfire with
 disability, a poor camera, or someone looking away to think.
 
 The server decides an event's severity from its kind; what a browser says about it is ignored.
-Only events and times are stored, never video, images or landmarks. No Streamlit import here.
+Only events and times are stored, never video, images or landmarks.
 """
 
 import hashlib
@@ -21,7 +21,7 @@ Severity = Literal["clear", "review"]
 Mode = Literal["off", "required", "seb"]
 Kind = Literal["quiz", "interview"]
 
-MAX_STRIKES = 3  # the third strike ends the attempt (the Streamlit guard's 3-strike rule)
+MAX_STRIKES = 3  # the third strike ends the attempt (3-strike rule)
 STRIKE_MERGE_S = 3.0  # clear events this close together are one incident: one strike
 MAX_EVENTS = 300  # per attempt
 MAX_BATCH = 50  # per request

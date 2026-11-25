@@ -1,23 +1,36 @@
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { PHASE_DEVELOPMENT_SERVER } from "next/constants.js";
 
 /** @type {import('next').NextConfig} */
 
-// Where the API runs. The browser only ever calls this site's /api/*; the server forwards it here.
-// NEXT_PUBLIC_API_URL is the older name, still read so an existing deploy keeps working.
+// Where the API runs. In dev mode with Next.js dev server, rewrites forward /api/* here.
+// In production single-port mode, server.py serves frontend/out directly on http://localhost:8000.
 const API_ORIGIN = process.env.API_ORIGIN ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-const nextConfig = {
-  reactStrictMode: true,
-  // This folder is the project root: a lockfile higher up (a home folder's stray
-  // package-lock.json) must not be taken for it.
-  turbopack: { root: dirname(fileURLToPath(import.meta.url)) },
-  // The rewrite forwards request headers and the exact path and query. Proctoring relies on that:
-  // Safe Exam Browser's X-SafeExamBrowser-ConfigKeyHash must reach the API, which checks it
-  // against APP_URL + path + query (the Host it sees here is the internal one).
-  async rewrites() {
-    return [{ source: "/api/:path*", destination: `${API_ORIGIN.replace(/\/$/, "")}/api/:path*` }];
-  },
-};
+export default function nextConfig(phase) {
+  const isDev = phase === PHASE_DEVELOPMENT_SERVER;
 
-export default nextConfig;
+  /** @type {import('next').NextConfig} */
+  const config = {
+    reactStrictMode: true,
+    turbopack: { root: dirname(fileURLToPath(import.meta.url)) },
+    images: { unoptimized: true },
+    experimental: {
+      turbopackPluginRuntimeStrategy: "forceWorkerThreads",
+      cpus: 1,
+    },
+  };
+
+  if (isDev) {
+    config.rewrites = async () => [
+      { source: "/api/:path*", destination: `${API_ORIGIN.replace(/\/$/, "")}/api/:path*` },
+    ];
+  } else {
+    // Static export mode for unified single-port serving by server.py
+    config.output = "export";
+    config.trailingSlash = true;
+  }
+
+  return config;
+}
