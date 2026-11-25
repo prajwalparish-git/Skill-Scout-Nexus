@@ -463,6 +463,32 @@ def _connection() -> Iterator[smtplib.SMTP]:
         yield server
 
 
+def check_connection(timeout: float = 8.0) -> tuple[bool, str]:
+    """Connect and log in to the SMTP server without sending anything (the developer console's
+    Test SMTP). (ok, a sentence safe to show: never the address's password or the server's
+    full reply)."""
+    s = settings()
+    if not configured():
+        return False, "SMTP is not configured: emails are written to the local outbox file."
+    context = ssl.create_default_context()
+    try:
+        if s.smtp_port == 465:
+            server: smtplib.SMTP = smtplib.SMTP_SSL(
+                s.smtp_host, 465, timeout=timeout, context=context
+            )
+        else:
+            server = smtplib.SMTP(s.smtp_host, s.smtp_port, timeout=timeout)
+        with server:
+            if s.smtp_port != 465:
+                server.starttls(context=context)
+            server.login(s.smtp_email, s.smtp_app_password)
+    except smtplib.SMTPAuthenticationError:
+        return False, "The server refused the login: check SMTP_EMAIL and SMTP_APP_PASSWORD."
+    except (OSError, smtplib.SMTPException) as e:
+        return False, f"Could not reach {s.smtp_host}:{s.smtp_port} ({type(e).__name__})."
+    return True, f"Connected and signed in to {s.smtp_host}:{s.smtp_port}. Nothing was sent."
+
+
 def write_outbox(msg: Message, note: str = "") -> None:
     """Append the message to the local outbox (developers read the code there)."""
     path = settings().mail_outbox_path

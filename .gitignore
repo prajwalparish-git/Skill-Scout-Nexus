@@ -2,7 +2,8 @@
 # dev tooling and local data stay on the developers' machines (ignored, never deleted).
 
 # --- Internal documentation and mockups -------------------------------------------------------
-docs/
+# Anchored to the root: frontend/app/docs/ (the in-site documentation page) is product code.
+/docs/
 ARCHITECTURE.md
 CLAUDE.md
 **/CLAUDE.md
@@ -36,6 +37,7 @@ data/.ai_cache.json
 data/.audio_cache/
 data/.preload_cache/
 data/.mail_outbox.log
+data/.backups/
 data/*.db
 data/certificates/
 

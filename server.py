@@ -33,7 +33,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
-from core import calendar_export, drive
+from core import calendar_export, drive, ops_logs
 from piq import (
     db,
     experiences,
@@ -85,6 +85,8 @@ logging.basicConfig(
 )
 for _noisy in ("httpx", "httpcore"):
     logging.getLogger(_noisy).setLevel(logging.WARNING)
+# The developer console's live log (/ops): the last records in memory, secrets redacted.
+ops_logs.install()
 
 log = logging.getLogger("server")
 
@@ -97,6 +99,7 @@ mimetypes.add_type("text/javascript", ".mjs")
 async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
     """Create the database and load the catalog and question bank once, before any request
     (FastAPI only takes an async lifespan; nothing else here is async)."""
+    ops_logs.install()  # again: uvicorn may have reconfigured logging after the import
     db.init_db()
     syllabus.catalog()
     question_bank.size()
@@ -125,7 +128,15 @@ def cors_origins() -> list[str]:
     return [o for o in origins if o != "*"]
 
 
-app = FastAPI(title="Skill Scout Nexus API", version="1.0", lifespan=_lifespan)
+# The interactive API reference lives under /api: /docs is the web app's documentation page.
+app = FastAPI(
+    title="Skill Scout Nexus API",
+    version="1.0",
+    lifespan=_lifespan,
+    docs_url="/api/docs",
+    redoc_url=None,
+    openapi_url="/api/openapi.json",
+)
 app.include_router(auth_router)
 app.include_router(ops_router)
 app.include_router(orgs_router)
@@ -843,6 +854,22 @@ def _send_frontend_file(candidate: Path) -> FileResponse:
     return FileResponse(candidate, headers=headers)
 
 
+def _segment_file(candidate: Path, out_root: Path) -> Path | None:
+    name = candidate.name
+    if not (name.startswith("__next.") and name.endswith(".txt")):
+        return None
+    parts = name[len("__next.") : -len(".txt")].split(".")
+    if len(parts) < 2:
+        return None
+    nested = candidate.parent / f"__next.{parts[0]}" / Path(*parts[1:])
+    nested = nested.with_name(nested.name + ".txt")
+    try:
+        nested.resolve().relative_to(out_root)
+    except (ValueError, OSError):
+        return None
+    return nested if nested.is_file() else None
+
+
 @app.api_route(
     "/{full_path:path}",
     methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
@@ -897,6 +924,12 @@ def serve_frontend(request: Request, full_path: str = "") -> Response:
     cand_html = candidate.with_suffix(".html")
     if cand_html.is_file():
         return _send_frontend_file(cand_html)
+
+    # 3b. A prefetched route segment: the client asks for "__next.docs.__PAGE__.txt", the
+    # export writes "__next.docs/__PAGE__.txt" (one folder per segment).
+    segment = _segment_file(candidate, out_root)
+    if segment is not None:
+        return _send_frontend_file(segment)
 
     # 4. Fallback to 404.html
     err_404 = out_root / "404.html"

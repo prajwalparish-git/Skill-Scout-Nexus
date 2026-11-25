@@ -4,7 +4,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ArrowUpRight } from "lucide-react";
-import { GITHUB_URL, LEGAL, PAGES, SECTIONS, TOOLS } from "@/lib/site";
+import { GITHUB_URL, LEGAL, OPS_PATH, PAGES, SECTIONS, TOOLS, cleanPath } from "@/lib/site";
 import { Brand, GitHubIcon } from "./Brand";
 import { openConsentSettings } from "@/lib/consent";
 import { ToolLink } from "./auth";
@@ -13,7 +13,7 @@ import { FeedbackForm } from "./Feedback";
 const linkCls = "text-sm text-muted transition-colors hover:text-ink";
 
 export function SiteFooter() {
-  const path = usePathname();
+  const path = cleanPath(usePathname());
   const home = (hash: string) => (path === "/" ? hash : `/${hash}`);
 
   return (
@@ -100,14 +100,19 @@ export function SiteFooter() {
       <div className="border-t border-hair">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-6 font-mono text-[11px] text-muted sm:px-6">
           <span>© {new Date().getFullYear()} Skill Scout Nexus contributors</span>
-          <a
-            href={`${GITHUB_URL}/issues/new`}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1.5 hover:text-ink"
-          >
-            <GitHubIcon size={13} /> Open a GitHub issue
-          </a>
+          <span className="flex flex-wrap items-center gap-x-5 gap-y-2">
+            <Link href={OPS_PATH} className="hover:text-ink">
+              Developer Console
+            </Link>
+            <a
+              href={`${GITHUB_URL}/issues/new`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 hover:text-ink"
+            >
+              <GitHubIcon size={13} /> Open a GitHub issue
+            </a>
+          </span>
         </div>
       </div>
     </footer>

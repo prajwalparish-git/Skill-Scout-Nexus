@@ -29,7 +29,11 @@ repository proves the product itself works.
    filter, backoff, the cache, ideas built from at least two fetched repos, Start this project),
    and the refusals (signed out, another student, the operations
    view, an invalid body).
-4. The frontend routes and exported pages resolve correctly on the unified port.
+4. The developer console (/api/ops): its own DEV_SECRET sign-in (403 while unset, 401 for a
+   wrong secret), masked settings, the redacted log buffer, the database overview and a table
+   browser that redacts secrets and refuses unknown tables, bank and GitHub stats, dry-run CSV
+   previews that change no file, cache clearing and revoking every console session.
+5. The frontend routes and exported pages (/docs and /ops included) resolve on the unified port.
 
 Exit code 0 when everything passes, 1 otherwise (each failure is printed).
 """
@@ -2477,6 +2481,109 @@ def company_questions(c: "TestClient", sid: str) -> None:
     check(db.experience(ids[0])["status"] == "hidden", "two reports hide a post for review")
 
 
+def ops_checks() -> None:
+    print("Developer console (/api/ops)")
+    import hashlib
+    import logging
+
+    from fastapi.testclient import TestClient
+
+    from piq.config import ROOT as APP_ROOT
+    from piq.config import settings
+    from routers.auth import reset_throttle
+    from server import app
+
+    secret = "ci-dev-secret-4821"
+    watched = {
+        "mcq bank": APP_ROOT / "data" / "questions" / "mcq_bank.csv",
+        "repo seed": APP_ROOT / "data" / "project_inspiration_seed.json",
+        "skill topics": APP_ROOT / "data" / "github_topics.json",
+    }
+
+    def digest(path: Path) -> str:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    before = {k: digest(p) for k, p in watched.items()}
+    reset_throttle()
+    with TestClient(app) as c:
+        off = c.post("/api/auth/ops-login", json={"password": secret})
+        check(off.status_code == 403, "ops-login is 403 while DEV_SECRET is not configured")
+        os.environ["DEV_SECRET"] = secret
+        settings.cache_clear()
+        try:
+            wrong = c.post("/api/auth/ops-login", json={"password": "not the secret"})
+            check(wrong.status_code == 401, "ops-login refuses a wrong secret")
+            check(c.get("/api/ops/settings").status_code == 401, "ops routes refuse a visitor")
+            ok = c.post("/api/auth/ops-login", json={"password": secret})
+            check(ok.status_code == 200 and ok.json() == {"ops": True}, f"ops-login{_why(ok)}")
+
+            s = c.get("/api/ops/settings")
+            rows = (
+                {r["name"]: r for r in s.json().get("settings", [])} if s.status_code == 200 else {}
+            )
+            check(
+                rows.get("DEV_SECRET", {}).get("display_value") == "Configured (masked)"
+                and secret not in s.text,
+                f"GET /api/ops/settings masks secrets{_why(s)}",
+            )
+
+            logging.getLogger("ci.ops").warning("token=ci-hidden-value gsk_cihiddenvalue123")
+            logs = c.get("/api/ops/logs", params={"search": "ci-hidden"})
+            logs_hit = c.get("/api/ops/logs", params={"logger": "ci.ops"})
+            check(
+                logs.status_code == 200
+                and "ci-hidden-value" not in logs_hit.text
+                and "[REDACTED]" in logs_hit.text,
+                f"GET /api/ops/logs redacts secrets{_why(logs)}",
+            )
+
+            ov = c.get("/api/ops/db/overview")
+            check(
+                ov.status_code == 200 and ov.json()["app"].get("integrity") == "ok",
+                f"GET /api/ops/db/overview{_why(ov)}",
+            )
+            t = c.get("/api/ops/db/table", params={"which": "app", "table": "credentials"})
+            body = t.json() if t.status_code == 200 else {}
+            check(
+                "password_hash" in body.get("redacted", [])
+                and all(r.get("password_hash") in ("[REDACTED]", None) for r in body["rows"]),
+                f"GET /api/ops/db/table redacts password_hash{_why(t)}",
+            )
+            bad = c.get("/api/ops/db/table", params={"which": "app", "table": "students; --"})
+            check(bad.status_code == 400, "GET /api/ops/db/table refuses an unknown table")
+
+            for path in ("/api/ops/questions/stats", "/api/ops/github/stats", "/api/ops/orgs"):
+                r = c.get(path)
+                check(r.status_code == 200, f"GET {path}{_why(r)}")
+
+            for base in (
+                "/api/ops/questions/mcq",
+                "/api/ops/github/repos",
+                "/api/ops/github/topics",
+            ):
+                tpl = c.get(f"{base}/template")
+                prev = c.post(f"{base}/preview", files={"file": ("t.csv", tpl.content, "text/csv")})
+                valid = prev.json().get("valid_count", 0) if prev.status_code == 200 else 0
+                check(
+                    valid > 0, f"POST {base}/preview: template is valid ({valid} rows){_why(prev)}"
+                )
+            after = {k: digest(p) for k, p in watched.items()}
+            check(before == after, "CSV previews change no data file")
+
+            cleared = c.post("/api/ops/cache/clear", json={"target": "all"})
+            check(cleared.status_code == 200, f"POST /api/ops/cache/clear{_why(cleared)}")
+
+            out = c.post("/api/ops/logout-all")
+            check(
+                out.status_code == 200 and c.get("/api/ops/settings").status_code == 401,
+                "POST /api/ops/logout-all ends every console session",
+            )
+        finally:
+            os.environ.pop("DEV_SECRET", None)
+            settings.cache_clear()
+            reset_throttle()
+
+
 def frontend_routes() -> None:
     print("Frontend routes & API parity")
     from fastapi.testclient import TestClient
@@ -2524,6 +2631,8 @@ def frontend_routes() -> None:
             "/voice-interview",
             "/results",
             "/org-admin",
+            "/docs",
+            "/ops",
         )
         for route in routes:
             r = c.get(route)
@@ -2531,6 +2640,9 @@ def frontend_routes() -> None:
                 r.status_code == 200 and "text/html" in r.headers.get("content-type", ""),
                 f"GET {route} serves HTML",
             )
+        if (out / "docs" / "__next.docs" / "__PAGE__.txt").is_file():
+            r = c.get("/docs/__next.docs.__PAGE__.txt")
+            check(r.status_code == 200, "a prefetched route segment resolves to its folder file")
     else:
         r = c.get("/")
         check(r.status_code == 503, "GET / returns 503 build hint when frontend/out missing")
@@ -2581,6 +2693,7 @@ def main() -> int:
     compile_all()
     datasets()
     api()
+    ops_checks()
     frontend_routes()
     print(f"\n{'All checks passed.' if not failures else f'{len(failures)} check(s) failed.'}")
     return 1 if failures else 0

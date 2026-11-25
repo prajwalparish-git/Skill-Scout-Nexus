@@ -509,10 +509,64 @@ def delete_session(token_hash: str) -> None:
         c.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))
 
 
-def delete_sessions(student_id: str) -> None:
-    """Sign the student out everywhere (after a password reset)."""
+def delete_sessions(student_id: str) -> int:
+    """Sign the student out everywhere (after a password reset); returns how many sessions."""
     with tx() as c:
-        c.execute("DELETE FROM sessions WHERE student_id = ?", (student_id,))
+        return c.execute("DELETE FROM sessions WHERE student_id = ?", (student_id,)).rowcount
+
+
+# --- the developer console (piq/ops_admin.py) -------------------------------------------
+
+
+def set_account_status(student_id: str, status: str) -> None:
+    """active / suspended for any account (the developer console; organizations use
+    set_org_student_status for their own students)."""
+    with tx() as c:
+        c.execute("UPDATE students SET account_status = ? WHERE id = ?", (status, student_id))
+
+
+def unlock_account(student_id: str) -> bool:
+    """Clear the wrong-password count and any lockout; False when it has no password."""
+    with tx() as c:
+        cur = c.execute(
+            "UPDATE credentials SET failures = 0, locked_until = 0 WHERE student_id = ?",
+            (student_id,),
+        )
+        return cur.rowcount > 0
+
+
+def live_session_count(now: float) -> int:
+    with tx() as c:
+        return c.execute("SELECT COUNT(*) FROM sessions WHERE expires_at > ?", (now,)).fetchone()[0]
+
+
+def student_session_count(student_id: str, now: float) -> int:
+    with tx() as c:
+        return c.execute(
+            "SELECT COUNT(*) FROM sessions WHERE student_id = ? AND expires_at > ?",
+            (student_id, now),
+        ).fetchone()[0]
+
+
+def ops_organizations() -> list[sqlite3.Row]:
+    """Every organization with its student count (never a password hash)."""
+    with tx() as c:
+        return c.execute(
+            """SELECT o.id, o.org_code, o.name, o.org_type, o.admin_name, o.admin_email,
+                      o.proctoring, o.admin_verified, o.created_at,
+                      (SELECT COUNT(*) FROM students s WHERE s.org_id = o.id) AS students
+               FROM organizations o ORDER BY o.created_at DESC, o.id DESC"""
+        ).fetchall()
+
+
+def github_cache_count() -> int:
+    with tx() as c:
+        return c.execute("SELECT COUNT(*) FROM github_cache").fetchone()[0]
+
+
+def github_cache_clear() -> int:
+    with tx() as c:
+        return c.execute("DELETE FROM github_cache").rowcount
 
 
 # --- organizations (piq/orgs.py): the roster, and the admin's own sign-in state ----------

@@ -291,6 +291,30 @@ def require_ops(request: Request) -> None:
         raise HTTPException(401, "Sign in to continue.")
 
 
+def ops_session_count() -> int:
+    """Live developer-console sessions (any browser)."""
+    now = time.time()
+    with _lock:
+        return sum(1 for v in _ops.values() if v > now)
+
+
+def end_ops_session(request: Request) -> None:
+    token = request.cookies.get(OPS_COOKIE) or ""
+    with _lock:
+        _ops.pop(hashlib.sha256(token.encode()).hexdigest(), None)
+
+
+def revoke_all_ops() -> int:
+    """Sign every developer-console session out (this one too); returns how many there were."""
+    with _lock:
+        count = len(_ops)
+        _ops.clear()
+        return count
+
+
+OPS_DISABLED = "Developer access is disabled (DEV_SECRET is not configured)."
+
+
 # --- request bodies -----------------------------------------------------------------------------
 
 
@@ -305,6 +329,10 @@ class SignUp(BaseModel):
 
 class Login(BaseModel):
     identifier: str = Field(max_length=254)
+    password: str = Field(max_length=200)
+
+
+class OpsLogin(BaseModel):
     password: str = Field(max_length=200)
 
 
@@ -429,6 +457,21 @@ def login(body: Login, request: Request, response: Response) -> dict:
     return _step(result)
 
 
+@router.post("/ops-login", dependencies=[Depends(throttle)])
+def ops_login(body: OpsLogin, request: Request, response: Response) -> dict:
+    """The developer console's own sign-in: DEV_SECRET only, no account. 403 while DEV_SECRET is
+    empty (there is then no way in), 401 for a wrong secret."""
+    if not settings().dev_secret:
+        raise HTTPException(403, OPS_DISABLED)
+    d = device(request, response)
+    if not _ops_secret_matches(body.password):
+        accounts.event("ops_sign_in_failed", identifier="developer-console", device=d)
+        raise HTTPException(401, "That developer secret is not right.")
+    _start_ops(request, response)
+    accounts.event("ops_sign_in", identifier="developer-console", device=d)
+    return {"ops": True}
+
+
 @router.post("/code", dependencies=[Depends(throttle)])
 def code(body: Code, request: Request, response: Response) -> dict:
     d = device(request, response)
@@ -464,9 +507,7 @@ def recover_finish(body: RecoverFinish, request: Request, response: Response) ->
 @router.post("/logout")
 def logout(request: Request, response: Response) -> dict:
     accounts.end_session(request.cookies.get(COOKIE), device(request, response))
-    token = request.cookies.get(OPS_COOKIE) or ""
-    with _lock:
-        _ops.pop(hashlib.sha256(token.encode()).hexdigest(), None)
+    end_ops_session(request)
     response.delete_cookie(COOKIE, path="/")
     response.delete_cookie(OPS_COOKIE, path="/")
     return {"ok": True}

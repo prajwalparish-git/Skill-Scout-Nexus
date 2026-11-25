@@ -39,6 +39,10 @@ services:
       # telemetry for the faculty dashboard. Accounts and sessions are never synced to it.
       - key: DATABASE_URL
         sync: false
+      # Optional: unlocks the Developer Console at /ops (data files, databases, logs, caches,
+      # accounts). A long random value; leave it unset and the console cannot be opened at all.
+      - key: DEV_SECRET
+        sync: false
       # Paid plan with the disk below: keep the SQLite files on it so they survive deploys.
       # - key: DB_PATH
       #   value: /data/placementiq.db

@@ -7,12 +7,12 @@ import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useMotionValueEvent, useScroll } from "motion/react";
 import { ArrowRight, Menu, X } from "lucide-react";
 import { useCandidate } from "@/lib/candidate";
-import { PAGES, SECTIONS, SPRING } from "@/lib/site";
+import { PAGES, SECTIONS, SPRING, cleanPath } from "@/lib/site";
 import { Brand } from "./Brand";
 import { useAuth } from "./auth";
 
 export function SiteNav() {
-  const path = usePathname();
+  const path = cleanPath(usePathname());
   const { open } = useAuth();
   const { candidate, loading } = useCandidate();
   const { scrollY } = useScroll();
@@ -48,18 +48,18 @@ export function SiteNav() {
           scrolled ? "shadow-[0_8px_30px_-12px_rgb(var(--ink)/0.25)]" : ""
         }`}
       >
-        <Link href="/" className="mr-2 rounded-lg text-ink" aria-label="Skill Scout Nexus, home">
+        <Link href="/" className="mr-2 shrink-0 rounded-lg text-ink" aria-label="Skill Scout Nexus, home">
           <Brand height={14} />
         </Link>
 
-        <ul className="hidden flex-1 items-center justify-center md:flex" onMouseLeave={() => setHovered(null)}>
+        <ul className="hidden flex-1 items-center justify-center lg:flex" onMouseLeave={() => setHovered(null)}>
           {SECTIONS.map((s) => (
             <li key={s.hash}>
               <a
                 href={href(s.hash)}
                 onMouseEnter={() => setHovered(s.hash)}
                 onFocus={() => setHovered(s.hash)}
-                className="relative block rounded-full px-3.5 py-1.5 text-sm text-muted transition-colors hover:text-ink"
+                className="relative block whitespace-nowrap rounded-full px-2.5 py-1.5 text-[13px] text-muted transition-colors hover:text-ink xl:px-3.5 xl:text-sm"
               >
                 {hovered === s.hash && (
                   <motion.span layoutId="nav-hover" className="absolute inset-0 -z-10 rounded-full bg-ink/[0.06]" transition={SPRING} />
@@ -72,11 +72,11 @@ export function SiteNav() {
             <li key={pg.href}>
               <Link
                 href={pg.href}
-                aria-current={path === pg.href ? "page" : undefined}
+                aria-current={path.startsWith(pg.href) ? "page" : undefined}
                 onMouseEnter={() => setHovered(pg.href)}
                 onFocus={() => setHovered(pg.href)}
-                className={`relative block rounded-full px-3.5 py-1.5 text-sm transition-colors hover:text-ink ${
-                  path === pg.href ? "font-medium text-ink" : "text-muted"
+                className={`relative block whitespace-nowrap rounded-full px-2.5 py-1.5 text-[13px] transition-colors hover:text-ink xl:px-3.5 xl:text-sm ${
+                  path.startsWith(pg.href) ? "font-medium text-ink" : "text-muted"
                 }`}
               >
                 {hovered === pg.href && (
@@ -88,7 +88,7 @@ export function SiteNav() {
           ))}
         </ul>
 
-        <div className="ml-auto hidden items-center gap-1.5 md:flex">
+        <div className="ml-auto hidden shrink-0 items-center gap-1.5 lg:flex">
           {loading ? null : candidate ? (
             <Link href="/dashboard" className="btn-ink group">
               Open dashboard
@@ -110,7 +110,7 @@ export function SiteNav() {
         <button
           ref={toggle}
           type="button"
-          className="ml-auto rounded-full p-2.5 text-ink hover:bg-ink/[0.06] md:hidden"
+          className="ml-auto rounded-full p-2.5 text-ink hover:bg-ink/[0.06] lg:hidden"
           aria-expanded={menu}
           aria-controls="mobile-menu"
           aria-label={menu ? "Close navigation menu" : "Open navigation menu"}
@@ -128,7 +128,7 @@ export function SiteNav() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.98 }}
             transition={SPRING}
-            className="glass mx-auto mt-2 max-w-6xl rounded-2xl p-2 md:hidden"
+            className="glass mx-auto mt-2 max-w-6xl rounded-2xl p-2 lg:hidden"
           >
             <ul>
               {SECTIONS.map((s) => (
@@ -147,7 +147,7 @@ export function SiteNav() {
                   <Link
                     href={pg.href}
                     onClick={() => setMenu(false)}
-                    aria-current={path === pg.href ? "page" : undefined}
+                    aria-current={path.startsWith(pg.href) ? "page" : undefined}
                     className="block rounded-xl px-3 py-2.5 text-[15px] text-ink hover:bg-ink/[0.06]"
                   >
                     {pg.label}

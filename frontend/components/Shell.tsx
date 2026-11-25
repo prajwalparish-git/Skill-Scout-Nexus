@@ -27,7 +27,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useCandidate } from "@/lib/candidate";
-import { SPRING_UI } from "@/lib/site";
+import { SPRING_UI, cleanPath } from "@/lib/site";
 import { useAuth } from "./site/auth";
 import { Brand } from "./site/Brand";
 import { PasswordNotice } from "./PasswordNotice";
@@ -56,7 +56,7 @@ const NAV: { href: string; label: string; icon: LucideIcon }[] = [
 const CONTRIBUTOR_NAV = new Set(["/companies", "/contribute", "/settings"]);
 
 /** Public pages: the floating top bar, full-bleed content and the footer, no app sidebar. */
-const PUBLIC = new Set(["/", "/organizations", "/privacy", "/terms", "/cookies", "/credits"]);
+const PUBLIC = new Set(["/", "/organizations", "/docs", "/privacy", "/terms", "/cookies", "/credits"]);
 
 const initials = (name: string) =>
   name
@@ -166,7 +166,7 @@ function StatusBar({ path }: { path: string }) {
 }
 
 export function Shell({ children }: { children: React.ReactNode }) {
-  const path = usePathname();
+  const path = cleanPath(usePathname());
   const { candidate } = useCandidate();
   const nav = candidate?.account_kind === "contributor" ? NAV.filter((n) => CONTRIBUTOR_NAV.has(n.href)) : NAV;
 

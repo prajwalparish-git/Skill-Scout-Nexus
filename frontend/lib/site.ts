@@ -14,7 +14,13 @@ export const SECTIONS = [
 ] as const;
 
 /** Other public pages in the top bar and the footer. */
-export const PAGES = [{ href: "/organizations", label: "For Organizations" }] as const;
+export const PAGES = [
+  { href: "/organizations", label: "For Organizations" },
+  { href: "/docs", label: "Documentation" },
+] as const;
+
+/** The developer console (needs DEV_SECRET); linked quietly from the footer. */
+export const OPS_PATH = "/ops";
 
 /** The tools behind sign-in. `guest` tools also work without a profile (nothing is saved). */
 export const TOOLS = [
@@ -36,6 +42,9 @@ export const LEGAL = [
   { href: "/cookies", label: "Cookies" },
   { href: "/credits", label: "Question sources & credits" },
 ] as const;
+
+/** usePathname() without the trailing slash the static export adds ("/docs/" -> "/docs"). */
+export const cleanPath = (path: string | null) => (path && path.length > 1 ? path.replace(/\/+$/, "") : path) || "/";
 
 export const isGuestTool = (href: string) => TOOLS.some((t) => t.guest && href.startsWith(t.href));
 

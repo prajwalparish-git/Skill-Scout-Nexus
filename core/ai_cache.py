@@ -94,6 +94,19 @@ class PromptCache:
         with self._lock:
             return len(self._load())
 
+    def clear(self) -> int:
+        """Drop every entry, in memory and on disk (the developer console); returns how many."""
+        with self._lock:
+            entries = self._load()
+            count = len(entries)
+            entries.clear()
+            if self.path:
+                try:
+                    self.path.unlink(missing_ok=True)
+                except OSError as e:
+                    log.warning("AI cache at %s could not be removed: %s", self.path, e)
+            return count
+
     def _save(self, entries: OrderedDict[str, Entry]) -> None:
         """Write the whole cache atomically (temp file, then rename); a failed write only
         costs persistence, never the answer."""

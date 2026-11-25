@@ -15,7 +15,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from sqlalchemy import Float, cast, func, select
+from sqlalchemy import Float, cast, func, select, update
 from sqlalchemy.orm import Session
 
 from database.connection import DatabaseManager, SyncStatus, get_manager
@@ -25,12 +25,14 @@ from database.models import (
     ResumeAnalysis,
     StudentProfile,
     StudyPlan,
+    SyncOutbox,
     VoiceInterviewSession,
 )
 from piq.config import (
     ACCOUNT_STATUSES,
     EMAIL_RE,
     ORG_CODE_RE,
+    SYNC_MAX_ATTEMPTS,
     USERNAME_RE,
     VOICE_CRITERION_MAX,
     VOICE_RUBRIC_MAX,
@@ -557,6 +559,36 @@ def cohort(
 def sync_status(db: DatabaseManager | None = None) -> SyncStatus:
     """Whether records are reaching the cloud copy: state, pending, set aside, last sync."""
     return _db(db).status()
+
+
+def sync_now(db: DatabaseManager | None = None) -> SyncStatus:
+    """Forget any backoff and push pending records now (the developer console's Force sync).
+    A no-op without a cloud database."""
+    m = _db(db)
+    if m.cloud_configured:
+        m.sync.reset_backoff()
+        m.sync.kick()
+    return m.status()
+
+
+def retry_set_aside(db: DatabaseManager | None = None) -> int:
+    """Give rows the cloud rejected SYNC_MAX_ATTEMPTS times another round of attempts (after the
+    cause is fixed); returns how many were requeued."""
+    m = _db(db)
+
+    def work(s: Session) -> int:
+        result = s.execute(
+            update(SyncOutbox)
+            .where(SyncOutbox.synced_at.is_(None), SyncOutbox.attempts >= SYNC_MAX_ATTEMPTS)
+            .values(attempts=0, last_error=None)
+        )
+        return int(result.rowcount or 0)
+
+    count = m.run(work)
+    if count and m.cloud_configured:
+        m.sync.reset_backoff()
+        m.sync.kick()
+    return count
 
 
 def analytics(db: DatabaseManager | None = None) -> Analytics:

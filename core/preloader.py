@@ -447,6 +447,29 @@ class BackgroundPreloader:
             running = sum(not t.future.done() for t in self._tasks.values())
             return PreloadStatus(self.enabled, running, len(self._tasks) - running, **self._counts)
 
+    def stored_files(self) -> tuple[int, int]:
+        """(entries, bytes) of the results kept on disk."""
+        if not self.cache_dir or not self.cache_dir.is_dir():
+            return 0, 0
+        files = [p for p in self.cache_dir.glob("*.json") if p.is_file()]
+        return len(files), sum(p.stat().st_size for p in files)
+
+    def clear(self) -> int:
+        """Forget finished results and delete the stored ones (running tasks finish as usual);
+        returns how many stored results were deleted."""
+        with self._lock:
+            for key in [k for k, t in self._tasks.items() if t.future.done()]:
+                del self._tasks[key]
+        removed = 0
+        if self.cache_dir and self.cache_dir.is_dir():
+            for path in self.cache_dir.glob("*.json"):
+                try:
+                    path.unlink(missing_ok=True)
+                    removed += 1
+                except OSError as e:
+                    log.warning("preload cache entry %s could not be removed: %s", path.name, e)
+        return removed
+
     def wait_idle(self, timeout: float = 30.0) -> bool:
         """Wait until no task is running, chained ones included (tests). False on timeout."""
         deadline = time.monotonic() + timeout

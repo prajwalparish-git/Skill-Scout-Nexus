@@ -48,6 +48,10 @@ and export placement shortlists.
 It runs on a laptop with nothing but Python. With no API keys at all it works in mock mode,
 so every page can be tried offline; add a free Groq or Gemini key for live AI.
 
+Full guides live inside the app at **`/docs`** (linked as *Documentation* in the top bar): one
+for learners, one for organization admins and one for developers and operators, with every
+command, CSV format and setting ready to copy.
+
 ## Features
 
 **The five-step placement journey**
@@ -330,7 +334,7 @@ flowchart LR
 server.py           FastAPI entrypoint (uvicorn server:app): mounts the routers, serves the web app
 routers/            One module per API area: auth, orgs, journey, ops, companies, contribute, drive,
                     proctor, handsfree, projects (sessions, org admin portal, resume scanner,
-                    roadmap, critic quiz, voice interview, operations view, Google Drive, ...)
+                    roadmap, critic quiz, voice interview, developer console, Google Drive, ...)
 piq/                Application core: services, journey, accounts, organizations, LLM gateway, prompts
 agents/             The journey's agents: resume parser, planner, critic quiz, voice, rubric
 core/               Self-healing routers: AI, speech, transcription, preloader, mail, auth
@@ -349,6 +353,17 @@ ruff check .
 python -m scripts.ci_check         # modules compile, datasets agree, the API answers, pages render
 cd frontend && npm run typecheck && npm run build   # if you changed the front end
 ```
+
+### Developer Console (`/ops`)
+
+Set `DEV_SECRET` in `.env` (or the host's secrets), open `/ops` and sign in with it. The console
+manages the question banks and the GitHub project-inspiration data through CSV uploads (template,
+dry-run preview, append / merge or replace, an automatic backup in `data/.backups/`), inspects
+and backs up both SQLite databases (secret columns redacted), shows the live server log, audit
+events and the mail outbox, lists every setting with secrets masked, tests SMTP, clears caches,
+moderates posts and unlocks, signs out or suspends accounts. Every change is recorded as an
+`ops_action` audit event; with `DEV_SECRET` empty there is no way in. The interactive API
+reference is at `/api/docs`.
 
 Conventions: API routes call `piq` (never `agents`, `core` or `database` directly), all SQL lives in
 `piq/db.py`, constants in `piq/config.py`, prompts in `piq/prompts.py`, every AI answer is a

@@ -1,311 +1,181 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+// The developer console: a DEV_SECRET sign-in gate, then seven tabs over /api/ops/*.
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Activity, Cpu, Database, LogOut, RefreshCw, ShieldAlert, Users } from "lucide-react";
-import { ApiError, get } from "@/lib/api";
+import {
+  BookOpen,
+  Database,
+  FolderGit2,
+  Gauge,
+  ListChecks,
+  LogOut,
+  RefreshCw,
+  ScrollText,
+  Settings2,
+  ShieldCheck,
+  type LucideIcon,
+} from "lucide-react";
+import { ApiError } from "@/lib/api";
 import { useCandidate } from "@/lib/candidate";
-import { ExperienceQueue } from "@/components/ops/ExperienceQueue";
-import { ContributionQueue } from "@/components/ops/ContributionQueue";
+import { opsApi, type Overview } from "@/lib/opsApi";
+import { Brand } from "@/components/site/Brand";
+import { Loading } from "@/components/ui";
+import { OpsLogin } from "@/components/ops/OpsLogin";
+import { OverviewTab } from "@/components/ops/OverviewTab";
+import { QuestionsTab } from "@/components/ops/QuestionsTab";
+import { GithubTab } from "@/components/ops/GithubTab";
+import { DatabaseTab } from "@/components/ops/DatabaseTab";
+import { LogsTab } from "@/components/ops/LogsTab";
+import { ModerationTab } from "@/components/ops/ModerationTab";
+import { SettingsTab } from "@/components/ops/SettingsTab";
+import { time } from "@/components/ops/shared";
 
-type Row = Record<string, string | number | boolean | null>;
-type Overview = {
-  generated_at: number;
-  totals: { students: number; verified: number; live_sessions: number; quiz_attempts: number; events_24h: Record<string, number> };
-  students: Row[];
-  events: Row[];
-  sessions: Row[];
-  ai_usage: Row[];
-  providers: Row[];
-  system: Record<string, unknown> & { sync: Record<string, unknown> };
-};
-
-const time = (v: unknown) => {
-  if (v === null || v === undefined || v === "") return "—";
-  const d = typeof v === "number" ? new Date(v * 1000) : new Date(String(v).replace(" ", "T") + (String(v).endsWith("Z") ? "" : "Z"));
-  return isNaN(d.getTime()) ? String(v) : d.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit" });
-};
-const show = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : typeof v === "boolean" ? (v ? "yes" : "no") : String(v));
-
-const KIND_TONE: Record<string, string> = {
-  sign_in_failed: "text-bad",
-  code_wrong: "text-bad",
-  code_required: "text-warn",
-  new_device: "text-warn",
-  ops_sign_in: "text-warn",
-};
-
-function Table({ rows, cols, empty }: { rows: Row[]; cols: [string, string, ((r: Row) => React.ReactNode)?][]; empty: string }) {
-  if (!rows.length) return <p className="px-1 py-6 text-center text-sm text-muted">{empty}</p>;
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[640px] text-left text-xs">
-        <thead>
-          <tr className="border-b border-hair text-muted">
-            {cols.map(([key, label]) => (
-              <th key={key} scope="col" className="whitespace-nowrap px-2 py-2 font-medium">
-                {label}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, i) => (
-            <tr key={i} className="border-b border-hair/60 align-top">
-              {cols.map(([key, , render]) => (
-                <td key={key} className="whitespace-nowrap px-2 py-1.5 font-mono">
-                  {render ? render(r) : show(r[key])}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function Panel({ title, icon: Icon, children, right }: { title: string; icon: typeof Users; children: React.ReactNode; right?: React.ReactNode }) {
-  return (
-    <section className="card" aria-label={title}>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="flex items-center gap-2 text-sm font-semibold">
-          <Icon size={15} aria-hidden /> {title}
-        </h2>
-        {right}
-      </div>
-      {children}
-    </section>
-  );
-}
+type Tab = "overview" | "questions" | "github" | "database" | "logs" | "moderation" | "settings";
+const TABS: { id: Tab; label: string; icon: LucideIcon }[] = [
+  { id: "overview", label: "Overview", icon: Gauge },
+  { id: "questions", label: "Question Banks", icon: ListChecks },
+  { id: "github", label: "GitHub Data", icon: FolderGit2 },
+  { id: "database", label: "Database", icon: Database },
+  { id: "logs", label: "Logs & Outbox", icon: ScrollText },
+  { id: "moderation", label: "Moderation & Users", icon: ShieldCheck },
+  { id: "settings", label: "Settings & Caches", icon: Settings2 },
+];
 
 export default function OpsPage() {
-  const { ops, loading, signOut } = useCandidate();
+  const { ops, loading, reload, signOut } = useCandidate();
+  const [signedIn, setSignedIn] = useState(false);
   const [data, setData] = useState<Overview | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [denied, setDenied] = useState(false);
-  const [kind, setKind] = useState("");
+  const [tab, setTab] = useState<Tab>("overview");
+
+  useEffect(() => {
+    if (!loading) setSignedIn(ops);
+  }, [loading, ops]);
 
   const load = useCallback(() => {
-    get<Overview>("/api/ops/overview").then(
+    opsApi.overview().then(
       (d) => {
         setData(d);
         setError(null);
       },
-      (e: Error) => (e instanceof ApiError && e.status === 401 ? setDenied(true) : setError(e.message)),
+      (e: Error) => {
+        if (e instanceof ApiError && e.status === 401) {
+          setSignedIn(false);
+          setData(null);
+        } else setError(e.message);
+      },
     );
   }, []);
 
   useEffect(() => {
-    if (loading) return;
-    if (!ops) {
-      setDenied(true);
-      return;
-    }
+    if (!signedIn) return;
     load();
     const t = setInterval(load, 15000);
     return () => clearInterval(t);
-  }, [loading, ops, load]);
+  }, [signedIn, load]);
 
-  const kinds = useMemo(() => [...new Set((data?.events ?? []).map((e) => String(e.kind)))].sort(), [data]);
-  const events = (data?.events ?? []).filter((e) => !kind || e.kind === kind);
+  const signedOut = useCallback(() => {
+    setSignedIn(false);
+    setData(null);
+    setTab("overview");
+    reload();
+  }, [reload]);
 
-  if (denied)
+  if (loading)
     return (
-      <main className="grid min-h-screen place-items-center px-6 text-center">
-        <div>
-          <p className="display text-5xl">404</p>
-          <p className="mt-2 text-sm text-muted">This page could not be found.</p>
-          <Link href="/" className="btn-ghost mt-6">
-            Go home
-          </Link>
-        </div>
+      <main className="mx-auto max-w-7xl px-4 py-10 sm:px-8">
+        <Loading label="Loading the developer console" />
       </main>
     );
 
-  const t = data?.totals;
-  const sys = data?.system;
+  if (!signedIn)
+    return (
+      <OpsLogin
+        onSignedIn={() => {
+          setSignedIn(true);
+          reload();
+        }}
+      />
+    );
+
   return (
-    <main className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-8">
-      <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="eyebrow">Skill Scout Nexus</p>
-          <h1 className="display mt-1 text-3xl">Operations</h1>
-          <p className="mt-1 text-xs text-muted">Updated {data ? time(data.generated_at) : "…"} · refreshes every 15 s</p>
+    <div className="min-h-screen">
+      <header className="sticky top-0 z-40 border-b border-hair bg-bg/85 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-3 px-4 py-3 sm:px-8">
+          <Link href="/" className="rounded-lg text-ink" aria-label="Skill Scout Nexus, home">
+            <Brand height={12} />
+          </Link>
+          <span className="chip border-warn/40 font-mono text-[10px] uppercase tracking-[0.14em] text-warn">Developer Console</span>
+          <span className="hidden font-mono text-[11px] text-muted md:inline">Updated {data ? time(data.generated_at) : "…"} · every 15 s</span>
+          <div className="ml-auto flex gap-2">
+            <Link href="/docs?tab=developers" className="btn-ghost min-h-[2.1rem] px-3 py-1.5 text-xs">
+              <BookOpen size={13} aria-hidden /> <span className="hidden sm:inline">Docs</span>
+            </Link>
+            <button type="button" className="btn-ghost min-h-[2.1rem] px-3 py-1.5 text-xs" onClick={load}>
+              <RefreshCw size={13} aria-hidden /> <span className="hidden sm:inline">Refresh</span>
+            </button>
+            <button
+              type="button"
+              className="btn-ink min-h-[2.1rem] px-3 py-1.5 text-xs"
+              onClick={async () => {
+                await signOut();
+                signedOut();
+              }}
+            >
+              <LogOut size={13} aria-hidden /> Sign out
+            </button>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <button type="button" className="btn-ghost text-xs" onClick={load}>
-            <RefreshCw size={14} aria-hidden /> Refresh
-          </button>
-          <button
-            type="button"
-            className="btn-ink text-xs"
-            onClick={async () => {
-              await signOut();
-              window.location.href = "/";
-            }}
-          >
-            <LogOut size={14} aria-hidden /> Sign out
-          </button>
-        </div>
-      </header>
-      {error && (
-        <p role="alert" className="mb-4 rounded-xl border border-bad/40 p-3 text-sm text-bad">
-          {error}
-        </p>
-      )}
-      {!data ? (
-        <p className="text-sm text-muted">Loading…</p>
-      ) : (
-        <div className="grid gap-4">
-          <section aria-label="Totals" className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {[
-              ["Accounts", t!.students],
-              ["Email confirmed", t!.verified],
-              ["Live sessions", t!.live_sessions],
-              ["Quiz attempts", t!.quiz_attempts],
-            ].map(([label, value]) => (
-              <div key={label} className="card py-4">
-                <p className="text-xs text-muted">{label}</p>
-                <p className="mt-1 font-mono text-2xl font-semibold tabular-nums">{value}</p>
-              </div>
+        <nav aria-label="Console sections" className="mx-auto max-w-7xl overflow-x-auto px-4 sm:px-8">
+          <div role="tablist" className="flex gap-1 pb-2">
+            {TABS.map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                id={`ops-tab-${id}`}
+                aria-selected={tab === id}
+                aria-controls="ops-panel"
+                onClick={() => setTab(id)}
+                className={`flex items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors ${
+                  tab === id ? "bg-ink text-bg" : "text-muted hover:bg-surface hover:text-ink"
+                }`}
+              >
+                <Icon size={13} aria-hidden /> {label}
+              </button>
             ))}
-          </section>
-
-          <ExperienceQueue />
-          <ContributionQueue />
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Panel title="System" icon={Cpu}>
-              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-xs">
-                {[
-                  ["Mode", sys!.mode],
-                  ["Mock AI", sys!.mock_mode],
-                  ["Engine", sys!.engine],
-                  ["Models", `${(sys!.models as Row).large || "—"} / ${(sys!.models as Row).small || "—"}`],
-                  ["Mail", sys!.mail],
-                  ["App URL", sys!.app_url],
-                  ["Preload allowed", sys!.preload_allowed],
-                  ["Question bank", sys!.question_bank],
-                  ["Database file", sys!.database],
-                  ["Python", `${sys!.python} · ${sys!.platform}`],
-                ].map(([k, v]) => (
-                  <div key={String(k)} className="contents">
-                    <dt className="text-muted">{String(k)}</dt>
-                    <dd className="break-all font-mono">{show(v)}</dd>
-                  </div>
-                ))}
-              </dl>
-            </Panel>
-            <Panel title="Cloud sync and AI providers" icon={Database}>
-              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-xs">
-                {Object.entries(sys!.sync).map(([k, v]) => (
-                  <div key={k} className="contents">
-                    <dt className="text-muted">{k.replace(/_/g, " ")}</dt>
-                    <dd className="font-mono">{k.endsWith("_at") ? time(v as string) : show(v)}</dd>
-                  </div>
-                ))}
-              </dl>
-              <div className="mt-4">
-                <Table
-                  rows={data.providers}
-                  cols={[
-                    ["label", "Provider"],
-                    ["state", "State"],
-                    ["keys", "Keys"],
-                    ["detail", "Detail"],
-                  ]}
-                  empty="No providers configured."
-                />
-              </div>
-            </Panel>
           </div>
+        </nav>
+      </header>
 
-          <Panel title={`Accounts (${data.students.length})`} icon={Users}>
-            <Table
-              rows={data.students}
-              cols={[
-                ["username", "Username"],
-                ["name", "Name"],
-                ["email", "Email"],
-                ["role", "Role"],
-                ["readiness", "Readiness"],
-                ["verified", "Confirmed"],
-                ["status", "Status"],
-                ["sessions", "Sessions"],
-                ["quizzes", "Quizzes"],
-                ["failures", "Wrong tries"],
-                ["locked", "Locked"],
-                ["last_sign_in", "Last sign-in", (r) => time(r.last_sign_in)],
-                ["created_at", "Created", (r) => time(r.created_at)],
-              ]}
-              empty="No accounts yet."
-            />
-          </Panel>
-
-          <Panel
-            title="Sign-in activity"
-            icon={Activity}
-            right={
-              <select className="input w-auto py-1 text-xs" value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Filter by event">
-                <option value="">All events</option>
-                {kinds.map((k) => (
-                  <option key={k} value={k}>
-                    {k.replace(/_/g, " ")} {t!.events_24h[k] ? `(${t!.events_24h[k]} today)` : ""}
-                  </option>
-                ))}
-              </select>
-            }
-          >
-            <Table
-              rows={events}
-              cols={[
-                ["at", "When", (r) => time(r.at)],
-                ["kind", "Event", (r) => <span className={KIND_TONE[String(r.kind)] ?? ""}>{String(r.kind).replace(/_/g, " ")}</span>],
-                ["who", "Who"],
-                ["browser", "Browser"],
-                ["os", "OS"],
-                ["ip", "IP"],
-                ["location", "Location"],
-                ["detail", "Detail"],
-              ]}
-              empty="Nothing yet."
-            />
-          </Panel>
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Panel title={`Live sessions (${data.sessions.length})`} icon={ShieldAlert}>
-              <Table
-                rows={data.sessions}
-                cols={[
-                  ["username", "User"],
-                  ["browser", "Browser"],
-                  ["os", "OS"],
-                  ["ip", "IP"],
-                  ["location", "Location"],
-                  ["last_seen", "Active", (r) => time(r.last_seen)],
-                ]}
-                empty="No one is signed in."
-              />
-            </Panel>
-            <Panel title="AI usage" icon={Cpu}>
-              <Table
-                rows={data.ai_usage}
-                cols={[
-                  ["agent_name", "Agent"],
-                  ["model_used", "Model"],
-                  ["calls", "Calls"],
-                  ["input_tokens", "In tokens"],
-                  ["output_tokens", "Out tokens"],
-                  ["avg_ms", "Avg ms"],
-                  ["rejected", "Rejected"],
-                ]}
-                empty="No AI calls recorded yet."
-              />
-            </Panel>
-          </div>
+      <main id="main-content" className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-8">
+        <h1 className="sr-only">Developer Console — {TABS.find((t) => t.id === tab)?.label}</h1>
+        {error && (
+          <p role="alert" className="mb-4 rounded-xl border border-bad/40 p-3 text-sm text-bad">
+            {error}
+          </p>
+        )}
+        <div id="ops-panel" role="tabpanel" aria-labelledby={`ops-tab-${tab}`}>
+          {tab === "questions" ? (
+            <QuestionsTab />
+          ) : tab === "github" ? (
+            <GithubTab />
+          ) : tab === "database" ? (
+            <DatabaseTab />
+          ) : tab === "settings" ? (
+            <SettingsTab onSignedOut={signedOut} signOut={signOut} />
+          ) : !data ? (
+            <Loading label="Loading the overview" />
+          ) : tab === "overview" ? (
+            <OverviewTab data={data} />
+          ) : tab === "logs" ? (
+            <LogsTab data={data} />
+          ) : (
+            <ModerationTab data={data} reload={load} />
+          )}
         </div>
-      )}
-    </main>
+      </main>
+    </div>
   );
 }
