@@ -13,7 +13,6 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
-from agents.critic_quiz_agent import QuizBatch
 from agents.voice_interview_agent import Category, VoiceInterviewQuestion
 from piq import journey, proctoring, services, syllabus
 from piq.config import (
@@ -25,7 +24,7 @@ from piq.config import (
     VOICE_DEFAULT_CATEGORY,
     VOICE_RUBRIC_MAX,
 )
-from server_auth import require_student, session_id
+from routers.auth import require_student, session_id
 
 log = logging.getLogger("server.journey")
 
@@ -50,8 +49,8 @@ class GenerateQuizRequest(BaseModel):
 
 
 class GradeQuizRequest(BaseModel):
-    batch: QuizBatch
-    answers: list[int | None]
+    batch_id: str = Field(min_length=1, max_length=64)  # a batch this server generated
+    answers: list[int | None] = Field(max_length=max(CRITIC_QUIZ_SIZES))
     attempt_id: str | None = None
     proctor_flags: list[str] = Field(default_factory=list)
 
@@ -62,8 +61,19 @@ class VoiceQuestionRequest(BaseModel):
     custom_question: str | None = None
 
 
+class VoiceQuestionIn(BaseModel):
+    """The question the student answered, as /voice/question sent it (audio is not sent back)."""
+
+    category: Category
+    stream: str = Field(max_length=100)
+    role: str = Field(default="", max_length=200)
+    question_text: str = Field(min_length=15, max_length=2000)
+    intent: str = Field(default="", max_length=500)
+    scenario_context: str = Field(default="", max_length=4000)
+
+
 class AssessVoiceRequest(BaseModel):
-    question: dict
+    question: VoiceQuestionIn
     answer: str
     attempt_id: str | None = None
     proctor_flags: list[str] = Field(default_factory=list)
@@ -250,7 +260,14 @@ def journey_critic_quiz_generate(
     """Generate a batch of critic-verified MCQs on a chosen skill."""
     batch = journey.critic_quiz(sid, body.skill, body.difficulty, body.count)
     journey.preload_next_quiz(sid, batch)
-    return batch.model_dump()
+    # The answers and explanations stay on the server until the quiz is graded.
+    shown = batch.model_dump(exclude={"questions"})
+    shown["questions"] = [
+        q.model_dump(include={"text", "options", "bloom_level", "difficulty"})
+        for q in batch.questions
+    ]
+    shown["batch_id"] = journey.remember_batch(sid, batch)
+    return shown
 
 
 @router.post("/critic-quiz/grade")
@@ -264,8 +281,12 @@ def journey_critic_quiz_grade(body: GradeQuizRequest, sid: str = Depends(require
         except Exception:
             log.exception("proctoring finish failed for attempt %s", body.attempt_id)
 
-    grade = journey.grade_quiz(sid, body.batch, body.answers, proctor_flags=flags)
+    grade, batch = journey.grade_served_quiz(sid, body.batch_id, body.answers, proctor_flags=flags)
     return {
+        "review": [
+            {"correct_index": q.correct_index, "explanation": q.explanation}
+            for q in batch.questions
+        ],
         "score": grade.score,
         "total": grade.total,
         "correct": list(grade.correct),
@@ -321,14 +342,7 @@ def journey_voice_assess(body: AssessVoiceRequest, sid: str = Depends(require_st
         except Exception:
             log.exception("proctoring finish failed for voice attempt %s", body.attempt_id)
 
-    q = VoiceInterviewQuestion(
-        question_text=body.question.get("question_text", ""),
-        target_role=body.question.get("target_role", ""),
-        stream=body.question.get("stream", ""),
-        category=body.question.get("category", "technical"),
-        scenario_context=body.question.get("scenario_context", ""),
-        expected_rubric_points=body.question.get("expected_rubric_points", []),
-    )
+    q = VoiceInterviewQuestion(**body.question.model_dump())
     res = journey.assess_answer(sid, q, body.answer, proctor_flags=flags)
     return {
         "evaluation": asdict(res.evaluation),

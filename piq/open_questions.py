@@ -9,7 +9,7 @@ its source and licence. Nothing comes from Quora, Medium, LinkedIn, Glassdoor, P
 LeetCode problem text or copyrighted books.
 
 These questions are general practice: they are never presented as asked at any company.
-Pure data, no Streamlit.
+Pure data.
 """
 
 import json

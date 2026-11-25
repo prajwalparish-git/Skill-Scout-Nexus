@@ -1,6 +1,6 @@
 "use client";
 
-// Google Drive (server_drive.py): whether the server offers it and whether this student has
+// Google Drive (routers/drive.py): whether the server offers it and whether this student has
 // connected it. Everything Drive-related stays hidden while `enabled` is false.
 
 import { useEffect, useState } from "react";

@@ -1,6 +1,6 @@
 """A student's own AI model on this computer: Ollama, or LM Studio's OpenAI-compatible server.
 
-Every AI call runs on the server (the Streamlit process or server.py), so the address a student
+Every AI call runs on the server (server.py), so the address a student
 types is fetched BY THE SERVER. On a public server that would let anyone make it call addresses
 of their choosing (server-side request forgery). So:
 

@@ -20,7 +20,7 @@ from core import proctoring as rules
 from piq import proctoring
 from piq.config import settings
 from piq.services import ServiceError
-from server_auth import require_student, session_id
+from routers.auth import require_student, session_id
 
 router = APIRouter(prefix="/api/proctor", tags=["proctoring"])
 

@@ -16,6 +16,9 @@ finds nothing preloaded generates as before.
 """
 
 import logging
+import secrets
+import threading
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
@@ -531,6 +534,53 @@ def critic_quiz(student_id: str, skill: str, difficulty: str, count: int) -> Qui
         lambda: bank_quiz(skill, s.target_role, difficulty, count, [still_writing]),
         on_miss=lambda: preloader.make_quiz(s.id, s.target_role, skill, difficulty, count),
     )
+
+
+# A critic quiz is graded only against the batch the server generated: the browser gets the
+# questions without their answers and names the batch by id. In memory (a restart means starting
+# the quiz again), single use, expiring, and bounded.
+BATCH_TTL_S = 2 * 3600
+BATCH_MAX = 500
+_batches: dict[str, tuple[str, QuizBatch, float]] = {}  # id -> (student id, batch, expires)
+_batches_lock = threading.Lock()
+
+
+def remember_batch(student_id: str, batch: QuizBatch) -> str:
+    """Keep a generated batch for grading and return its id."""
+    now = time.time()
+    batch_id = secrets.token_urlsafe(18)
+    with _batches_lock:
+        for key in [k for k, (_, _, exp) in _batches.items() if exp < now]:
+            del _batches[key]
+        while len(_batches) >= BATCH_MAX:  # oldest first (dicts keep insertion order)
+            del _batches[next(iter(_batches))]
+        _batches[batch_id] = (student_id, batch, now + BATCH_TTL_S)
+    return batch_id
+
+
+def _take_batch(student_id: str, batch_id: str) -> QuizBatch:
+    with _batches_lock:
+        entry = _batches.pop(batch_id, None)
+    if entry is None or entry[0] != student_id or entry[2] < time.time():
+        raise ServiceError("This quiz is no longer available: generate it again.")
+    return entry[1]
+
+
+def grade_served_quiz(
+    student_id: str,
+    batch_id: str,
+    answers: list[int | None],
+    proctor_flags: Sequence[str] = (),
+) -> tuple[QuizGrade, QuizBatch]:
+    """Grade a batch this server generated for this student, once. The batch comes back so the
+    caller can show the right answers and explanations (they were never sent before)."""
+    batch = _take_batch(student_id, batch_id)
+    try:
+        return grade_quiz(student_id, batch, answers, proctor_flags=proctor_flags), batch
+    except ServiceError:  # e.g. a wrong number of answers: the student can fix it and resubmit
+        with _batches_lock:
+            _batches[batch_id] = (student_id, batch, time.time() + BATCH_TTL_S)
+        raise
 
 
 def grade_quiz(

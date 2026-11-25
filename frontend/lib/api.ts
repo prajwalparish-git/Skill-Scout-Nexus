@@ -379,7 +379,7 @@ export type Session = {
   script?: string[];
 };
 
-// --- company interview experiences (server_companies.py) ------------------------------------
+// --- company interview experiences (routers/companies.py) ------------------------------------
 
 /** GET /api/question-sources: where questions come from, their licences and what we changed. */
 export type QuestionSource = {
@@ -643,7 +643,7 @@ export type Ats = {
   degree_fit: string;
 };
 
-// --- contributed questions (server_contribute.py) -------------------------------------------
+// --- contributed questions (routers/contribute.py) -------------------------------------------
 
 export type ContributeOptions = {
   rounds: Record<string, string>;
@@ -680,7 +680,7 @@ export type ContributorProfile = {
 export type Leaderboard = { season: string; since: string; top: { name: string; approved: number }[] };
 export type ContributeMe = { profile: ContributorProfile; contributions: Contribution[]; leaderboard: Leaderboard };
 
-// --- project space and project ideas (server_projects.py) --------------------------------------
+// --- project space and project ideas (routers/projects.py) --------------------------------------
 
 /** A GitHub repository, metadata only (never README text or code). */
 export type InspirationRepo = {

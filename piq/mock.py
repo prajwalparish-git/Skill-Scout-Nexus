@@ -218,7 +218,7 @@ def _github_readme(ctx: dict) -> dict:
     return {
         "project_title": title,
         "one_line_pitch": "An enterprise-grade platform for modern distributed applications.",
-        "tech_stack": ["Python", "Streamlit", "SQLite", "Docker"],
+        "tech_stack": ["Python", "FastAPI", "Next.js", "SQLite", "Docker"],
         "star_bullets": [
             f"Architected {title} data pipeline using asynchronous task workers.",
             "Engineered modular REST API services with automated schema validation and testing.",

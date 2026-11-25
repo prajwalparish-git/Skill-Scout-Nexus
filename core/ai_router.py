@@ -145,7 +145,7 @@ class AllProvidersDown(Exception):
 
 class CircuitBreaker:
     """Closed (requests go through) -> open (skipped until a deadline) -> half-open (one trial
-    decides). Thread-safe: Streamlit serves each session from its own thread."""
+    decides). Thread-safe: the API serves requests from a thread pool."""
 
     def __init__(
         self,

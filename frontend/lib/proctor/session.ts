@@ -1,5 +1,5 @@
 // One proctored attempt in the browser: the browser checks (tab, window focus, fullscreen,
-// copy/paste lock) and the event queue to /api/proctor (server_proctor.py). The server decides
+// copy/paste lock) and the event queue to /api/proctor (routers/proctor.py). The server decides
 // what is a strike; this only reports what happened and when. No image or video is ever sent.
 
 import { API, post, type ProctorProgress } from "@/lib/api";

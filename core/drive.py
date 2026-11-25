@@ -49,7 +49,7 @@ STATE_TTL_S = 600
 MAX_DOWNLOAD_BYTES = 6 * 1024 * 1024
 _FILE_ID = re.compile(r"^[A-Za-z0-9_-]{10,200}$")
 
-Ui = Literal["web"]
+RETURN_TO = "web"  # kept in the drive_states.return_to column (NOT NULL in existing databases)
 Kind = Literal["certificates", "resumes"]
 
 
@@ -100,23 +100,23 @@ def _request(method: str, url: str, **kw: object) -> httpx.Response:
 # --- signing in ----------------------------------------------------------------------------------
 
 
-def redirect_uri(ui: Ui = "web") -> str:
+def redirect_uri() -> str:
     return settings().google_redirect_uri
 
 
-def start(student_id: str, ui: Ui = "web") -> str:
+def start(student_id: str) -> str:
     """The Google sign-in address for this student (only the drive.file scope)."""
     _require_enabled()
     state = secrets.token_urlsafe(32)
     verifier = secrets.token_urlsafe(64)  # 86 characters: within PKCE's 43-128
     challenge = _b64url(hashlib.sha256(verifier.encode()).digest())
-    uri = redirect_uri(ui)
+    uri = redirect_uri()
     db.save_drive_state(
         _sha(state),
         student_id,
         secretbox.seal(verifier, student_id=student_id, purpose="pkce"),
         uri,
-        ui,
+        RETURN_TO,
         time.time() + STATE_TTL_S,
     )
     params = {
@@ -133,14 +133,14 @@ def start(student_id: str, ui: Ui = "web") -> str:
     return f"{AUTH_URL}?{urlencode(params)}"
 
 
-def finish(state: str | None, code: str | None, *, signed_in: str, ui: Ui = "web") -> None:
-    """Complete a sign-in: the state must be known, unexpired, unused, started by this student
-    in this app, and Google must grant exactly the drive.file scope with a refresh token."""
+def finish(state: str | None, code: str | None, *, signed_in: str) -> None:
+    """Complete a sign-in: the state must be known, unexpired, unused, started by this student,
+    and Google must grant exactly the drive.file scope with a refresh token."""
     _require_enabled()
     row = db.take_drive_state(_sha(state or "")) if state else None
     if row is None or row["expires_at"] < time.time():
         raise DriveError("That Google sign-in has expired or was already used. Connect again.")
-    if row["student_id"] != signed_in or (row["return_to"] and row["return_to"] != ui):
+    if row["student_id"] != signed_in:
         raise DriveError("That Google sign-in was started elsewhere. Connect again from here.")
     if not code:
         raise DriveError("Google did not finish the sign-in. Connect again.")

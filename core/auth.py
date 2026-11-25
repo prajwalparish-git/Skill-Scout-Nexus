@@ -1,6 +1,6 @@
 """Account security primitives: password hashing, 9-digit email codes and the lockout rule.
 
-Pure functions (no database, no Streamlit), so every rule is tested on its own; the flows that
+Pure functions (no database, no web framework), so every rule is tested on its own; the flows that
 store and send them live in piq/accounts.py.
 
 Passwords. PBKDF2-HMAC-SHA256 with AUTH_PBKDF2_ITERATIONS rounds and a fresh

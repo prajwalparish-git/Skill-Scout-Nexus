@@ -3,7 +3,9 @@
 FROM node:24-slim AS frontend-builder
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
-RUN npm ci
+# No install scripts yet: postinstall needs frontend/scripts, which is copied next. The build's
+# prebuild step then runs them (MediaPipe model and voice-detection files).
+RUN npm ci --ignore-scripts
 COPY frontend/ ./
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
@@ -25,8 +27,15 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-# Copy backend application
-COPY . .
+# Only what the API needs at runtime (tests, docs, scripts and the web app's source stay out).
+COPY server.py ./
+COPY routers/ ./routers/
+COPY piq/ ./piq/
+COPY core/ ./core/
+COPY agents/ ./agents/
+COPY database/ ./database/
+COPY data/ ./data/
+COPY static/ ./static/
 
 # Copy static frontend export from Stage 1
 COPY --from=frontend-builder /app/frontend/out ./frontend/out

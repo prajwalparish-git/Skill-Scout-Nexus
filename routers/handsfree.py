@@ -23,7 +23,7 @@ from core import speech_router
 from piq import handsfree
 from piq.config import HANDSFREE_MAX_AUDIO_BYTES
 from piq.services import ServiceError
-from server_auth import require_student
+from routers.auth import require_student
 
 router = APIRouter(prefix="/api/handsfree", tags=["handsfree"])
 

@@ -1,6 +1,6 @@
 """Output layer: validated models / DB rows -> markdown and chart-ready DataFrames.
 
-Pure functions, no Streamlit import, so every rendering decision is unit-testable.
+Pure functions, so every rendering decision is unit-testable.
 """
 
 import re
@@ -39,7 +39,7 @@ _MD_SPECIAL = re.compile(r"([\\`*_{}\[\]()<>#+\-.!|~$&=])")
 
 
 def md_escape(text: str) -> str:
-    """Show resume, LLM or user text literally wherever Streamlit renders Markdown.
+    """Show resume, LLM or user text literally wherever Markdown is rendered.
 
     Inline `code` and fenced blocks are kept, so code in model answers stays readable
     (code is never interpreted as Markdown or HTML anyway).
@@ -81,7 +81,7 @@ def status_md(state: str, text: str) -> str:
 
 
 def _light_dark(light: str, dark: str) -> str:
-    """A CSS colour that follows Streamlit's theme switch (it sets color-scheme on the app)."""
+    """A CSS colour that follows the page's colour scheme."""
     return f"light-dark({light}, {dark})"
 
 
@@ -186,13 +186,6 @@ def plan_table(plan: WeeklyPlan) -> pd.DataFrame:
             for d in sorted(plan.days, key=lambda d: d.day)
         ]
     ).set_index("Day")
-
-
-def plan_minutes(plans: Iterable[WeeklyPlan]) -> pd.DataFrame:
-    """Rows = topics, columns = 'Week n', values = minutes. Feeds the week-vs-week chart."""
-    data = {f"Week {p.week_no}": p.minutes_by_topic() for p in plans}
-    topics = list(dict.fromkeys(t for minutes in data.values() for t in minutes))
-    return pd.DataFrame(data, index=topics).fillna(0).astype(int)
 
 
 # --- weekly plan -----------------------------------------------------------------------
@@ -366,7 +359,7 @@ def topic_option(topic: str, weakness: float) -> str:
 
 def suggestion_md(topic: str, last: tuple[float, str] | None, suggested: str) -> str:
     """Why a difficulty is suggested: the latest score on the topic and the rule."""
-    # Grey, not primary: Streamlit draws a primary badge in the dark primary, too faint.
+    # Grey, not primary: a primary badge is too faint in the dark theme.
     badge = f":gray-badge[:material/recommend: Suggested: {suggested}]"
     if last is None:
         return f"{badge} No {topic} quiz yet, so start at {suggested}."
@@ -432,7 +425,7 @@ def _quote(text: str) -> str:
 def quiz_notes(
     quiz: QuizSet, chosen: Sequence[int | None], score_pct: float, next_difficulty: str, day: date
 ) -> str:
-    """A reviewed quiz as Markdown notes to keep (plain Markdown, no Streamlit directives;
+    """A reviewed quiz as Markdown notes to keep (plain Markdown, no framework directives;
     model text escaped so it reads literally in any viewer)."""
     correct = sum(a == q.correct_index for q, a in zip(quiz.questions, chosen, strict=True))
     out = [
@@ -696,55 +689,6 @@ def interview_headline(averages: Sequence[float]) -> str:
 def critic_plain(msg: str) -> str:
     """A critic message for a table (plain text): the 0-based "question N:" shown as "QN+1:"."""
     return _QUESTION_N.sub(lambda m: f"Q{int(m[1]) + 1}:", msg)
-
-
-def agent_table(rows: Iterable[Mapping]) -> pd.DataFrame:
-    """agent_stats rows -> one display row per agent; the rejection rate as a percentage."""
-    data = [
-        {
-            "Agent": r["agent_name"].replace("_", " ").capitalize(),
-            "Calls": r["calls"],
-            "Avg latency (ms)": r["avg_latency_ms"],
-            "Avg tokens": r["avg_tokens"],
-            "Rejected drafts": r["rejections"],
-            "Failed calls": r.get("failures"),  # absent from older summary.json files
-            "Rejection rate": None if r["rejection_rate"] is None else 100 * r["rejection_rate"],
-        }
-        for r in map(dict, rows)
-    ]
-    df = pd.DataFrame(data, columns=AGENT_COLUMNS)
-    if len(df) and df["Failed calls"].isna().all():  # a summary from before failures were counted
-        df = df.drop(columns="Failed calls")
-    return df
-
-
-AGENT_COLUMNS = (
-    "Agent",
-    "Calls",
-    "Avg latency (ms)",
-    "Avg tokens",
-    "Rejected drafts",
-    "Failed calls",
-    "Rejection rate",
-)
-
-
-def rejections_table(rows: Iterable[Mapping], tz: str = TIMEZONE) -> pd.DataFrame:
-    """recent_rejections rows -> when (the student's clock), agent, attempt and the reason."""
-    zone = ZoneInfo(tz)
-    data = [
-        {
-            "When": datetime.fromisoformat(r["created_at"])
-            .replace(tzinfo=UTC)
-            .astimezone(zone)
-            .strftime("%d %b, %H:%M"),
-            "Agent": r["agent_name"].replace("_", " ").capitalize(),
-            "Attempt": (r["retry_count"] or 0) + 1,
-            "Critic's reason": critic_plain(r["reject_reason"] or ""),
-        }
-        for r in rows
-    ]
-    return pd.DataFrame(data, columns=["When", "Agent", "Attempt", "Critic's reason"])
 
 
 # --- evaluation results ------------------------------------------------------------
@@ -1098,17 +1042,6 @@ def mix_md(mix: Mapping[str, int]) -> str:
     return " · ".join(f"{d.capitalize()} {mix.get(d, 0)}%" for d in DIFFICULTIES)
 
 
-def spec_table(parts: Sequence[tuple[str, str, int]]) -> pd.DataFrame:
-    """A quiz setup as questions per topic (rows) and difficulty (columns), with totals."""
-    topics = list(dict.fromkeys(t for t, _, _ in parts))
-    df = pd.DataFrame(0, index=topics, columns=[d.capitalize() for d in DIFFICULTIES])
-    for topic, difficulty, n in parts:
-        df.loc[topic, difficulty.capitalize()] = n
-    df["Total"] = df.sum(axis=1)
-    df.loc["All topics"] = df.sum(axis=0)
-    return df.rename_axis("Topic")
-
-
 def spec_note(total: int, batches: int, mock: bool = False) -> str:
     """How the quiz is made: its size, the batches the critic checks and the wait."""
     if batches <= 1:
@@ -1189,20 +1122,6 @@ def outcome_alt(title: str, outcomes: Iterable) -> str:
     )
 
 
-def grid_table(grid: Mapping[tuple[str, str], object]) -> pd.DataFrame:
-    """(topic, difficulty) -> Outcome as a table: "7/10 (70%)" per cell, "—" for none."""
-    topics = list(dict.fromkeys(t for t, _ in grid))
-    rows = {}
-    for t in topics:
-        rows[t] = {
-            d.capitalize(): (
-                f"{o.correct}/{o.total} ({o.pct:.0f}%)" if (o := grid.get((t, d))) else "—"
-            )
-            for d in DIFFICULTIES
-        }
-    return pd.DataFrame.from_dict(rows, orient="index").rename_axis("Topic")
-
-
 def mistake_md(n: int, topic: str, difficulty: str, question: Question, chosen: int | None) -> str:
     """A question answered wrong or left blank: where it came from, then the review (and, for
     an open-bank question, its source and licence)."""
@@ -1247,21 +1166,6 @@ def run_notes(
 
 
 # --- dashboard: quizzes and accuracy -------------------------------------------------------
-
-
-def runs_table(rows: Iterable[Mapping], tz: str = TIMEZONE) -> pd.DataFrame:
-    """quiz_runs rows -> when, topics, questions and score."""
-    data = [
-        {
-            "When": local_day(r["attempted_at"], tz),
-            "Topics": (r["topics"] or "").replace(",", ", "),
-            "Questions": r["total"],
-            "Correct": r["correct"],
-            "Score (%)": round(float(r["score_pct"])),
-        }
-        for r in rows
-    ]
-    return pd.DataFrame(data, columns=["When", "Topics", "Questions", "Correct", "Score (%)"])
 
 
 def accuracy_headline(cells: Iterable[tuple[str, str, int, int]]) -> str:
@@ -1690,24 +1594,6 @@ def role_fits_md(fits: Sequence) -> str:
     return "\n\n".join(blocks)
 
 
-def versions_table(versions: Iterable, tz: str = TIMEZONE) -> pd.DataFrame:
-    data = [
-        {
-            "Version": v.n,
-            "Saved": local_day(v.created_at, tz),
-            "Role": v.target_role,
-            "ATS score": v.ats_score,
-            "Skills": len(v.resume.get("skills", [])),
-            "Jobs": len(resume_builder.experience_entries(v.resume)),
-            "Projects": len(v.resume.get("projects", [])),
-        }
-        for v in versions
-    ]
-    return pd.DataFrame(
-        data, columns=["Version", "Saved", "Role", "ATS score", "Skills", "Jobs", "Projects"]
-    ).set_index("Version")
-
-
 # --- project space ---------------------------------------------------------------------
 
 PROJECT_STATUS = {"Idea": "todo", "In progress": "info", "Done": "done"}
@@ -1790,23 +1676,6 @@ def scorecard_compare_html(param: object) -> str:
             f'<span class="piq-bar" aria-hidden="true">{bar}</span><span>{shown}</span></div>'
         )
     return f'<div class="piq-criteria">{"".join(rows)}</div>'
-
-
-def scorecard_table(card: object) -> pd.DataFrame:
-    """Every parameter: group, both raw values and both scores."""
-    data = [
-        {
-            "Group": p.group,
-            "Parameter": p.name,
-            "Weight": p.weight,
-            "Baseline": raw_value(p.baseline, p.unit),
-            "Baseline score": p.baseline_score,
-            "PlacementIQ": raw_value(p.placementiq, p.unit),
-            "PlacementIQ score": p.placementiq_score,
-        }
-        for p in card.parameters
-    ]
-    return pd.DataFrame(data).set_index("Parameter")
 
 
 # --- study library (plan page) ----------------------------------------------------------------

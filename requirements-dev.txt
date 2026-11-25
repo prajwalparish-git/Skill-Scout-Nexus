@@ -1,4 +1,3 @@
 -r requirements.txt
 pytest==9.1.1
 ruff==0.17.1
-playwright==1.64.0  # dev only: renders the summary PDF (scripts/summary_pdf.py); CI never launches a browser

@@ -14,8 +14,8 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data"
 RESULTS_DIR = ROOT / "evaluation" / "results"
-STATIC_DIR = ROOT / "static"  # served at app/static/: fonts, brand, app.css
-BRAND_DIR = STATIC_DIR / "brand"  # mark.svg (icon) and wordmark.svg
+STATIC_DIR = ROOT / "static"  # assets the backend itself uses (the email logo)
+BRAND_DIR = STATIC_DIR / "brand"  # mark-email.png
 
 # The computer-science core syllabus. Every domain's own topics (and which of them are always
 # tracked) live in data/career_catalog.json and are read by piq/syllabus.py; these six stay
@@ -249,15 +249,14 @@ TREND_STEP = 10  # points the latest quiz must beat (or miss) the ones before by
 RESUME_MAX_PDF_PAGES = 30  # pages read from a PDF resume; the rest is ignored
 RESUME_MAX_DOCX_UNZIPPED = 25 * 1024 * 1024  # bytes a DOCX may unpack to (zip-bomb guard)
 RESUME_MAX_TEXT_CHARS = 200_000  # text kept from one file: a decompression bomb stops here
-RESUME_MAX_BYTES = 5 * 1024 * 1024  # an upload above this is refused (.streamlit/config.toml too)
+RESUME_MAX_BYTES = 5 * 1024 * 1024  # an upload above this is refused
 TIMEZONE = "Asia/Kolkata"  # students' local time, for dates shown in the app
 STUDY_TIME = time(19, 0)  # default daily start of an exported plan's calendar events
 RECENT_DAYS = 7  # a topic quizzed within this many days counts as practised; a plan
 # this old is due for next week's version
 
 # --- design tokens: the UI's colours ------------------------------------------------
-# .streamlit/config.toml mirrors these (Streamlit reads only TOML); tests/test_theme.py
-# checks contrast and that both files agree. See docs/design/DESIGN.md.
+# See docs/design/DESIGN.md.
 SCHEMES = ("light", "dark")
 
 PALETTE = {
@@ -283,7 +282,7 @@ PALETTE = {
     },
 }
 
-# Logo teal (static/brand/*.svg): an <img> cannot follow the theme toggle, so one tone that
+# Logo teal (frontend/public/brand/*.svg): an <img> cannot follow the theme toggle, so one tone that
 # reads on both sidebars and both page backgrounds (>= 3:1 on each).
 BRAND_COLOR = "#278C93"
 
@@ -398,9 +397,6 @@ class Settings:
     local_ai: bool = False
     # Signing in with this as the password (any username or email) opens the operations view.
     dev_secret: str = field(default="", repr=False)
-    # app.py shows a friendly message for a crashed page; tests set PIQ_RAISE_ERRORS=1 so
-    # AppTest sees the exception instead.
-    raise_page_errors: bool = False
     # Google Drive (core/drive.py): a student keeps certificates and resumes in their own Drive.
     # Off unless the OAuth client and DRIVE_TOKEN_KEY (which encrypts refresh tokens) are set.
     google_client_id: str = ""
@@ -553,7 +549,6 @@ def settings() -> Settings:
         local_mode=local_mode,
         local_ai=_local_ai(local_mode),
         dev_secret=os.getenv("DEV_SECRET", "").strip(),
-        raise_page_errors=_flag("PIQ_RAISE_ERRORS", "false"),
         github_token=os.getenv("GITHUB_TOKEN", "").strip(),
         github_api_url=(os.getenv("GITHUB_API_URL", "").strip() or "https://api.github.com").rstrip(
             "/"

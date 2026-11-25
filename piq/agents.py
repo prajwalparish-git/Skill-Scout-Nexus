@@ -240,7 +240,7 @@ def _quiz_gen(inp: dict, reasons: list[str], previous: QuizSet | None) -> tuple[
 
 # Critic verdicts keyed by exact question content: each question is judged once, so a
 # retry only pays for the replacements. Shared across sessions (a verdict does not depend
-# on the student), bounded, and lock-protected for Streamlit's threads.
+# on the student), bounded, and lock-protected for the API's threads.
 _VERDICTS: dict[str, QuestionVerdict] = {}
 _VERDICTS_MAX = 2000
 _VERDICTS_LOCK = threading.Lock()

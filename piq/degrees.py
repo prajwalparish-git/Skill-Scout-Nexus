@@ -5,7 +5,7 @@ the field it names. Each role in data/career_catalog.json has an `eligibility` r
 codes or "@group"s it accepts and, optionally, the fields (branches) it accepts. A degree
 qualifies when its code is accepted and, if the role names fields, the degree's own field or
 the student's specialisation names one of them as whole words. A completed degree qualifies
-now; one being pursued qualifies on completion. Pure data, no Streamlit.
+now; one being pursued qualifies on completion. Pure data.
 """
 
 import json

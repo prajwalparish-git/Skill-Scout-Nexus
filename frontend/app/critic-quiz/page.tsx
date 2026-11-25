@@ -112,7 +112,7 @@ export default function CriticQuizPage() {
       if (proctor.phase === "running") {
         await proctor.end();
       }
-      const res = await journeyApi.gradeCriticQuiz(batch, answers, attemptId);
+      const res = await journeyApi.gradeCriticQuiz(batch.batch_id, answers, attemptId);
       setGrade(res);
     } catch (err) {
       setError((err as Error).message);
@@ -298,6 +298,7 @@ export default function CriticQuizPage() {
               const selectedOpt = answers[qIdx];
               const isGraded = grade !== null;
               const isCorrect = isGraded && grade.correct[qIdx];
+              const review = isGraded ? grade.review[qIdx] : undefined;
 
               return (
                 <div key={qIdx} className="panel p-5 space-y-4">
@@ -317,7 +318,7 @@ export default function CriticQuizPage() {
                   <div className="grid gap-2">
                     {q.options.map((opt, oIdx) => {
                       const isChosen = selectedOpt === oIdx;
-                      const isRightOption = isGraded && q.correct_index === oIdx;
+                      const isRightOption = review?.correct_index === oIdx;
 
                       let optClasses = "border-hair hover:bg-surface/50";
                       if (isChosen && !isGraded) {
@@ -348,10 +349,10 @@ export default function CriticQuizPage() {
                   </div>
 
                   {/* Explanation when graded */}
-                  {isGraded && q.explanation && (
+                  {review?.explanation && (
                     <div className="rounded-xl border border-hair bg-surface/50 p-3 text-xs text-muted">
                       <p className="font-semibold text-ink">Explanation:</p>
-                      <p className="mt-1">{q.explanation}</p>
+                      <p className="mt-1">{review.explanation}</p>
                     </div>
                   )}
                 </div>

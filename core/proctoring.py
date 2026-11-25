@@ -1,4 +1,4 @@
-"""Proctoring rules for the API (server_proctor.py) and frontend assessments: which events
+"""Proctoring rules for the API (routers/proctor.py) and frontend assessments: which events
 exist, which count as strikes, how strikes add up, and how an event reads for a person.
 
 Fairness: only clear-cut events are strikes (switching tab or window, leaving fullscreen, a

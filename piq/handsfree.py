@@ -3,7 +3,7 @@ starts, enforced here (not only in the browser): how many spoken attempts a ques
 long an answer may be, and the answer format (16 kHz mono 16-bit WAV). Each answer's input
 (voice, push-to-talk, typed) and the reason for any fallback are recorded; no audio is kept.
 
-Used by server_handsfree.py and the interview turn route.
+Used by routers/handsfree.py and the interview turn route.
 """
 
 import io

@@ -4,7 +4,7 @@ data/study_library.json holds the books (title, author, edition or focus, why re
 free, publisher or archive links) and the repositories (category, why, estimated hours), each
 tagged with the domains and syllabus topics it serves. `payload()` adds a role index built from
 the syllabus so a front end can filter by target role without a second request. Pure data, no
-Streamlit and no network: links were checked when the file was written ("checked").
+web framework and no network: links were checked when the file was written ("checked").
 """
 
 import json

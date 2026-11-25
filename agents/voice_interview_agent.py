@@ -10,7 +10,7 @@ Responsibilities:
   * Commerce: Financial audit scenario & GST filing dispute.
   * Law: Moot court scenario & contractual breach interpretation.
   * Management: HR grievance handling & marketing case study.
-- Seamlessly interfaces with Streamlit frontend.
+- Feeds the web app through the journey API.
 """
 
 from __future__ import annotations

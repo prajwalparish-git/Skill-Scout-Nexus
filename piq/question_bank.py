@@ -7,7 +7,7 @@ full import, replaces it when present). data/bank_topics.json maps each fine-gra
 syllabus topic it serves (career_catalog.json), or to null. Without the CSVs the bank is empty
 and every quiz question is generated, as before. Questions whose options repeat, whose answer
 letter is invalid or whose text repeats another's are skipped (our own bank comes first).
-Pure data, no Streamlit.
+Pure data.
 """
 
 import csv

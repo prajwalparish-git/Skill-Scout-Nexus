@@ -688,9 +688,7 @@ def org_student_status(
 
 @router.post("/students/{student_id}/nudge")
 def org_student_nudge(student_id: str, org_id: int = Depends(require_org_admin)) -> dict:
-    s = orgs._own_student(org_id, student_id)
-    ok = orgs.send_student_nudge(org_id, s["username"])
-    return {"ok": ok}
+    return {"ok": orgs.nudge_student(org_id, student_id)}
 
 
 # --- Endpoints: Settings & Shortlists -----------------------------------------------------------

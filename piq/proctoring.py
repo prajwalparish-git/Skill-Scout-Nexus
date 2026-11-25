@@ -2,7 +2,7 @@
 requires, starting an attempt after consent (in Safe Exam Browser when required), recording the
 page's events, finishing, and the record the student and their admin can read.
 
-Used by server_proctor.py, the quiz and interview routes, and frontend assessments alike.
+Used by routers/proctor.py, the quiz and interview routes, and frontend assessments alike.
 """
 
 import secrets

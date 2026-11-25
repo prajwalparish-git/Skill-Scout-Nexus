@@ -50,7 +50,7 @@ if TYPE_CHECKING:  # the API check imports them lazily, after the environment is
     from httpx import Response
 
 ROOT = Path(__file__).resolve().parent.parent
-CODE = ("agents", "core", "database", "piq", "scripts", "evaluation")
+CODE = ("agents", "core", "database", "piq", "routers", "scripts", "evaluation")
 BANK_COLUMNS = {
     "topic",
     "difficulty",
@@ -76,16 +76,6 @@ def compile_all() -> None:
         check(bool(compileall.compile_dir(ROOT / name, quiet=1)), f"{name}/ compiles")
     for name in (
         "server.py",
-        "server_auth.py",
-        "server_ops.py",
-        "server_orgs.py",
-        "server_journey.py",
-        "server_companies.py",
-        "server_drive.py",
-        "server_proctor.py",
-        "server_handsfree.py",
-        "server_contribute.py",
-        "server_projects.py",
         "bootstrap.py",
     ):
         check(bool(compileall.compile_file(ROOT / name, quiet=1)), f"{name} compiles")
@@ -359,7 +349,7 @@ def drive(c: "TestClient", sid: str) -> None:
         with tx() as conn:
             conn.execute("UPDATE drive_oauth_states SET expires_at = 0")
         check(callback(state=state, code=code)["drive"] == "error", "Drive: an expired state")
-        url = gdrive.start(other, "web")
+        url = gdrive.start(other)
         check(
             callback(state=query(url)["state"], code=fake.consent(url))["drive"] == "error",
             "Drive: another student's sign-in is refused",
@@ -465,8 +455,8 @@ def drive(c: "TestClient", sid: str) -> None:
             and db.drive_account(sid) is None,
             "Drive: Disconnect revokes at Google and deletes the token",
         )
-        url = gdrive.start(other, "web")
-        gdrive.finish(query(url)["state"], fake.consent(url), signed_in=other, ui="web")
+        url = gdrive.start(other)
+        gdrive.finish(query(url)["state"], fake.consent(url), signed_in=other)
         theirs = secretbox.open_(
             db.drive_account(other)["refresh_token_enc"], student_id=other, purpose="refresh"
         )
@@ -711,9 +701,9 @@ def process_checks(c: "TestClient", sid: str) -> None:
     questions, every field validated, the summary cleaned, pending until approved, summarised
     as "Interview process (from N reports)" (most common order, average rounds, difficulty
     spread) under anonymous labels, refused when repeated, and gone with the account."""
-    import server_companies
     from piq import db, experiences, services
     from piq.db import tx
+    from routers import companies as companies_api
 
     with tx() as conn:  # the company checks used up today's posts: move them to two days ago
         conn.execute(
@@ -721,7 +711,7 @@ def process_checks(c: "TestClient", sid: str) -> None:
             "WHERE student_id = ?",
             (sid,),
         )
-    server_companies._posts.clear()  # and this network's posting window
+    companies_api._posts.clear()  # and this network's posting window
 
     def proc(*rounds: tuple[str, int | None, str], result: str = "selected", summary: str = ""):
         return {
@@ -766,7 +756,7 @@ def process_checks(c: "TestClient", sid: str) -> None:
         json={**base, "interview_month": "2099-01", "process": proc(("hr", None, "easy"))},
     ).status_code
     empty = c.post("/api/experiences", json=base).status_code
-    server_companies._posts.clear()
+    companies_api._posts.clear()
     check(
         all(code == 400 for code in codes.values()) and future == 400 and empty == 400,
         f"Process: invalid rounds, types, difficulty, result, minutes, month, abuse and an empty "
@@ -794,7 +784,7 @@ def process_checks(c: "TestClient", sid: str) -> None:
         and any("Telegram" in f for f in queued.get("flags", [])),
         f"Promotion spam is flagged for the moderator, not refused{_why(spam)}",
     )
-    server_companies._posts.clear()
+    companies_api._posts.clear()
     both = c.post(
         "/api/experiences",
         json={**base, "round": "technical",
@@ -867,10 +857,10 @@ def contribute_checks(c: "TestClient") -> None:
     opts in, and gone with the account."""
     from fastapi.testclient import TestClient
 
-    import server_companies
     from piq import contributions, db, experiences, question_bank, services
     from piq.checks import text_hash
     from piq.db import tx
+    from routers import companies as companies_api
 
     students_before = db.student_count()
     k = TestClient(c.app)  # the contributor's own browser (its own session cookie)
@@ -905,7 +895,7 @@ def contribute_checks(c: "TestClient") -> None:
         "Contributor: student tools refused (403); companies and account settings open",
     )
 
-    server_companies._posts.clear()
+    companies_api._posts.clear()
     mcq = {
         "kind": "mcq", "round": "aptitude", "topic": "Aptitude", "difficulty": "easy",
         "text": "A pen costs 40 rupees after a 20% discount. What was its marked price?",
@@ -947,7 +937,7 @@ def contribute_checks(c: "TestClient") -> None:
         all(code == 400 for code in codes.values()),
         f"Contribution: invalid, unlicensed, abusive and repeated questions refused ({codes})",
     )
-    server_companies._posts.clear()
+    companies_api._posts.clear()
     opens = [
         {"kind": "open", "round": "hr", "difficulty": "medium",
          "text": f"Describe a time you changed your mind after feedback, case {i}.",
@@ -1744,7 +1734,7 @@ def handsfree_checks(c: "TestClient", sid: str) -> None:
     # Spoken questions: only clips the server made, through a token for this student.
     text = "Hands-free ci clip question?"
     speech_router._store(speech_router.audio_path(speech_router.clip(text), ".mp3"), b"ID3ci-clip")
-    from server_handsfree import speech_for
+    from routers.handsfree import speech_for
 
     spoken = speech_for(sid, text)
     got = c.get(spoken["url"]) if spoken.get("url") else None
@@ -2558,7 +2548,6 @@ def main() -> int:
     os.environ.update(
         PIQ_DOTENV=str(tmp / "absent.env"),  # never a developer's .env
         MOCK_MODE="true",
-        PIQ_RAISE_ERRORS="1",  # a crashed page fails the check instead of showing a message
         DB_PATH=str(tmp / "app.db"),
         TELEMETRY_DB_PATH=str(tmp / "telemetry.db"),
         AI_CACHE_PATH=str(tmp / "ai_cache.json"),

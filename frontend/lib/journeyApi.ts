@@ -90,6 +90,8 @@ export interface RoadmapsResponse {
 }
 
 export interface CriticQuizBatch {
+  /** The server keeps the answers; grading names the batch by this id. */
+  batch_id: string;
   topic_or_skill: string;
   target_role: string;
   difficulty: string;
@@ -99,8 +101,6 @@ export interface CriticQuizBatch {
   questions: {
     text: string;
     options: string[];
-    correct_index: number;
-    explanation: string;
     bloom_level?: string;
     difficulty?: string;
   }[];
@@ -110,6 +110,8 @@ export interface QuizGradeResponse {
   score: number;
   total: number;
   correct: boolean[];
+  /** The right option and the explanation for each question, sent only after grading. */
+  review: { correct_index: number; explanation: string }[];
   percent: number;
   saved: boolean;
 }
@@ -117,11 +119,11 @@ export interface QuizGradeResponse {
 export interface VoiceQuestionResponse {
   question: {
     question_text: string;
-    target_role: string;
+    role: string;
     stream: string;
     category: string;
+    intent?: string;
     scenario_context?: string;
-    expected_rubric_points?: string[];
   };
   speech: {
     audio_base64: string | null;
@@ -212,9 +214,9 @@ export const journeyApi = {
     }>("/api/journey/critic-quiz/skills"),
   generateCriticQuiz: (skill: string, difficulty = "medium", count = 5) =>
     post<CriticQuizBatch>("/api/journey/critic-quiz/generate", { skill, difficulty, count }),
-  gradeCriticQuiz: (batch: CriticQuizBatch, answers: (number | null)[], attemptId?: string, proctorFlags: string[] = []) =>
+  gradeCriticQuiz: (batchId: string, answers: (number | null)[], attemptId?: string, proctorFlags: string[] = []) =>
     post<QuizGradeResponse>("/api/journey/critic-quiz/grade", {
-      batch,
+      batch_id: batchId,
       answers,
       attempt_id: attemptId ?? null,
       proctor_flags: proctorFlags,
@@ -228,7 +230,9 @@ export const journeyApi = {
     }),
   transcribeVoice: (blob: Blob) => {
     const fd = new FormData();
-    fd.append("file", blob, "answer.wav");
+    // The recorder's real format, with a matching extension (webm or ogg from MediaRecorder).
+    const ext = /ogg/.test(blob.type) ? "ogg" : /mp4/.test(blob.type) ? "m4a" : /wav/.test(blob.type) ? "wav" : "webm";
+    fd.append("file", blob, `answer.${ext}`);
     return upload<{ text: string }>("/api/journey/voice/transcribe", fd);
   },
   assessVoice: (

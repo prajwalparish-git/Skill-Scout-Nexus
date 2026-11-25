@@ -327,16 +327,10 @@ flowchart LR
 ## For developers
 
 ```
-server.py           FastAPI main application: mounts routers and serves frontend static export
-server_auth.py      Authentication: sessions in HttpOnly cookies, 9-digit codes, devices, rate limits
-server_orgs.py      Organization admin portal API: sessions, bulk provisioning, analytics, candidate 360
-server_journey.py   Journey API: resume scanner, 7-day study roadmap, critic quiz, voice interview
-server_ops.py       Operations view (read-only), opened only with DEV_SECRET
-server_companies.py Company interview experiences, reviews, and community reports
-server_drive.py     Google Drive integration: OAuth PKCE, certificates backup, resume PDFs
-server_proctor.py   Proctoring API: Safe Exam Browser verification, client event ingestion
-server_handsfree.py Hands-free voice interview: audio clips and audio transcription
-server_projects.py  Project inspiration from curated repositories
+server.py           FastAPI entrypoint (uvicorn server:app): mounts the routers, serves the web app
+routers/            One module per API area: auth, orgs, journey, ops, companies, contribute, drive,
+                    proctor, handsfree, projects (sessions, org admin portal, resume scanner,
+                    roadmap, critic quiz, voice interview, operations view, Google Drive, ...)
 piq/                Application core: services, journey, accounts, organizations, LLM gateway, prompts
 agents/             The journey's agents: resume parser, planner, critic quiz, voice, rubric
 core/               Self-healing routers: AI, speech, transcription, preloader, mail, auth

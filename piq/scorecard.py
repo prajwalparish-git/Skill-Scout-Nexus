@@ -4,7 +4,7 @@ Every parameter comes from what the evaluation recorded (summary.json and the pe
 cases.csv, questions.csv and interviews.csv); nothing is measured again. Each states what it
 measures, how, and the formula that turns the raw value into a score out of 10, so a rating
 can be checked by hand. A parameter that cannot be computed (a missing CSV, a system without
-an interviewer) is left out or marked not measured, never guessed. Pure: no Streamlit.
+an interviewer) is left out or marked not measured, never guessed. Pure.
 """
 
 import math

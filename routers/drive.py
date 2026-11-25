@@ -16,7 +16,7 @@ from core import drive
 from piq import services
 from piq.config import settings
 from piq.services import ServiceError
-from server_auth import require_student, session_id
+from routers.auth import require_student, session_id
 
 router = APIRouter(prefix="/api/drive", tags=["drive"])
 
@@ -46,7 +46,7 @@ def status(request: Request) -> dict:
 @router.post("/connect", dependencies=[Depends(require_drive)])
 def connect(sid: str = Depends(require_student)) -> dict:
     """The Google sign-in address (the drive.file scope only)."""
-    return {"url": _call(lambda: drive.start(sid, "web"))}
+    return {"url": _call(lambda: drive.start(sid))}
 
 
 @router.get("/callback", dependencies=[Depends(require_drive)])
@@ -61,7 +61,7 @@ def callback(
     if error:  # the student declined on Google's page
         return back(drive="error", reason="Google Drive was not connected.")
     try:
-        drive.finish(state, code, signed_in=session_id(request) or "", ui="web")
+        drive.finish(state, code, signed_in=session_id(request) or "")
     except drive.DriveError as e:
         return back(drive="error", reason=str(e))
     return back(drive="connected")

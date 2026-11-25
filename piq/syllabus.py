@@ -4,7 +4,7 @@ data/career_catalog.json lists the domains: their topics in a fixed order (the n
 the n-th topic colour) and how many leading topics every student of the domain tracks
 (`core_topics`; the six CS core topics, otherwise just Aptitude). data/role_skills.json maps
 each role's required skills to those topics. A student tracks their role's focus topics plus
-any other topic of the domain they have chosen to quiz. Pure data, no Streamlit.
+any other topic of the domain they have chosen to quiz. Pure data.
 """
 
 import json

@@ -1,7 +1,11 @@
-# Keep the backend image lean, and never bake a developer's local state into it.
+# Keep the production image lean, and never bake a developer's local state into it.
+# The web app is built in the Dockerfile's first stage; only its static export is copied over.
 frontend/node_modules/
 frontend/.next/
+frontend/out/
 frontend/.env.local
+frontend/public/mediapipe/
+frontend/public/vad/
 .venv/
 venv/
 .tools/
@@ -10,6 +14,9 @@ venv/
 tests/
 docs/
 deploy/
+evaluation/
+bootstrap.py
+/*.md
 .claude/
 .gemini/
 .vscode/
@@ -39,14 +46,7 @@ data/.ai_cache.json
 data/.audio_cache/
 data/.preload_cache/
 data/.mail_outbox.log
-evaluation/results/
 
-# Personal and planning files that live only on the developer's disk.
-Personal Docs/
-Personal documentation/
 MCQ.csv*
-PlacementIQ_Project_Spec*
-REDESIGN_*.md
-test.html
 run.ps1
 run.sh

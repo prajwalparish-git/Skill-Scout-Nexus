@@ -441,7 +441,7 @@ def _md(text: str) -> str:
 def preview_md(
     res: Mapping[str, Any], template_id: str | None = None, today: date | None = None
 ) -> str:
-    """The plan as Markdown, for the Streamlit preview."""
+    """The plan as Markdown, for the preview."""
     t, h, sections = plan(res, template_id, today)
     out: list[str] = []
     if h.title:

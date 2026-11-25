@@ -5,7 +5,7 @@ so load spreads evenly over every key. A key that hits a rate limit (HTTP 429) r
 KEY_COOLDOWN_S seconds, or the server's retry-after when it sends one, and the request moves
 straight on to the next key: the switch is an in-memory step, no waiting. A key the provider
 refuses (401/403) rests for ROUTER_BROKEN_COOLDOWN_S. Latency is tracked per key as a moving
-average, for the faculty page. Thread-safe: Streamlit serves each session from its own thread.
+average, for the faculty page. Thread-safe: the API serves requests from a thread pool.
 Keys never leave this object unmasked.
 """
 

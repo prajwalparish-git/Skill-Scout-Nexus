@@ -2,7 +2,7 @@
 
 Views call these (plus formatter and ui) and nothing below them. Each function validates
 its input, runs the agents, persists the result and returns typed state, so every user
-flow is testable without Streamlit. `ServiceError` messages are safe to show to users.
+flow is testable on its own. `ServiceError` messages are safe to show to users.
 """
 
 import copy
@@ -1522,7 +1522,7 @@ def decide_next_action(
             "Onboard with your resume",
             "PlacementIQ starts from your resume: it finds the skills your target role needs.",
             "Open Onboard",
-            "views/onboard.py",
+            "/scanner",
             "upload_file",
         )
     if latest_plan is None:
@@ -1530,7 +1530,7 @@ def decide_next_action(
             "Generate your week 1 plan",
             "A plan turns your weakest topics into seven days of practice.",
             "Open Weekly plan",
-            "views/plan.py",
+            "/plan",
             "calendar_month",
         )
     last = {a["topic"]: a for a in attempts}  # oldest first, so the latest one wins
@@ -1549,7 +1549,7 @@ def decide_next_action(
                 f"Take {_article(difficulty)} {difficulty} {topic} quiz",
                 f"{topic} is one of your weak topics and {why}.",
                 "Set up this quiz",
-                "views/quiz.py",
+                "/quiz",
                 "quiz",
                 topic,
                 difficulty,
@@ -1559,7 +1559,7 @@ def decide_next_action(
             "Try a mock interview",
             "Interviews test explaining what you know; you get feedback on every answer.",
             "Open Mock interview",
-            "views/interview.py",
+            "/interview",
             "record_voice_over",
         )
     planned = utc(latest_plan["created_at"])
@@ -1572,7 +1572,7 @@ def decide_next_action(
             f"Your week {week} plan is {(now - planned).days} days old and {scores} came in "
             "since; the planner moves minutes to the topics that need them.",
             "Open Weekly plan",
-            "views/plan.py",
+            "/plan",
             "calendar_month",
         )
     topic = max(weakness, key=lambda t: weakness[t])
@@ -1581,7 +1581,7 @@ def decide_next_action(
         f"Practise {topic} with {_article(difficulty)} {difficulty} quiz",
         f"{topic} is your weakest topic; another quiz shows whether it is improving.",
         "Set up this quiz",
-        "views/quiz.py",
+        "/quiz",
         "quiz",
         topic,
         difficulty,

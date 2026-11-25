@@ -15,8 +15,8 @@ from pydantic import BaseModel, Field
 from piq import contributions
 from piq.config import EXPERIENCE_QUESTION_MAX
 from piq.services import ServiceError
-from server_auth import require_member, require_ops
-from server_companies import submit_throttle
+from routers.auth import require_member, require_ops
+from routers.companies import submit_throttle
 
 router = APIRouter(prefix="/api/contribute", tags=["contribute"])
 ops_router = APIRouter(prefix="/api/ops", tags=["ops"], dependencies=[Depends(require_ops)])

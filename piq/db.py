@@ -1,6 +1,6 @@
 """SQLite persistence: connection handling and every read/write the app performs.
 
-One short-lived connection per call keeps this safe under Streamlit's threads.
+One short-lived connection per call keeps this safe under the API's threads.
 """
 
 import json

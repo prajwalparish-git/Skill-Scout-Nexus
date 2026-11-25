@@ -60,22 +60,31 @@ from piq.config import (
     ROOT,
 )
 from piq.services import InterviewSession, ServiceError
-from server_auth import authorize, owner, require_student
-from server_auth import router as auth_router
-from server_companies import ops_router as companies_ops_router
-from server_companies import router as companies_router
-from server_contribute import ops_router as contribute_ops_router
-from server_contribute import router as contribute_router
-from server_drive import require_drive
-from server_drive import router as drive_router
-from server_handsfree import router as handsfree_router
-from server_handsfree import speech_for
-from server_journey import router as journey_router
-from server_ops import router as ops_router
-from server_orgs import router as orgs_router
-from server_proctor import call as proctor_call
-from server_proctor import router as proctor_router
-from server_projects import router as projects_router
+from routers.auth import authorize, owner, require_student
+from routers.auth import router as auth_router
+from routers.companies import ops_router as companies_ops_router
+from routers.companies import router as companies_router
+from routers.contribute import ops_router as contribute_ops_router
+from routers.contribute import router as contribute_router
+from routers.drive import require_drive
+from routers.drive import router as drive_router
+from routers.handsfree import router as handsfree_router
+from routers.handsfree import speech_for
+from routers.journey import router as journey_router
+from routers.ops import router as ops_router
+from routers.orgs import router as orgs_router
+from routers.proctor import call as proctor_call
+from routers.proctor import router as proctor_router
+from routers.projects import router as projects_router
+
+# Application logs (log.info and up) show under uvicorn; LOG_LEVEL=WARNING quiets them. HTTP client
+# libraries stay at WARNING: at INFO they print every request URL, which can carry an API key.
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").strip().upper() or "INFO",
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+for _noisy in ("httpx", "httpcore"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 log = logging.getLogger("server")
 
@@ -834,12 +843,17 @@ def _send_frontend_file(candidate: Path) -> FileResponse:
     return FileResponse(candidate, headers=headers)
 
 
-@app.get("/{full_path:path}", include_in_schema=False)
-def serve_frontend(full_path: str = "") -> Response:
+@app.api_route(
+    "/{full_path:path}",
+    methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
+    include_in_schema=False,
+)
+def serve_frontend(request: Request, full_path: str = "") -> Response:
     """Serve exported Next.js static files and HTML routes on the unified single port.
 
     Follows the strict pre-flight resolution rules:
-    1. Rejects any path starting with 'api' or 'api/' with JSON 404 (protects API namespace).
+    1. Rejects any path starting with 'api' or 'api/' with JSON 404, whatever the method
+       (an unknown API route is never answered with a page or a 405).
     2. Verifies frontend/out exists (returns 503 hint if build missing).
     3. Prevents path traversal outside frontend/out.
     4. Resolves full_path against frontend/out:
@@ -848,6 +862,8 @@ def serve_frontend(full_path: str = "") -> Response:
     clean_path = full_path.strip("/")
     if clean_path == "api" or clean_path.startswith("api/"):
         raise HTTPException(404, "Not found")
+    if request.method not in ("GET", "HEAD"):
+        raise HTTPException(405, "Method not allowed", headers={"Allow": "GET, HEAD"})
 
     if not FRONTEND_OUT.is_dir():
         raise HTTPException(

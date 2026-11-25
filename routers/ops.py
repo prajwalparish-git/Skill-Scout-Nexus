@@ -1,6 +1,6 @@
 """The operations view: everything happening in the app on one page, for whoever runs it.
 
-Opened by signing in with DEV_SECRET as the password (server_auth.py); while DEV_SECRET is
+Opened by signing in with DEV_SECRET as the password (routers/auth.py); while DEV_SECRET is
 empty there is no way in. Read-only: accounts, sign-in events, live sessions with their devices,
 AI usage per agent and model, the AI providers, the database and its cloud sync, and the mail
 and preload settings. API keys and passwords are never included, only whether they are set.
@@ -16,7 +16,7 @@ from core import ai_router, mailer
 from database import crud
 from piq import db, devices, journey, question_bank
 from piq.config import settings
-from server_auth import require_ops
+from routers.auth import require_ops
 
 router = APIRouter(prefix="/api/ops", tags=["ops"], dependencies=[Depends(require_ops)])
 

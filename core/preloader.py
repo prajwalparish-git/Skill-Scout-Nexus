@@ -18,11 +18,11 @@ browser voice) answers and the late result waits for the next identical request;
 preloaded `on_miss` runs the normal generation. Every result is used once, so quizzes and
 questions stay fresh.
 
-State lives in a lock-guarded dictionary shared by every Streamlit session (each runs on its
+State lives in a lock-guarded dictionary shared by every request (each runs on its
 own thread) and, for roadmaps, quizzes and questions, in PRELOAD_CACHE_DIR (default
 data/.preload_cache/<key>.json, git-ignored), so a restart keeps them; entries expire after
 PRELOAD_TTL_S. Worker threads never touch st.session_state: they have no script context, and
-core/ never imports Streamlit. PRELOAD=false turns it all off; pages then behave as before.
+core/ never imports a web framework. PRELOAD=false turns it all off; pages then behave as before.
 
 This is the one core/ module that runs agents: it is the background twin of piq/journey.py,
 and the `make_*` functions are the agent calls both use, so a preload and a page request are

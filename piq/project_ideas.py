@@ -11,7 +11,7 @@ Hackathon inspiration beyond GitHub is a link to the platforms' own search pages
 Unstop) or project gallery (Devfolio, which has no public search): never scraped.
 
 "Start this project" puts an idea in the Project space with status "Idea". Project space and
-ideas are for computing domains (services.has_project_space). Pure logic, no Streamlit.
+ideas are for computing domains (services.has_project_space). Pure logic.
 """
 
 import json

@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from piq import db, project_ideas
 from piq.services import ServiceError
-from server_auth import require_student
+from routers.auth import require_student
 
 router = APIRouter(tags=["projects"])
 

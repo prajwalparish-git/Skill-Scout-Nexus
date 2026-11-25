@@ -24,7 +24,7 @@ from piq.config import (
     PROCESS_SUMMARY_MAX,
 )
 from piq.services import ServiceError
-from server_auth import require_member, require_ops, require_student, session_id
+from routers.auth import require_member, require_ops, require_student, session_id
 
 router = APIRouter(tags=["companies"])
 ops_router = APIRouter(prefix="/api/ops", tags=["ops"], dependencies=[Depends(require_ops)])

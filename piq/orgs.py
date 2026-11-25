@@ -509,6 +509,11 @@ def set_status(org_id: int, student_id: str, status: str) -> str:
     return status
 
 
+def nudge_student(org_id: int, student_id: str) -> bool:
+    """Nudge one of this organization's students by id (refused for any other student)."""
+    return send_student_nudge(org_id, _own_student(org_id, student_id)["username"])
+
+
 def send_student_nudge(org_id: int, username: str) -> bool:
     """Send a personalized nudge email with pending tasks to a student."""
     org = organization(org_id)
