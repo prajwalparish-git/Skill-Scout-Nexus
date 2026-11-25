@@ -345,7 +345,7 @@ def journey_evaluation_results() -> dict:
     """Evaluation scorecard vs single-prompt baseline on frozen benchmark test cases."""
     summary = services.evaluation_summary()
     if summary is None:
-        return {"summary": None, "scorecard": None}
+        return {"summary": None, "scorecard": None, "metrics": []}
 
     card = services.evaluation_scorecard(summary)
     scorecard_data = None
